@@ -210,7 +210,8 @@ export default function Sidebar() {
   };
 
   const modulosSlugs = new Set(modulos.map((m) => m.slug));
-  const hasAccess = (slug: string) => slug === "dashboard" || modulosSlugs.has(slug);
+  const hasAccess = (slug: string) =>
+    esSuperAdmin || slug === "dashboard" || modulosSlugs.has(slug);
 
   const isActive = (slug: string, href: string) => {
     const p = pathname ?? "";
