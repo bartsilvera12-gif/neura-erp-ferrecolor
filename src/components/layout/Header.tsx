@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Search, Bell, Moon, Sun, User, ChevronDown, LogOut } from "lucide-react";
 import { useTheme } from "@/components/ThemeProvider";
+import { signOut } from "@/lib/auth";
 
 const PERIOD_OPTIONS = [
   { id: "hoy", label: "Hoy" },
@@ -13,6 +15,7 @@ const PERIOD_OPTIONS = [
 ];
 
 export default function Header() {
+  const router = useRouter();
   const { theme, toggleTheme } = useTheme();
   const [search, setSearch] = useState("");
   const [period, setPeriod] = useState("mes");
@@ -116,6 +119,10 @@ export default function Header() {
             </div>
             <button
               type="button"
+              onClick={async () => {
+                await signOut();
+                router.push("/login");
+              }}
               className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-600 transition-colors hover:bg-[#E0F2FE] hover:text-[#0EA5E9] dark:text-slate-400 dark:hover:bg-slate-700"
             >
               <LogOut className="h-4 w-4" />
