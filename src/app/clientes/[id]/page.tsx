@@ -130,7 +130,7 @@ export default function ClienteDetailPage() {
   const [planes, setPlanes] = useState<Plan[]>([]);
   const [modalSuscripcion, setModalSuscripcion] = useState(false);
   const [formSusc, setFormSusc] = useState({
-    plan_id: "", precio: "", duracion_meses: "12", dia_facturacion: "1", dia_vencimiento: "10", generar_factura_este_mes: false,
+    plan_id: "", precio: "", fecha_inicio: "", duracion_meses: "12", dia_facturacion: "1", dia_vencimiento: "10", generar_factura_este_mes: false,
   });
   const [guardandoSusc, setGuardandoSusc] = useState(false);
 
@@ -660,7 +660,7 @@ export default function ClienteDetailPage() {
                 <SectionTitle>Suscripciones activas</SectionTitle>
                 <button
                   type="button"
-                  onClick={() => { setFormSusc({ plan_id: "", precio: "", duracion_meses: "12", dia_facturacion: "1", dia_vencimiento: "10", generar_factura_este_mes: false }); setModalSuscripcion(true); }}
+                  onClick={() => { setFormSusc({ plan_id: "", precio: "", fecha_inicio: new Date().toISOString().slice(0, 10), duracion_meses: "12", dia_facturacion: "1", dia_vencimiento: "10", generar_factura_este_mes: false }); setModalSuscripcion(true); }}
                   className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2 rounded-lg text-sm font-medium"
                 >
                   Nueva suscripción
@@ -779,7 +779,7 @@ export default function ClienteDetailPage() {
                 plan_id: formSusc.plan_id || null,
                 precio: parseFloat(formSusc.precio) || (plan?.precio ?? 0),
                 moneda: "GS",
-                fecha_inicio: new Date().toISOString().slice(0, 10),
+                fecha_inicio: formSusc.fecha_inicio || new Date().toISOString().slice(0, 10),
                 duracion_meses: parseInt(formSusc.duracion_meses, 10) || 12,
                 dia_facturacion: parseInt(formSusc.dia_facturacion, 10) || 1,
                 dia_vencimiento: parseInt(formSusc.dia_vencimiento, 10) || 10,
@@ -809,6 +809,10 @@ export default function ClienteDetailPage() {
               <div>
                 <label className={labelClass}>Precio</label>
                 <input type="number" value={formSusc.precio} onChange={(e) => setFormSusc((p) => ({ ...p, precio: e.target.value }))} className={inputClass} min={0} required />
+              </div>
+              <div>
+                <label className={labelClass}>Fecha inicio</label>
+                <input type="date" value={formSusc.fecha_inicio} onChange={(e) => setFormSusc((p) => ({ ...p, fecha_inicio: e.target.value }))} className={inputClass} required />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
