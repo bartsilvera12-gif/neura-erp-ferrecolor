@@ -94,6 +94,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(errorResponse(error.message), { status: 400 });
     }
 
+    console.log("[API] About to emit event");
     await emitEvent(EVENT_TYPES.factura_creada, { factura_id: data.id, cliente_id: data.cliente_id, monto: data.monto });
 
     return NextResponse.json(successResponse(data));

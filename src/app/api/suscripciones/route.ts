@@ -90,6 +90,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(errorResponse(error.message), { status: 400 });
     }
 
+    console.log("[API] About to emit event");
     await emitEvent(EVENT_TYPES.suscripcion_creada, { suscripcion_id: data.id, cliente_id: data.cliente_id });
 
     return NextResponse.json(successResponse(data));

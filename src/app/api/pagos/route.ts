@@ -109,6 +109,7 @@ export async function POST(request: NextRequest) {
       .update({ saldo: nuevoSaldo, estado: nuevoEstado })
       .eq("id", factura_id);
 
+    console.log("[API] About to emit event");
     await emitEvent(EVENT_TYPES.pago_registrado, { pago_id: data.id, factura_id, monto: montoNum });
 
     return NextResponse.json(successResponse(data));
