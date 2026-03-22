@@ -134,6 +134,13 @@ function PlanDetailContent() {
       setFormError("El precio debe ser mayor a 0."); return;
     }
 
+    const itemsNorm = form.plantilla_items.map((it) => {
+      if (it.periodicidad === "semanal") {
+        return { ...it, cantidad: Math.max(1, (it.dias_semana ?? []).length) };
+      }
+      return it;
+    });
+
     const actualizado = await updatePlan(id, {
       nombre:          form.nombre.trim(),
       descripcion:     form.descripcion.trim() || undefined,
@@ -145,7 +152,7 @@ function PlanDetailContent() {
       limite_facturas: form.limite_facturas ? parseInt(form.limite_facturas, 10) : null,
       estado:          form.estado,
       es_plan_marketing: form.es_plan_marketing,
-      plantilla_operativa: form.plantilla_items.length > 0 ? { items: form.plantilla_items } : undefined,
+      plantilla_operativa: itemsNorm.length > 0 ? { items: itemsNorm } : undefined,
     });
 
     if (actualizado) router.push("/planes");
@@ -236,7 +243,7 @@ function PlanDetailContent() {
                 <span className="font-medium capitalize">{item.tipo_contenido}</span>
                 {" — "}
                 {item.periodicidad === "semanal"
-                  ? `${item.cantidad} por semana${item.dias_semana?.length ? ` (${(item.dias_semana ?? []).map((d) => ["Do", "Lu", "Ma", "Mi", "Ju", "Vi", "Sa"][d]).join(", ")})` : ""}`
+                  ? `${Math.max(1, (item.dias_semana ?? []).length)} por semana${item.dias_semana?.length ? ` (${(item.dias_semana ?? []).map((d) => ["Do", "Lu", "Ma", "Mi", "Ju", "Vi", "Sa"][d]).join(", ")})` : ""}`
                   : `${item.cantidad} por mes (semana ${item.semana_del_mes ?? 1})`}
               </li>
             ))}
@@ -374,7 +381,12 @@ function PlanDetailContent() {
                         value={item.periodicidad}
                         onChange={(e) => {
                           const items = [...form.plantilla_items];
-                          items[idx] = { ...item, periodicidad: e.target.value as "semanal" | "mensual" };
+                          const periodicidad = e.target.value as "semanal" | "mensual";
+                          const next = { ...item, periodicidad };
+                          if (periodicidad === "semanal") {
+                            next.cantidad = Math.max(1, (item.dias_semana ?? []).length);
+                          }
+                          items[idx] = next;
                           setForm((p) => ({ ...p, plantilla_items: items }));
                         }}
                         className="text-sm border border-slate-200 rounded px-2 py-1"
@@ -382,18 +394,22 @@ function PlanDetailContent() {
                         <option value="semanal">Semanal</option>
                         <option value="mensual">Mensual</option>
                       </select>
-                      <input
-                        type="number"
-                        min={1}
-                        value={item.cantidad}
-                        onChange={(e) => {
-                          const items = [...form.plantilla_items];
-                          items[idx] = { ...item, cantidad: parseInt(e.target.value, 10) || 1 };
-                          setForm((p) => ({ ...p, plantilla_items: items }));
-                        }}
-                        className="w-14 text-sm border border-slate-200 rounded px-2 py-1"
-                        placeholder="Cant."
-                      />
+                      {item.periodicidad === "mensual" ? (
+                        <input
+                          type="number"
+                          min={1}
+                          value={item.cantidad}
+                          onChange={(e) => {
+                            const items = [...form.plantilla_items];
+                            items[idx] = { ...item, cantidad: parseInt(e.target.value, 10) || 1 };
+                            setForm((p) => ({ ...p, plantilla_items: items }));
+                          }}
+                          className="w-14 text-sm border border-slate-200 rounded px-2 py-1"
+                          placeholder="Cant."
+                        />
+                      ) : (
+                        <span className="text-xs text-slate-500 w-14">{Math.max(1, (item.dias_semana ?? []).length)} tareas/sem</span>
+                      )}
                       {item.periodicidad === "semanal" && (
                         <span className="text-xs text-slate-500">Días: </span>
                       )}
@@ -407,7 +423,7 @@ function PlanDetailContent() {
                                 const items = [...form.plantilla_items];
                                 const ds = item.dias_semana ?? [];
                                 const next = e.target.checked ? [...ds, d].sort((a, b) => a - b) : ds.filter((x) => x !== d);
-                                items[idx] = { ...item, dias_semana: next };
+                                items[idx] = { ...item, dias_semana: next, cantidad: Math.max(1, next.length) };
                                 setForm((p) => ({ ...p, plantilla_items: items }));
                               }}
                             />
@@ -446,7 +462,7 @@ function PlanDetailContent() {
                     type="button"
                     onClick={() => setForm((p) => ({
                       ...p,
-                      plantilla_items: [...p.plantilla_items, { tipo_contenido: "post", periodicidad: "semanal", cantidad: 1, dias_semana: [1, 3, 5] }],
+                      plantilla_items: [...p.plantilla_items, { tipo_contenido: "post", periodicidad: "semanal", cantidad: 3, dias_semana: [1, 3, 5] }],
                     }))}
                     className="text-sm text-[#0EA5E9] hover:underline"
                   >

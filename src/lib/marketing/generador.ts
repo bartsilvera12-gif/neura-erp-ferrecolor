@@ -32,7 +32,11 @@ function semanaDelMes(fecha: string): number {
   return Math.ceil(dd / 7);
 }
 
-/** Genera fechas para item semanal: cada semana del mes, en EXACTAMENTE los días seleccionados en dias_semana. */
+/**
+ * Genera fechas para item semanal.
+ * REGLA: dias_semana es la ÚNICA fuente de verdad. Se genera 1 tarea por cada día marcado.
+ * cantidad NO se usa para semanal (solo informativa en la plantilla).
+ */
 function fechasParaItemSemanal(
   ano: number,
   mes: number,
@@ -526,6 +530,60 @@ export async function regenerarTareasClienteMes(opts: {
   }
 
   return { eliminadas, generadas, errores };
+}
+
+export interface RegenerarMesCompletoResultado {
+  eliminadas: number;
+  generadas: number;
+  omitidas: number;
+  errores: string[];
+}
+
+/** Regenera TODAS las tareas automáticas del mes para TODOS los clientes marketing activos de la empresa. */
+export async function regenerarMesCompleto(opts: {
+  empresa_id: string;
+  mes: string; // YYYY-MM
+  /** Cliente Supabase (service role) para API */
+  supabaseClient?: SupabaseClient;
+}): Promise<RegenerarMesCompletoResultado> {
+  const client = opts.supabaseClient ?? supabase;
+
+  const [anoStr, mesStr] = opts.mes.split("-").map(Number);
+  const mes = Number(mesStr);
+  const primerDia = `${opts.mes}-01`;
+  const ultimoDia = new Date(anoStr, mes, 0).getDate();
+  const ultimoDiaStr = `${opts.mes}-${String(ultimoDia).padStart(2, "0")}`;
+
+  // 1. Eliminar TODAS las tareas automáticas del mes (empresa)
+  const { data: deleted, error: errDelete } = await client
+    .from("marketing_tasks")
+    .delete()
+    .eq("empresa_id", opts.empresa_id)
+    .eq("generada_automaticamente", true)
+    .gte("fecha_entrega", primerDia)
+    .lte("fecha_entrega", ultimoDiaStr)
+    .select("id");
+
+  if (errDelete) {
+    return { eliminadas: 0, generadas: 0, omitidas: 0, errores: [`Error al eliminar: ${errDelete.message}`] };
+  }
+
+  const eliminadas = deleted?.length ?? 0;
+
+  // 2. Regenerar con la lógica normal (generarTareasMarketing)
+  const resultado = await generarTareasMarketing({
+    empresa_id: opts.empresa_id,
+    mes: opts.mes,
+    skipAuthCheck: true,
+    supabaseClient: client,
+  });
+
+  return {
+    eliminadas,
+    generadas: resultado.generadas,
+    omitidas: resultado.omitidas,
+    errores: resultado.errores,
+  };
 }
 
 export { DIAS_SEMANA };
