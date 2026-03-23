@@ -8,11 +8,21 @@ function getSupabase() {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
-/** Obtiene el auth user id: usa auth_user_id si existe, sino busca por email en listUsers */
+/** Obtiene el auth user id: usa auth_user_id si existe, sino busca por email en listUsers (con paginación). */
 async function getAuthUserId(supabase: ReturnType<typeof getSupabase>, usuario: { auth_user_id?: string | null; email?: string }) {
   if (usuario.auth_user_id) return usuario.auth_user_id;
-  const { data } = await supabase.auth.admin.listUsers({ perPage: 1000 });
-  return data?.users?.find((u) => u.email === usuario.email)?.id ?? null;
+  const emailBuscado = (usuario.email ?? "").trim().toLowerCase();
+  if (!emailBuscado) return null;
+  let page = 1;
+  while (true) {
+    const { data } = await supabase.auth.admin.listUsers({ page, perPage: 500 });
+    const users = data?.users ?? [];
+    const found = users.find((u) => (u.email ?? "").toLowerCase() === emailBuscado);
+    if (found) return found.id;
+    if (users.length < 500) break;
+    page++;
+  }
+  return null;
 }
 
 export async function PATCH(
@@ -55,7 +65,7 @@ export async function PATCH(
     if (emailCambia) {
       if (!authUserId) {
         return NextResponse.json(
-          { error: "No se puede cambiar el email: usuario de autenticación no encontrado." },
+          { error: "No se puede cambiar el email: usuario de autenticación no encontrado. Ejecutá la migración para poblar auth_user_id." },
           { status: 400 }
         );
       }
@@ -64,9 +74,12 @@ export async function PATCH(
         email_confirm: true,
       });
       if (errAuth) {
-        return NextResponse.json({ error: `Error al actualizar email: ${errAuth.message}` }, { status: 400 });
+        return NextResponse.json({ error: `Error al actualizar email en autenticación: ${errAuth.message}` }, { status: 400 });
       }
       updates.email = nuevoEmail;
+      if (!usuario.auth_user_id) {
+        updates.auth_user_id = authUserId;
+      }
     }
 
     if (Object.keys(updates).length > 0) {
