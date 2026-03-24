@@ -4,8 +4,6 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import MontoInput from "@/components/ui/MontoInput";
-import { createUser, getCurrentUser } from "@/lib/auth";
-import { supabase } from "@/lib/supabase";
 import type { AreaUsuario, NivelUsuario, TipoContrato } from "@/lib/usuarios/types";
 
 // ── Helpers UI ────────────────────────────────────────────────────────────────
@@ -88,25 +86,22 @@ export default function NuevoUsuarioPage() {
     console.log("Email enviado al backend:", form.email);
 
     try {
-      // 1 — Crear usuario en Supabase Auth
-      const authUser = await createUser(form.email.trim().toLowerCase(), form.password);
-
-      // 2 — Obtener empresa_id del administrador actual
-      const admin = await getCurrentUser();
-      if (!admin) throw new Error("No se pudo obtener el usuario administrador.");
-
-      // 3 — Insertar en tabla usuarios de Supabase
-      const { error: dbError } = await supabase.from("usuarios").insert([{
-        empresa_id:       admin.empresa_id,
-        email:            form.email.trim().toLowerCase(),
-        nombre:           form.nombre.trim() || null,
-        telefono:         form.telefono.trim() || null,
-        fecha_nacimiento: form.fecha_nacimiento || null,
-        rol:              form.nivel,
-        auth_user_id:     authUser?.id ?? null,
-      }]);
-      if (dbError) throw dbError;
-
+      const res = await fetch("/api/empresas/usuarios/nuevo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: form.email.trim().toLowerCase(),
+          password: form.password,
+          nombre: form.nombre.trim(),
+          telefono: form.telefono.trim() || undefined,
+          fecha_nacimiento: form.fecha_nacimiento || undefined,
+          rol: form.nivel,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(typeof json.error === "string" ? json.error : "Error al crear usuario");
+      }
     } catch (err: unknown) {
       setGuardando(false);
       const msg = err instanceof Error

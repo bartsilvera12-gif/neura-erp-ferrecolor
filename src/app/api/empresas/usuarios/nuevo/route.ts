@@ -1,0 +1,156 @@
+import { createServerClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
+import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+
+function emailExistsInAuthError(msg: string): boolean {
+  const m = msg.toLowerCase();
+  return (
+    m.includes("already been registered") ||
+    m.includes("already registered") ||
+    m.includes("user already registered") ||
+    m.includes("duplicate")
+  );
+}
+
+async function findAuthUserIdByEmail(
+  supabase: ReturnType<typeof createClient>,
+  email: string
+): Promise<string | null> {
+  const target = email.trim().toLowerCase();
+  let page = 1;
+  while (true) {
+    const { data } = await supabase.auth.admin.listUsers({ page, perPage: 500 });
+    const users = data?.users ?? [];
+    const found = users.find((u: { id: string; email?: string }) => (u.email ?? "").toLowerCase() === target);
+    if (found) return found.id;
+    if (users.length < 500) break;
+    page++;
+  }
+  return null;
+}
+
+/**
+ * Crea usuario en Auth + public.usuarios, o si el correo ya existe en Auth,
+ * vincula ese usuario a la empresa del administrador (útil tras pruebas u otra empresa).
+ */
+export async function POST(req: Request) {
+  try {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !anonKey || !serviceKey) {
+      return NextResponse.json({ error: "Config no disponible" }, { status: 500 });
+    }
+
+    const cookieStore = await cookies();
+    const supabaseAuth = createServerClient(url, anonKey, {
+      cookies: {
+        getAll: () => cookieStore.getAll(),
+        setAll: (c) => c.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
+      },
+    });
+    const { data: { user: authSession } } = await supabaseAuth.auth.getUser();
+    if (!authSession?.email) {
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    }
+
+    const supabase = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+
+    const { data: admin } = await supabase
+      .from("usuarios")
+      .select("empresa_id, rol")
+      .eq("email", authSession.email)
+      .single();
+
+    if (!admin?.empresa_id && admin?.rol !== "super_admin") {
+      return NextResponse.json({ error: "Tu usuario no tiene empresa asignada." }, { status: 403 });
+    }
+
+    const body = await req.json();
+    const email = String(body.email ?? "").trim().toLowerCase();
+    const password = String(body.password ?? "");
+    const nombre = String(body.nombre ?? "").trim();
+    const telefono = body.telefono ? String(body.telefono).trim() : null;
+    const fecha_nacimiento = body.fecha_nacimiento ? String(body.fecha_nacimiento) : null;
+    const rol = String(body.rol ?? "usuario");
+
+    if (!email || !password || password.length < 6) {
+      return NextResponse.json({ error: "Email y contraseña (mín. 6 caracteres) son obligatorios." }, { status: 400 });
+    }
+    if (!nombre) {
+      return NextResponse.json({ error: "El nombre es obligatorio." }, { status: 400 });
+    }
+
+    const empresaId = admin.empresa_id;
+    if (!empresaId) {
+      return NextResponse.json({ error: "Solo un administrador de empresa puede crear usuarios." }, { status: 403 });
+    }
+
+    let authUserId: string | null = null;
+    let vinculado = false;
+
+    const { data: created, error: createErr } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+    });
+
+    if (createErr) {
+      if (emailExistsInAuthError(createErr.message)) {
+        authUserId = await findAuthUserIdByEmail(supabase, email);
+        if (!authUserId) {
+          return NextResponse.json(
+            {
+              error:
+                "El correo figura como ocupado en Auth pero no se pudo localizar el usuario. Revisá en Supabase → Authentication → Users o esperá unos minutos y reintentá.",
+            },
+            { status: 400 }
+          );
+        }
+        vinculado = true;
+        await supabase.auth.admin.updateUserById(authUserId, { password });
+      } else {
+        return NextResponse.json({ error: createErr.message }, { status: 400 });
+      }
+    } else {
+      authUserId = created.user?.id ?? null;
+    }
+
+    const { data: existente } = await supabase
+      .from("usuarios")
+      .select("id")
+      .eq("email", email)
+      .maybeSingle();
+
+    const payload = {
+      empresa_id: empresaId,
+      email,
+      nombre,
+      telefono,
+      fecha_nacimiento,
+      rol,
+      auth_user_id: authUserId,
+      estado: "activo" as const,
+    };
+
+    if (existente?.id) {
+      const { error: upErr } = await supabase.from("usuarios").update(payload).eq("id", existente.id);
+      if (upErr) return NextResponse.json({ error: upErr.message }, { status: 400 });
+    } else {
+      const { error: insErr } = await supabase.from("usuarios").insert([payload]);
+      if (insErr) return NextResponse.json({ error: insErr.message }, { status: 400 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      vinculado,
+      message: vinculado
+        ? "Ese correo ya existía en el sistema. Se actualizó la contraseña y se asignó a tu empresa."
+        : "Usuario creado correctamente.",
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Error";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
