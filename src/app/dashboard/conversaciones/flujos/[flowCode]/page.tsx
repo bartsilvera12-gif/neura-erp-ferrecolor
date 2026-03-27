@@ -128,6 +128,22 @@ function toMetaButtonId(label: string): string {
   );
 }
 
+/** Evita colisión UNIQUE (node_id, meta_button_id) al derivar el id desde el label. */
+function resolveUniqueMetaButtonId(node: FlowNode, currentOptionId: string, label: string): string {
+  let base = toMetaButtonId(label);
+  if (!base) base = `opt_${currentOptionId.replace(/-/g, "").slice(0, 12)}`;
+  const others = node.options.filter((o) => o.id !== currentOptionId);
+  const used = new Set(others.map((o) => o.meta_button_id));
+  let candidate = base;
+  let n = 2;
+  while (used.has(candidate)) {
+    const suffix = `_${n}`;
+    candidate = `${base}${suffix}`.slice(0, 50);
+    n += 1;
+  }
+  return candidate;
+}
+
 function stringifyOptionPayload(value: Record<string, unknown> | undefined): string {
   try {
     return JSON.stringify(value ?? {}, null, 2);
@@ -188,6 +204,7 @@ export default function FlowEditorPage() {
   const [optionPayloadDrafts, setOptionPayloadDrafts] = useState<Record<string, string>>({});
   const [optionEditorMode, setOptionEditorMode] = useState<Record<string, "simple" | "advanced">>({});
   const [optionSimpleDrafts, setOptionSimpleDrafts] = useState<Record<string, OptionSimpleDraft>>({});
+  const [optionSaveError, setOptionSaveError] = useState<Record<string, string>>({});
 
   const orderedNodes = useMemo(
     () =>
@@ -396,13 +413,29 @@ export default function FlowEditorPage() {
   }
 
   async function saveOption(node: FlowNode, opt: FlowNodeOption) {
-    if ((node.node_type === "buttons" || node.node_type === "list") && !opt.next_node_code) {
-      throw new Error("Seleccioná 'Va a' para esta opción antes de guardar.");
+    setSuccess(null);
+    const live = nodes.find((n) => n.id === node.id);
+    const liveOpt = live?.options.find((o) => o.id === opt.id);
+    if (!live || !liveOpt) {
+      throw new Error("No se encontró la opción en el editor. Recargá la página.");
     }
-    const mode = optionEditorMode[opt.id] ?? "simple";
+    const nextCode = liveOpt.next_node_code?.trim() || null;
+    if ((live.node_type === "buttons" || live.node_type === "list") && !nextCode) {
+      const msg =
+        "Elegí un paso destino en «Va a» antes de guardar. Sin siguiente paso el botón no puede continuar el flujo.";
+      setOptionSaveError((prev) => ({ ...prev, [liveOpt.id]: msg }));
+      // Importante: lanzar error para que el handler no ejecute reload() (reload borraba el mensaje con setError(null)).
+      throw new Error(msg);
+    }
+    setOptionSaveError((prev) => {
+      const next = { ...prev };
+      delete next[liveOpt.id];
+      return next;
+    });
+    const mode = optionEditorMode[liveOpt.id] ?? "simple";
     let payloadParsed: Record<string, unknown> = {};
     if (mode === "advanced") {
-      const payloadDraft = optionPayloadDrafts[opt.id] ?? stringifyOptionPayload(opt.option_payload);
+      const payloadDraft = optionPayloadDrafts[liveOpt.id] ?? stringifyOptionPayload(liveOpt.option_payload);
       try {
         const parsed = JSON.parse(payloadDraft) as unknown;
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -413,29 +446,30 @@ export default function FlowEditorPage() {
         throw new Error("Variables JSON inválidas para esta opción.");
       }
     } else {
-      const draft = optionSimpleDrafts[opt.id] ?? toSimpleDraftFromPayload(opt);
-      payloadParsed = buildPayloadFromSimple(opt.option_payload, draft, opt.label);
-      setOptionPayloadDrafts((prev) => ({ ...prev, [opt.id]: stringifyOptionPayload(payloadParsed) }));
+      const draft = optionSimpleDrafts[liveOpt.id] ?? toSimpleDraftFromPayload(liveOpt);
+      payloadParsed = buildPayloadFromSimple(liveOpt.option_payload, draft, liveOpt.label);
+      setOptionPayloadDrafts((prev) => ({ ...prev, [liveOpt.id]: stringifyOptionPayload(payloadParsed) }));
     }
-    const metaButtonId = toMetaButtonId(opt.label);
+    const metaButtonId = resolveUniqueMetaButtonId(live, liveOpt.id, liveOpt.label);
     const res = await fetch(
-      `/api/chat/flows/${encodeURIComponent(flowCode)}/nodes/${encodeURIComponent(node.node_code)}/options/${opt.id}`,
+      `/api/chat/flows/${encodeURIComponent(flowCode)}/nodes/${encodeURIComponent(live.node_code)}/options/${liveOpt.id}`,
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
         body: JSON.stringify({
-          label: opt.label,
+          label: liveOpt.label,
           meta_button_id: metaButtonId,
-          next_node_code: opt.next_node_code,
-          sort_order: opt.sort_order,
+          next_node_code: nextCode,
+          sort_order: liveOpt.sort_order,
           option_payload: payloadParsed,
         }),
       }
     );
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
     if (!res.ok || !json.ok) throw new Error(json.error ?? "No se pudo guardar opción");
-    setSuccess(`Botón "${opt.label}" guardado.`);
+    setError(null);
+    setSuccess(`Botón "${liveOpt.label}" guardado.`);
   }
 
   async function createOption(node: FlowNode) {
@@ -1096,12 +1130,39 @@ export default function FlowEditorPage() {
                       </div>
                       <div>
                         <label className="block text-xs text-slate-500 mb-1">Va a</label>
-                        <select className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm w-full" value={opt.next_node_code ?? ""} onChange={(e) => setNodes((prev) => prev.map((n) => n.id !== node.id ? n : ({ ...n, options: n.options.map((o) => o.id === opt.id ? { ...o, next_node_code: e.target.value || null } : o) } )))} >
+                        <select
+                          className={`border rounded-lg px-2 py-1.5 text-sm w-full ${optionSaveError[opt.id] ? "border-amber-400 ring-1 ring-amber-300" : "border-slate-200"}`}
+                          value={opt.next_node_code ?? ""}
+                          onChange={(e) => {
+                            setOptionSaveError((prev) => {
+                              const next = { ...prev };
+                              delete next[opt.id];
+                              return next;
+                            });
+                            setNodes((prev) =>
+                              prev.map((n) =>
+                                n.id !== node.id
+                                  ? n
+                                  : {
+                                      ...n,
+                                      options: n.options.map((o) =>
+                                        o.id === opt.id ? { ...o, next_node_code: e.target.value || null } : o
+                                      ),
+                                    }
+                              )
+                            );
+                          }}
+                        >
                           <option value="">(sin siguiente)</option>
                           {nodeCodes.filter((code) => code !== node.node_code).map((code) => (
                             <option key={code} value={code}>{nextStepLabel(code)}</option>
                           ))}
                         </select>
+                        {optionSaveError[opt.id] && (
+                          <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mt-1">
+                            {optionSaveError[opt.id]}
+                          </p>
+                        )}
                       </div>
                       <div className="flex gap-2 pt-5">
                         <button
@@ -1111,7 +1172,9 @@ export default function FlowEditorPage() {
                               await saveOption(node, opt);
                               await reload();
                             } catch (e) {
-                              setError(e instanceof Error ? e.message : "Error al guardar opción");
+                              const msg = e instanceof Error ? e.message : "Error al guardar opción";
+                              setError(msg);
+                              setOptionSaveError((prev) => ({ ...prev, [opt.id]: msg }));
                             }
                           }}
                           className="text-[#0EA5E9] hover:underline text-sm"
