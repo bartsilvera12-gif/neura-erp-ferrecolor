@@ -15,6 +15,13 @@ type FlowNodeOption = {
   option_payload?: Record<string, unknown>;
 };
 
+type OptionSimpleDraft = {
+  cantidad: string;
+  producto: string;
+  monto: string;
+  opcion_label: string;
+};
+
 type FlowNodeBlock = {
   id: string;
   node_id: string;
@@ -41,7 +48,11 @@ type FlowNode = {
 };
 
 const NODE_TYPE_OPTIONS = [
-  { value: "text", label: "Texto libre", help: "Espera respuesta de texto del cliente." },
+  {
+    value: "text",
+    label: "Texto (automático o captura)",
+    help: "Si tiene 'Guardar respuesta como' espera texto del cliente; si no, envía mensaje automático.",
+  },
   {
     value: "media",
     label: "Mensaje con imagen",
@@ -55,6 +66,7 @@ const NODE_TYPE_OPTIONS = [
 ] as const;
 
 const MAX_WHATSAPP_IMAGE_CAPTION = 1024;
+const CONTEXT_VAR_KEYS = ["opcion_label", "cantidad", "producto", "monto"] as const;
 
 function isValidHttpUrl(value: string): boolean {
   try {
@@ -124,6 +136,42 @@ function stringifyOptionPayload(value: Record<string, unknown> | undefined): str
   }
 }
 
+function toSimpleDraftFromPayload(option: FlowNodeOption): OptionSimpleDraft {
+  const p = option.option_payload ?? {};
+  return {
+    cantidad: p.cantidad === undefined || p.cantidad === null ? "" : String(p.cantidad),
+    producto: p.producto === undefined || p.producto === null ? "" : String(p.producto),
+    monto: p.monto === undefined || p.monto === null ? "" : String(p.monto),
+    opcion_label:
+      p.opcion_label === undefined || p.opcion_label === null
+        ? option.label
+        : String(p.opcion_label),
+  };
+}
+
+function buildPayloadFromSimple(
+  existingPayload: Record<string, unknown> | undefined,
+  draft: OptionSimpleDraft,
+  fallbackLabel: string
+): Record<string, unknown> {
+  const base: Record<string, unknown> = { ...(existingPayload ?? {}) };
+  const cantidad = draft.cantidad.trim();
+  const producto = draft.producto.trim();
+  const monto = draft.monto.trim();
+  const opcionLabel = (draft.opcion_label.trim() || fallbackLabel).trim();
+
+  if (cantidad) base.cantidad = Number.isFinite(Number(cantidad)) ? Number(cantidad) : cantidad;
+  else delete base.cantidad;
+  if (producto) base.producto = producto;
+  else delete base.producto;
+  if (monto) base.monto = Number.isFinite(Number(monto)) ? Number(monto) : monto;
+  else delete base.monto;
+  if (opcionLabel) base.opcion_label = opcionLabel;
+  else delete base.opcion_label;
+
+  return base;
+}
+
 export default function FlowEditorPage() {
   const params = useParams<{ flowCode: string }>();
   const flowCode = decodeURIComponent(params?.flowCode ?? "");
@@ -138,6 +186,8 @@ export default function FlowEditorPage() {
   const [lastSavedNodeId, setLastSavedNodeId] = useState<string | null>(null);
   const [expandedNodeId, setExpandedNodeId] = useState<string | null>(null);
   const [optionPayloadDrafts, setOptionPayloadDrafts] = useState<Record<string, string>>({});
+  const [optionEditorMode, setOptionEditorMode] = useState<Record<string, "simple" | "advanced">>({});
+  const [optionSimpleDrafts, setOptionSimpleDrafts] = useState<Record<string, OptionSimpleDraft>>({});
 
   const orderedNodes = useMemo(
     () =>
@@ -157,6 +207,40 @@ export default function FlowEditorPage() {
   );
 
   const nodeCodes = useMemo(() => orderedNodes.map((n) => n.node_code), [orderedNodes]);
+  const incomingConnections = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const n of orderedNodes) {
+      if (n.next_node_code) {
+        const list = map.get(n.next_node_code) ?? [];
+        list.push(`${prettifyCode(n.node_code)} (siguiente)`);
+        map.set(n.next_node_code, list);
+      }
+      for (const opt of n.options) {
+        if (!opt.next_node_code) continue;
+        const list = map.get(opt.next_node_code) ?? [];
+        list.push(`${prettifyCode(n.node_code)} > ${opt.label}`);
+        map.set(opt.next_node_code, list);
+      }
+    }
+    return map;
+  }, [orderedNodes]);
+
+  function getIncomingLabels(nodeCode: string): string[] {
+    return incomingConnections.get(nodeCode) ?? [];
+  }
+
+  function hasSelectableContext(nodeCode: string): boolean {
+    return getIncomingLabels(nodeCode).some((label) => label.includes(">"));
+  }
+
+  function appendPlaceholderToNodeMessage(nodeId: string, variableKey: string) {
+    const token = `{{${variableKey}}}`;
+    setNodes((prev) =>
+      prev.map((n) =>
+        n.id === nodeId ? { ...n, message_text: `${(n.message_text ?? "").trim()}\n${token}`.trim() } : n
+      )
+    );
+  }
 
   function getImageBlock(node: FlowNode): FlowNodeBlock | undefined {
     return node.blocks.find((b) => b.block_type === "image");
@@ -197,6 +281,24 @@ export default function FlowEditorPage() {
             if (typeof next[option.id] !== "string") {
               next[option.id] = stringifyOptionPayload(option.option_payload);
             }
+          }
+        }
+        return next;
+      });
+      setOptionSimpleDrafts((prev) => {
+        const next = { ...prev };
+        for (const node of items) {
+          for (const option of node.options ?? []) {
+            if (!next[option.id]) next[option.id] = toSimpleDraftFromPayload(option);
+          }
+        }
+        return next;
+      });
+      setOptionEditorMode((prev) => {
+        const next = { ...prev };
+        for (const node of items) {
+          for (const option of node.options ?? []) {
+            if (!next[option.id]) next[option.id] = "simple";
           }
         }
         return next;
@@ -297,16 +399,23 @@ export default function FlowEditorPage() {
     if ((node.node_type === "buttons" || node.node_type === "list") && !opt.next_node_code) {
       throw new Error("Seleccioná 'Va a' para esta opción antes de guardar.");
     }
-    const payloadDraft = optionPayloadDrafts[opt.id] ?? stringifyOptionPayload(opt.option_payload);
+    const mode = optionEditorMode[opt.id] ?? "simple";
     let payloadParsed: Record<string, unknown> = {};
-    try {
-      const parsed = JSON.parse(payloadDraft) as unknown;
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        throw new Error("El payload debe ser un objeto JSON");
+    if (mode === "advanced") {
+      const payloadDraft = optionPayloadDrafts[opt.id] ?? stringifyOptionPayload(opt.option_payload);
+      try {
+        const parsed = JSON.parse(payloadDraft) as unknown;
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          throw new Error("El payload debe ser un objeto JSON");
+        }
+        payloadParsed = parsed as Record<string, unknown>;
+      } catch {
+        throw new Error("Variables JSON inválidas para esta opción.");
       }
-      payloadParsed = parsed as Record<string, unknown>;
-    } catch {
-      throw new Error("Variables JSON inválidas para esta opción.");
+    } else {
+      const draft = optionSimpleDrafts[opt.id] ?? toSimpleDraftFromPayload(opt);
+      payloadParsed = buildPayloadFromSimple(opt.option_payload, draft, opt.label);
+      setOptionPayloadDrafts((prev) => ({ ...prev, [opt.id]: stringifyOptionPayload(payloadParsed) }));
     }
     const metaButtonId = toMetaButtonId(opt.label);
     const res = await fetch(
@@ -508,6 +617,14 @@ export default function FlowEditorPage() {
                     <div className="text-[11px] uppercase text-slate-500">Siguiente paso</div>
                     <div className="text-slate-800">{nextStepLabel(node.next_node_code)}</div>
                   </div>
+                  <div className="md:col-span-3 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                    <div className="text-[11px] uppercase text-slate-500">Llega desde</div>
+                    <div className="text-slate-700">
+                      {getIncomingLabels(node.node_code).length
+                        ? getIncomingLabels(node.node_code).join(" · ")
+                        : "Nodo inicial o sin referencias previas"}
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -545,11 +662,56 @@ export default function FlowEditorPage() {
                   <p className="text-[11px] text-slate-500 mt-1">
                     Podés usar placeholders del contexto, por ejemplo: {"{{producto}}"}, {"{{cantidad}}"}, {"{{monto}}"}.
                   </p>
+                  {hasSelectableContext(node.node_code) && (
+                    <div className="mt-2 border border-sky-100 bg-sky-50/60 rounded-lg p-2 space-y-2">
+                      <div className="text-xs font-medium text-sky-800">
+                        Usar datos de la selección anterior
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {CONTEXT_VAR_KEYS.map((key) => (
+                          <button
+                            key={`${node.id}-${key}`}
+                            type="button"
+                            className="text-xs px-2 py-1 rounded border border-sky-200 text-sky-700 hover:bg-sky-100"
+                            onClick={() => appendPlaceholderToNodeMessage(node.id, key)}
+                          >
+                            Insertar {key}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          className="text-xs px-2 py-1 rounded border border-sky-300 text-sky-900 hover:bg-sky-100 font-medium"
+                          onClick={() =>
+                            setNodes((prev) =>
+                              prev.map((n) =>
+                                n.id !== node.id
+                                  ? n
+                                  : {
+                                      ...n,
+                                      message_text: `Resumen de tu compra:\n\n• Opción elegida: {{opcion_label}}\n• Cantidad: {{cantidad}}\n• Producto: {{producto}}\n• Total: {{monto}} Gs`,
+                                    }
+                              )
+                            )
+                          }
+                        >
+                          Insertar resumen de compra
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               <div className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
                 Este paso va a → <span className="font-medium text-slate-800">{nextStepLabel(node.next_node_code)}</span>
+              </div>
+              <div className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                Llega desde →{" "}
+                <span className="font-medium text-slate-800">
+                  {getIncomingLabels(node.node_code).length
+                    ? getIncomingLabels(node.node_code).join(" · ")
+                    : "Nodo inicial o sin referencias previas"}
+                </span>
               </div>
 
               <div className="border border-slate-100 rounded-lg p-3 bg-slate-50/60 text-xs text-slate-600">
@@ -681,6 +843,38 @@ export default function FlowEditorPage() {
                               )
                             }
                           />
+                          {hasSelectableContext(node.node_code) && (
+                            <div className="flex flex-wrap gap-2">
+                              {CONTEXT_VAR_KEYS.map((key) => (
+                                <button
+                                  key={`${mediaBlock.id}-${key}`}
+                                  type="button"
+                                  className="text-xs px-2 py-1 rounded border border-fuchsia-200 text-fuchsia-700 hover:bg-fuchsia-100"
+                                  onClick={() =>
+                                    setNodes((prev) =>
+                                      prev.map((n) =>
+                                        n.id !== node.id
+                                          ? n
+                                          : {
+                                              ...n,
+                                              blocks: n.blocks.map((b) =>
+                                                b.id !== mediaBlock.id
+                                                  ? b
+                                                  : {
+                                                      ...b,
+                                                      content_text: `${(b.content_text ?? "").trim()}\n{{${key}}}`.trim(),
+                                                    }
+                                              ),
+                                            }
+                                      )
+                                    )
+                                  }
+                                >
+                                  Insertar {key}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                           <div className={`text-[11px] ${(mediaBlock.content_text ?? "").length > MAX_WHATSAPP_IMAGE_CAPTION ? "text-red-600" : "text-slate-500"}`}>
                             Texto: {(mediaBlock.content_text ?? "").length}/{MAX_WHATSAPP_IMAGE_CAPTION}
                           </div>
@@ -930,20 +1124,110 @@ export default function FlowEditorPage() {
                         </button>
                       </div>
                       <div className="md:col-span-4">
-                        <label className="block text-xs text-slate-500 mb-1">Variables guardadas (JSON)</label>
-                        <textarea
-                          className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono w-full min-h-[82px]"
-                          value={optionPayloadDrafts[opt.id] ?? stringifyOptionPayload(opt.option_payload)}
-                          placeholder={'{\n  "cantidad": 1,\n  "producto": "1 boleto",\n  "monto": 20000,\n  "opcion_label": "1 boleto a 20.000"\n}'}
-                          onChange={(e) =>
-                            setOptionPayloadDrafts((prev) => ({
-                              ...prev,
-                              [opt.id]: e.target.value,
-                            }))
-                          }
-                        />
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-xs text-slate-500">Datos de la opción seleccionada</label>
+                          <button
+                            type="button"
+                            className="text-xs text-[#0EA5E9] hover:underline"
+                            onClick={() =>
+                              setOptionEditorMode((prev) => ({
+                                ...prev,
+                                [opt.id]:
+                                  (prev[opt.id] ?? "simple") === "simple" ? "advanced" : "simple",
+                              }))
+                            }
+                          >
+                            {(optionEditorMode[opt.id] ?? "simple") === "simple"
+                              ? "Usar modo JSON avanzado"
+                              : "Usar modo simple"}
+                          </button>
+                        </div>
+                        {(optionEditorMode[opt.id] ?? "simple") === "simple" ? (
+                          <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                            <div>
+                              <label className="block text-[11px] text-slate-500 mb-1">Cantidad</label>
+                              <input
+                                className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm w-full"
+                                value={optionSimpleDrafts[opt.id]?.cantidad ?? ""}
+                                onChange={(e) =>
+                                  setOptionSimpleDrafts((prev) => ({
+                                    ...prev,
+                                    [opt.id]: {
+                                      ...(prev[opt.id] ?? toSimpleDraftFromPayload(opt)),
+                                      cantidad: e.target.value,
+                                    },
+                                  }))
+                                }
+                                placeholder="1"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] text-slate-500 mb-1">Producto</label>
+                              <input
+                                className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm w-full"
+                                value={optionSimpleDrafts[opt.id]?.producto ?? ""}
+                                onChange={(e) =>
+                                  setOptionSimpleDrafts((prev) => ({
+                                    ...prev,
+                                    [opt.id]: {
+                                      ...(prev[opt.id] ?? toSimpleDraftFromPayload(opt)),
+                                      producto: e.target.value,
+                                    },
+                                  }))
+                                }
+                                placeholder="1 boleto"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] text-slate-500 mb-1">Monto</label>
+                              <input
+                                className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm w-full"
+                                value={optionSimpleDrafts[opt.id]?.monto ?? ""}
+                                onChange={(e) =>
+                                  setOptionSimpleDrafts((prev) => ({
+                                    ...prev,
+                                    [opt.id]: {
+                                      ...(prev[opt.id] ?? toSimpleDraftFromPayload(opt)),
+                                      monto: e.target.value,
+                                    },
+                                  }))
+                                }
+                                placeholder="20000"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] text-slate-500 mb-1">Etiqueta seleccionada</label>
+                              <input
+                                className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm w-full"
+                                value={optionSimpleDrafts[opt.id]?.opcion_label ?? opt.label}
+                                onChange={(e) =>
+                                  setOptionSimpleDrafts((prev) => ({
+                                    ...prev,
+                                    [opt.id]: {
+                                      ...(prev[opt.id] ?? toSimpleDraftFromPayload(opt)),
+                                      opcion_label: e.target.value,
+                                    },
+                                  }))
+                                }
+                                placeholder={opt.label}
+                              />
+                            </div>
+                          </div>
+                        ) : (
+                          <textarea
+                            className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono w-full min-h-[82px]"
+                            value={optionPayloadDrafts[opt.id] ?? stringifyOptionPayload(opt.option_payload)}
+                            placeholder={'{\n  "cantidad": 1,\n  "producto": "1 boleto",\n  "monto": 20000,\n  "opcion_label": "1 boleto a 20.000"\n}'}
+                            onChange={(e) =>
+                              setOptionPayloadDrafts((prev) => ({
+                                ...prev,
+                                [opt.id]: e.target.value,
+                              }))
+                            }
+                          />
+                        )}
                         <p className="text-[11px] text-slate-500 mt-1">
-                          Se guardan en contexto al elegir este botón. Usá placeholders: {"{{cantidad}}"}, {"{{producto}}"}, {"{{monto}}"}.
+                          Se guardan en contexto al elegir este botón. Usá placeholders: {"{{cantidad}}"}, {"{{producto}}"}, {"{{monto}}"}, {"{{opcion_label}}"}.
                         </p>
                       </div>
                       <div className="md:col-span-4 text-xs text-slate-500 bg-white border border-slate-200 rounded px-2 py-1">
