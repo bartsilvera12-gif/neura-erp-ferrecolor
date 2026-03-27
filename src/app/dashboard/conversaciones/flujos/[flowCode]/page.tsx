@@ -122,6 +122,7 @@ export default function FlowEditorPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [newNodeCode, setNewNodeCode] = useState("");
   const [newNodeType, setNewNodeType] = useState("text");
+  const [creatingNode, setCreatingNode] = useState(false);
 
   const nodeByCode = useMemo(
     () => new Map(nodes.map((n) => [n.node_code, n])),
@@ -211,16 +212,25 @@ export default function FlowEditorPage() {
 
   async function createNode(e: React.FormEvent) {
     e.preventDefault();
-    if (!newNodeCode.trim()) return;
+    const trimmedCode = newNodeCode.trim();
+    if (!trimmedCode) {
+      setError("Escribí el nombre del paso (código interno) antes de crear el nodo.");
+      return;
+    }
+    if (!/^[a-zA-Z0-9_-]+$/.test(trimmedCode)) {
+      setError("El código del paso solo puede tener letras, números, guion y guion bajo.");
+      return;
+    }
     setError(null);
     setSuccess(null);
+    setCreatingNode(true);
     try {
       const res = await fetch(`/api/chat/flows/${encodeURIComponent(flowCode)}/nodes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
         body: JSON.stringify({
-          node_code: newNodeCode.trim(),
+          node_code: trimmedCode,
           node_type: newNodeType,
           message_text: "",
         }),
@@ -229,9 +239,11 @@ export default function FlowEditorPage() {
       if (!res.ok || !json.ok) throw new Error(json.error ?? "No se pudo crear nodo");
       setNewNodeCode("");
       await reload();
-      setSuccess(`Paso ${prettifyCode(newNodeCode.trim())} creado.`);
+      setSuccess(`Paso ${prettifyCode(trimmedCode)} creado.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error creando nodo");
+    } finally {
+      setCreatingNode(false);
     }
   }
 
@@ -414,7 +426,13 @@ export default function FlowEditorPage() {
           </select>
           <p className="mt-1 text-[11px] text-slate-500">{nodeTypeHelp(newNodeType)}</p>
         </div>
-        <button type="submit" className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2 rounded-lg text-sm font-medium">Crear nodo</button>
+        <button
+          type="submit"
+          disabled={creatingNode}
+          className="bg-[#0EA5E9] hover:bg-[#0284C7] disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
+        >
+          {creatingNode ? "Creando..." : "Crear nodo"}
+        </button>
       </form>
 
       {loading ? (
