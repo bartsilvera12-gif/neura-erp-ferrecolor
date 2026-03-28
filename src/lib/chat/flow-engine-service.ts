@@ -108,11 +108,20 @@ let chatMediaBucketChecked = false;
 function extensionFromMime(mimeType: string | null | undefined): string {
   if (!mimeType) return "jpg";
   const v = mimeType.toLowerCase();
+  if (v.includes("pdf")) return "pdf";
   if (v.includes("png")) return "png";
   if (v.includes("webp")) return "webp";
   if (v.includes("gif")) return "gif";
   if (v.includes("jpeg") || v.includes("jpg")) return "jpg";
   return "jpg";
+}
+
+/** Imagen o PDF (comprobante bancario frecuente como archivo). */
+function isComprobanteMimeAccepted(mimeType: string | null | undefined): boolean {
+  const m = (mimeType ?? "").toLowerCase();
+  if (m.startsWith("image/")) return true;
+  if (m.includes("pdf")) return true;
+  return false;
 }
 
 const FLOW_SORTEO_LOG = "[flow-sorteo]" as const;
@@ -600,7 +609,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     const tail =
       reason === "expected_image_got_text"
         ? "Por favor enviá el comprobante como imagen (foto o captura), no como mensaje de texto."
-        : "Ese archivo no es una imagen. Enviá el comprobante como foto o imagen (por ejemplo JPG o PNG).";
+        : "Ese formato no sirve como comprobante. Enviá foto (JPG/PNG), imagen como archivo o PDF del comprobante.";
     if (base) return `${base}\n\n${tail}`;
     return tail;
   }
@@ -1311,7 +1320,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       mimeTypeHint: params.mimeType ?? null,
     });
     const mimeNorm = (media.mimeType || "").toLowerCase();
-    if (!mimeNorm.startsWith("image/")) {
+    if (!isComprobanteMimeAccepted(media.mimeType)) {
       const reminder = await buildImageInputReminderText(
         currentNode,
         state.id,
@@ -1350,7 +1359,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         status: "ignored_non_image_mime",
         archivo: "src/lib/chat/flow-engine-service.ts",
         lineApprox: 1255,
-        condicion: "!mimeNorm.startsWith('image/')",
+        condicion: "!isComprobanteMimeAccepted (imagen o PDF)",
         conversationId: state.id,
         flowCode: state.flow_code,
         mimeNorm,

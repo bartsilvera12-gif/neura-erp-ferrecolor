@@ -85,6 +85,51 @@ export function extractMessageBody(msg: MetaInboundMessage): { message_type: str
   }
 }
 
+/**
+ * Media descargable para nodo `image_input` / comprobante.
+ * Meta suele mandar fotos como `image`, pero muchos usuarios envían PDF o imagen como `document`.
+ */
+export function extractInboundComprobanteMedia(msg: MetaInboundMessage): {
+  mediaId: string;
+  mimeType: string | null;
+  caption: string | null;
+  sourceType: "image" | "document" | "sticker";
+} | null {
+  const t = (msg.type ?? "").trim();
+  if (t === "image") {
+    const mediaId = msg.image?.id?.trim();
+    if (!mediaId) return null;
+    return {
+      mediaId,
+      mimeType: msg.image?.mime_type?.trim() || null,
+      caption: msg.image?.caption?.trim() || null,
+      sourceType: "image",
+    };
+  }
+  if (t === "document") {
+    const doc = msg.document;
+    const mediaId = doc?.id?.trim();
+    if (!mediaId) return null;
+    return {
+      mediaId,
+      mimeType: doc?.mime_type?.trim() || null,
+      caption: doc?.caption?.trim() || null,
+      sourceType: "document",
+    };
+  }
+  if (t === "sticker") {
+    const mediaId = msg.sticker?.id?.trim();
+    if (!mediaId) return null;
+    return {
+      mediaId,
+      mimeType: null,
+      caption: null,
+      sourceType: "sticker",
+    };
+  }
+  return null;
+}
+
 function extractMetaButtonId(msg: MetaInboundMessage): string | null {
   const buttonId = msg.interactive?.button_reply?.id?.trim();
   if (buttonId) return buttonId;
@@ -625,34 +670,38 @@ export async function processInboundWebhookValue(
             errors.push(`Flow text: ${textResult.error ?? textResult.status}`);
           }
         }
-      } else if (message_type === "image") {
-        const mediaId = msg.image?.id?.trim() || "";
-        if (!mediaId) {
-          errors.push("Flow image: message.image.id ausente");
-        } else {
+      } else {
+        const comprobanteMedia = extractInboundComprobanteMedia(msg);
+        if (comprobanteMedia) {
           const imageResult = await flowEngine.processImageReply({
             conversationId,
             empresaId,
-            mediaId,
-            mimeType: msg.image?.mime_type ?? null,
-            caption: msg.image?.caption ?? null,
+            mediaId: comprobanteMedia.mediaId,
+            mimeType: comprobanteMedia.mimeType,
+            caption: comprobanteMedia.caption,
             rawPayload: msg as unknown as Record<string, unknown>,
           });
-          console.info(logW, "flow_result: image", {
+          console.info(logW, "flow_result: comprobante_media", {
             conversationId,
-            mediaId,
+            mediaId: comprobanteMedia.mediaId,
+            sourceType: comprobanteMedia.sourceType,
+            messageTypeFromMeta: msg.type ?? null,
             status: imageResult.status,
             nextNodeCode: imageResult.nextNodeCode ?? null,
           });
           if (!imageResult.ok) {
-            errors.push(`Flow image: ${imageResult.error ?? imageResult.status}`);
+            errors.push(`Flow comprobante: ${imageResult.error ?? imageResult.status}`);
           }
+        } else if (message_type === "image" || message_type === "document") {
+          errors.push(
+            `Flow comprobante: tipo ${message_type} pero falta media id en payload (revisar shape Meta/n8n)`
+          );
+        } else {
+          console.info(logW, "no_typed_flow_handler", {
+            conversationId,
+            message_type,
+          });
         }
-      } else {
-        console.info(logW, "no_typed_flow_handler", {
-          conversationId,
-          message_type,
-        });
       }
 
       processed += 1;

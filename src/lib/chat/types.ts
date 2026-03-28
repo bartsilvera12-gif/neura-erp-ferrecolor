@@ -127,7 +127,8 @@ export type MetaInboundMessage = {
   type?: string;
   text?: { body?: string };
   image?: { caption?: string; id?: string; mime_type?: string };
-  document?: { caption?: string; filename?: string };
+  /** Comprobantes suelen venir como document (PDF o imagen como archivo); id y mime_type vienen de Graph API */
+  document?: { id?: string; mime_type?: string; caption?: string; filename?: string };
   audio?: { id?: string };
   video?: { caption?: string };
   sticker?: { id?: string };
