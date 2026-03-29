@@ -6,12 +6,16 @@ import {
 } from "@/lib/chat/comprobante-validation-types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+export type ConversacionesVista = "inbox" | "bot" | "historial";
+
 export type InboxConversation = {
   id: string;
   status: string;
   last_message_at: string | null;
   last_message_preview: string | null;
   unread_count: number;
+  flow_status: string;
+  human_taken_over: boolean;
   contact: {
     id: string;
     name: string | null;
@@ -48,21 +52,32 @@ async function requireSupabaseAndEmpresaId(): Promise<{
   return { supabase, empresa_id };
 }
 
-export async function fetchChatConversations(): Promise<InboxConversation[]> {
+export async function fetchChatConversations(
+  vista: ConversacionesVista = "inbox"
+): Promise<InboxConversation[]> {
   const { supabase } = await requireSupabaseAndEmpresaId();
-  const { data: convs, error } = await supabase
-    .from("chat_conversations")
-    .select(
-      `
+  let q = supabase.from("chat_conversations").select(
+    `
       id,
       status,
       last_message_at,
       last_message_preview,
       unread_count,
-      contact_id
+      contact_id,
+      flow_status,
+      human_taken_over
     `
-    )
-    .order("last_message_at", { ascending: false });
+  );
+  if (vista === "inbox") {
+    q = q.or("human_taken_over.eq.true,flow_status.eq.human");
+  } else if (vista === "bot") {
+    q = q.eq("flow_status", "bot").eq("human_taken_over", false);
+  }
+
+  const { data: convs, error } = await q.order("last_message_at", {
+    ascending: false,
+    nullsFirst: false,
+  });
 
   if (error) throw new Error(error.message);
   const list = convs ?? [];
@@ -85,6 +100,8 @@ export async function fetchChatConversations(): Promise<InboxConversation[]> {
       last_message_at: row.last_message_at as string | null,
       last_message_preview: row.last_message_preview as string | null,
       unread_count: (row.unread_count as number) ?? 0,
+      flow_status: String(row.flow_status ?? "bot"),
+      human_taken_over: Boolean(row.human_taken_over),
       contact: {
         id: c?.id ?? (row.contact_id as string),
         name: c?.name ?? null,
@@ -94,6 +111,27 @@ export async function fetchChatConversations(): Promise<InboxConversation[]> {
       },
     };
   });
+}
+
+/**
+ * Vuelve a modo bot (solo operador). No reinicia el flujo ni la sesión.
+ */
+export async function releaseConversationToBot(conversationId: string): Promise<void> {
+  const { supabase, empresa_id } = await requireSupabaseAndEmpresaId();
+  const id = conversationId.trim();
+  if (!id) throw new Error("ID inválido");
+
+  const { error } = await supabase
+    .from("chat_conversations")
+    .update({
+      human_taken_over: false,
+      flow_status: "bot",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .eq("empresa_id", empresa_id);
+
+  if (error) throw new Error(error.message);
 }
 
 export async function markConversationRead(conversationId: string): Promise<void> {

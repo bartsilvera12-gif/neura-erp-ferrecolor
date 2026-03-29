@@ -1,3 +1,4 @@
+import { COMPROBANTE_BUTTON_IDS } from "@/lib/chat/comprobante-validation-types";
 import { flowTrace } from "@/lib/chat/flow-trace-log";
 import type { SupabaseAdmin } from "@/lib/chat/types";
 import {
@@ -242,6 +243,47 @@ export async function isNodeActiveInFlow(
 /**
  * Palabras que fuerzan reinicio al primer nodo del flujo activo (primer token o mensaje exacto).
  */
+/**
+ * Handoff por botón: incluye el de comprobantes (lo procesa el flow-engine en `image_input`).
+ */
+export const HUMAN_HANDOFF_BUTTON_IDS = new Set<string>([
+  COMPROBANTE_BUTTON_IDS.hablar_asesor,
+  "human_handoff",
+  "talk_to_human",
+  "hablar_asesor",
+  "derivar_asesor",
+]);
+
+/**
+ * Takeover **antes** del engine: no incluye `cmp_hablar_asesor` porque el motor envía el texto
+ * de despedida y persiste el evento cuando el nodo es `image_input`.
+ */
+export const WEBHOOK_IMMEDIATE_HANDOFF_BUTTON_IDS = new Set<string>([
+  "human_handoff",
+  "talk_to_human",
+  "hablar_asesor",
+  "derivar_asesor",
+]);
+
+/**
+ * Cliente pide explícitamente hablar con una persona (takeover humano).
+ * Normalización alineada con `matchesConversationRestartKeyword`.
+ */
+export function matchesHumanHandoffKeyword(text: string): boolean {
+  const raw = text
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  if (!raw) return false;
+  const tokens = raw.split(/\s+/).filter(Boolean);
+  if (tokens.some((t) => t === "asesor" || t === "humano")) return true;
+  if (/\boperador\b/.test(raw)) return true;
+  if (/\bhablar\s+con\s+(un\s+)?asesor\b/.test(raw)) return true;
+  if (/\bquiero\s+(un\s+)?asesor\b/.test(raw)) return true;
+  return false;
+}
+
 export function matchesConversationRestartKeyword(text: string): boolean {
   const raw = text
     .trim()

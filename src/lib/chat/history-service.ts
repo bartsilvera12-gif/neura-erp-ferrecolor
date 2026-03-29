@@ -28,6 +28,7 @@ export type ContactHistoryMessage = {
   automation_source: string | null;
   message_type: string;
   content: string | null;
+  raw_payload?: Record<string, unknown> | null;
 };
 
 export type ContactHistoryConversation = {
@@ -129,7 +130,7 @@ export async function searchHistoryContacts(
     const { data: msgRows, error: mErr } = await supabase
       .from("chat_messages")
       .select(
-        "id, conversation_id, created_at, from_me, sender_type, sent_by_user_id, sent_by_user_name, automation_source, message_type, content"
+        "id, conversation_id, created_at, from_me, sender_type, sent_by_user_id, sent_by_user_name, automation_source, message_type, content, raw_payload"
       )
       .eq("empresa_id", empresaId)
       .in("conversation_id", convIds)
@@ -230,7 +231,7 @@ export async function getContactHistory(
     const { data: msgRows, error: msgErr } = await supabase
       .from("chat_messages")
       .select(
-        "id, conversation_id, created_at, from_me, sender_type, sent_by_user_id, sent_by_user_name, automation_source, message_type, content"
+        "id, conversation_id, created_at, from_me, sender_type, sent_by_user_id, sent_by_user_name, automation_source, message_type, content, raw_payload"
       )
       .eq("empresa_id", empresaId)
       .in("conversation_id", convIds)

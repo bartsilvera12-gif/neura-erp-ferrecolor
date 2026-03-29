@@ -34,6 +34,17 @@ export type SendWhatsAppImageParams = {
   graphVersion?: string;
 };
 
+export type SendWhatsAppDocumentParams = {
+  toDigits: string;
+  phoneNumberId: string;
+  accessToken: string;
+  /** URL HTTPS pública (p. ej. Supabase Storage). */
+  link: string;
+  filename: string;
+  caption?: string;
+  graphVersion?: string;
+};
+
 async function sendWhatsAppPayload(
   params: {
     phoneNumberId: string;
@@ -119,4 +130,22 @@ export async function sendWhatsAppImage(
       ...(params.caption ? { caption: params.caption.slice(0, 1024) } : {}),
     },
   });
+}
+
+export async function sendWhatsAppDocument(
+  params: SendWhatsAppDocumentParams
+): Promise<SendWhatsAppTextResult> {
+  const fn = params.filename.trim() || "documento";
+  const body: Record<string, unknown> = {
+    messaging_product: "whatsapp",
+    to: params.toDigits,
+    type: "document",
+    document: {
+      link: params.link,
+      filename: fn.slice(0, 240),
+    },
+  };
+  const doc = (body.document as Record<string, unknown>);
+  if (params.caption?.trim()) doc.caption = params.caption.trim().slice(0, 1024);
+  return sendWhatsAppPayload(params, body);
 }

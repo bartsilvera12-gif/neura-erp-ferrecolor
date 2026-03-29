@@ -1,3 +1,4 @@
+import { downloadMetaMediaBytes } from "@/lib/chat/meta-media-download";
 import { flowTrace, summarizeFlowDataForTrace } from "@/lib/chat/flow-trace-log";
 import { COMPROBANTE_BUTTON_IDS, parseComprobanteValidationConfig } from "@/lib/chat/comprobante-validation-types";
 import {
@@ -450,34 +451,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     accessToken: string;
     mimeTypeHint?: string | null;
   }): Promise<{ bytes: Uint8Array; mimeType: string }> {
-    const version = process.env.WHATSAPP_GRAPH_VERSION ?? "v19.0";
-    const metaRes = await fetch(
-      `https://graph.facebook.com/${version}/${params.mediaId}`,
-      {
-        method: "GET",
-        headers: { Authorization: `Bearer ${params.accessToken}` },
-      }
-    );
-    const metaJson = (await metaRes.json().catch(() => ({}))) as {
-      url?: string;
-      mime_type?: string;
-      error?: { message?: string };
-    };
-    if (!metaRes.ok || !metaJson.url) {
-      throw new Error(
-        metaJson.error?.message || `No se pudo obtener URL temporal para media_id=${params.mediaId}`
-      );
-    }
-
-    const binRes = await fetch(metaJson.url, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${params.accessToken}` },
-    });
-    if (!binRes.ok) {
-      throw new Error(`No se pudo descargar binario media_id=${params.mediaId}`);
-    }
-    const arr = new Uint8Array(await binRes.arrayBuffer());
-    return { bytes: arr, mimeType: metaJson.mime_type || params.mimeTypeHint || "image/jpeg" };
+    return downloadMetaMediaBytes(params);
   }
 
   async function isFlowDefinitionActive(empresaId: string, flowCode: string): Promise<boolean> {

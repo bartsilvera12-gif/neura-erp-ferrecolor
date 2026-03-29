@@ -5,6 +5,8 @@ import {
 import { createFlowEngine } from "@/lib/chat/flow-engine-service";
 import { insertActiveFlowSessionRow } from "@/lib/chat/flow-session-service";
 import { flowTrace } from "@/lib/chat/flow-trace-log";
+import { getConversationWhatsAppSendContext } from "@/lib/chat/conversation-send-context";
+import { attachInboundMessageMedia } from "@/lib/chat/inbound-media-attach";
 import {
   CONV_LOG,
   getFirstActiveNodeCodeForFlow,
@@ -12,9 +14,12 @@ import {
   isNodeActiveInFlow,
   listActiveWhatsappFlowsForEmpresa,
   matchesConversationRestartKeyword,
+  matchesHumanHandoffKeyword,
   restartWhatsappConversationToFlowStart,
   syncWhatsappConversationFlowFromCatalog,
+  WEBHOOK_IMMEDIATE_HANDOFF_BUTTON_IDS,
 } from "@/lib/chat/resolve-whatsapp-active-flow";
+import { sendWhatsAppText } from "@/lib/chat/whatsapp-send-service";
 import { saveProspectoFromWebhook } from "@/lib/crm/storage";
 import type {
   MetaInboundMessage,
@@ -22,11 +27,9 @@ import type {
   ProcessWebhookResult,
   SupabaseAdmin,
 } from "@/lib/chat/types";
+import { normalizeWaPhone } from "@/lib/chat/wa-phone";
 
-/** Solo dígitos, sin prefijo + */
-export function normalizeWaPhone(waId: string): string {
-  return waId.replace(/\D/g, "");
-}
+export { normalizeWaPhone } from "@/lib/chat/wa-phone";
 
 function contactNameForWa(
   contacts: MetaWebhookValue["contacts"],
@@ -423,6 +426,10 @@ export async function processInboundWebhookValue(
       let convFlowStatus = (existingConv as { flow_status?: string | null }).flow_status ?? "bot";
 
       let restartedThisMessage = false;
+      /** Takeover por palabra/botón genérico: mensaje de confirmación tras persistir el entrante. */
+      let keywordHandoffPendingConfirmation = false;
+
+      const startedInHumanMode = convHuman || convFlowStatus === "human";
 
       const restartKeywordMatch =
         message_type === "text" ? matchesConversationRestartKeyword(content) : false;
@@ -433,91 +440,112 @@ export async function processInboundWebhookValue(
           contentPreview: content.slice(0, 200),
           contentJsonHead: JSON.stringify(content.slice(0, 120)),
           matchesRestartKeyword: restartKeywordMatch,
+          startedInHumanMode,
         });
       }
-      if (restartKeywordMatch) {
-        console.info(CONV_LOG, "restart_keyword_branch_entered", {
-          conversationId,
-          preferFlowCode: convFlow,
-        });
-        const rrKw = await restartWhatsappConversationToFlowStart(supabase, empresaId, conversationId, {
-          preferFlowCode: convFlow,
-          trigger: "restart_keyword",
-        });
-        console.info(CONV_LOG, "restart_keyword_result", {
-          conversationId,
-          restarted: rrKw.restarted,
-          reason: rrKw.reason,
-          flow_code: rrKw.flow_code,
-          flow_current_node: rrKw.flow_current_node,
-        });
-        if (!rrKw.restarted) {
-          console.warn(CONV_LOG, "restart_keyword_no_op", {
+
+      if (!startedInHumanMode) {
+        if (restartKeywordMatch) {
+          console.info(CONV_LOG, "restart_keyword_branch_entered", {
             conversationId,
+            preferFlowCode: convFlow,
+          });
+          const rrKw = await restartWhatsappConversationToFlowStart(supabase, empresaId, conversationId, {
+            preferFlowCode: convFlow,
+            trigger: "restart_keyword",
+          });
+          console.info(CONV_LOG, "restart_keyword_result", {
+            conversationId,
+            restarted: rrKw.restarted,
             reason: rrKw.reason,
-            convFlowBefore: convFlow,
+            flow_code: rrKw.flow_code,
+            flow_current_node: rrKw.flow_current_node,
           });
-        }
-        if (rrKw.restarted) {
-          convFlow = rrKw.flow_code;
-          convNode = rrKw.flow_current_node;
-          convHuman = false;
-          convFlowStatus = "bot";
-          restartedThisMessage = true;
-        }
-      }
-
-      if (!restartedThisMessage) {
-        const fc = convFlow?.trim() || null;
-        const nc = convNode?.trim() || null;
-        let mustRestart = false;
-        let restartTrigger = "";
-        let prefer: string | null = null;
-
-        if (!fc) {
-          mustRestart = true;
-          restartTrigger = "missing_flow_code";
-          console.warn(CONV_LOG, "invalid_current_node", {
-            conversationId,
-            detail: "missing_flow_code",
-          });
-        } else if (!(await isFlowKnownAndActiveInCatalog(supabase, empresaId, fc))) {
-          mustRestart = true;
-          restartTrigger = "inactive_flow_reassigned";
-          prefer = null;
-          console.warn(CONV_LOG, "inactive_flow_reassigned", {
-            conversationId,
-            flow_code: fc,
-            detail: "not_in_catalog_or_inactive",
-          });
-        } else if (!nc || !(await isNodeActiveInFlow(supabase, empresaId, fc, nc))) {
-          mustRestart = true;
-          restartTrigger = "invalid_current_node";
-          prefer = fc;
-          console.warn(CONV_LOG, "invalid_current_node", {
-            conversationId,
-            flow_code: fc,
-            flow_current_node: nc,
-          });
-        }
-
-        if (mustRestart) {
-          const rrFix = await restartWhatsappConversationToFlowStart(supabase, empresaId, conversationId, {
-            preferFlowCode: prefer,
-            trigger: restartTrigger,
-          });
-          if (rrFix.restarted) {
-            convFlow = rrFix.flow_code;
-            convNode = rrFix.flow_current_node;
+          if (!rrKw.restarted) {
+            console.warn(CONV_LOG, "restart_keyword_no_op", {
+              conversationId,
+              reason: rrKw.reason,
+              convFlowBefore: convFlow,
+            });
+          }
+          if (rrKw.restarted) {
+            convFlow = rrKw.flow_code;
+            convNode = rrKw.flow_current_node;
             convHuman = false;
             convFlowStatus = "bot";
+            restartedThisMessage = true;
           }
-        } else {
-          console.info(CONV_LOG, "conversation_resumed", {
-            conversationId,
-            flow_code: fc,
-            flow_current_node: nc,
-          });
+        }
+
+        if (!restartedThisMessage) {
+          const fc = convFlow?.trim() || null;
+          const nc = convNode?.trim() || null;
+          let mustRestart = false;
+          let restartTrigger = "";
+          let prefer: string | null = null;
+
+          if (!fc) {
+            mustRestart = true;
+            restartTrigger = "missing_flow_code";
+            console.warn(CONV_LOG, "invalid_current_node", {
+              conversationId,
+              detail: "missing_flow_code",
+            });
+          } else if (!(await isFlowKnownAndActiveInCatalog(supabase, empresaId, fc))) {
+            mustRestart = true;
+            restartTrigger = "inactive_flow_reassigned";
+            prefer = null;
+            console.warn(CONV_LOG, "inactive_flow_reassigned", {
+              conversationId,
+              flow_code: fc,
+              detail: "not_in_catalog_or_inactive",
+            });
+          } else if (!nc || !(await isNodeActiveInFlow(supabase, empresaId, fc, nc))) {
+            mustRestart = true;
+            restartTrigger = "invalid_current_node";
+            prefer = fc;
+            console.warn(CONV_LOG, "invalid_current_node", {
+              conversationId,
+              flow_code: fc,
+              flow_current_node: nc,
+            });
+          }
+
+          if (mustRestart) {
+            const rrFix = await restartWhatsappConversationToFlowStart(supabase, empresaId, conversationId, {
+              preferFlowCode: prefer,
+              trigger: restartTrigger,
+            });
+            if (rrFix.restarted) {
+              convFlow = rrFix.flow_code;
+              convNode = rrFix.flow_current_node;
+              convHuman = false;
+              convFlowStatus = "bot";
+            }
+          } else {
+            console.info(CONV_LOG, "conversation_resumed", {
+              conversationId,
+              flow_code: fc,
+              flow_current_node: nc,
+            });
+          }
+        }
+      } else {
+        console.info(CONV_LOG, "skip_restart_and_catalog_repair_human_mode", { conversationId });
+      }
+
+      const metaButtonIdPre = extractMetaButtonId(msg);
+      if (!convHuman && convFlowStatus === "bot") {
+        if (message_type === "text" && matchesHumanHandoffKeyword(content)) {
+          convHuman = true;
+          convFlowStatus = "human";
+          keywordHandoffPendingConfirmation = true;
+          console.info(CONV_LOG, "human_handoff_keyword", { conversationId, preview: content.slice(0, 80) });
+        } else if (metaButtonIdPre && WEBHOOK_IMMEDIATE_HANDOFF_BUTTON_IDS.has(metaButtonIdPre)) {
+          convHuman = true;
+          convFlowStatus = "human";
+          keywordHandoffPendingConfirmation = true;
+          console.info(CONV_LOG, "human_handoff_button", { conversationId, metaButtonId: metaButtonIdPre });
         }
       }
 
@@ -576,16 +604,20 @@ export async function processInboundWebhookValue(
 
       const flowEngine = createFlowEngine({ supabase });
 
-      const { error: insErr } = await supabase.from("chat_messages").insert({
-        empresa_id: empresaId,
-        conversation_id: conversationId,
-        wa_message_id: waMid,
-        from_me: false,
-        sender_type: "contact",
-        message_type,
-        content,
-        raw_payload: msg as unknown as Record<string, unknown>,
-      });
+      const { data: insertedMsg, error: insErr } = await supabase
+        .from("chat_messages")
+        .insert({
+          empresa_id: empresaId,
+          conversation_id: conversationId,
+          wa_message_id: waMid,
+          from_me: false,
+          sender_type: "contact",
+          message_type,
+          content,
+          raw_payload: msg as unknown as Record<string, unknown>,
+        })
+        .select("id")
+        .single();
 
       if (insErr) {
         if (insErr.code === "23505") {
@@ -596,11 +628,45 @@ export async function processInboundWebhookValue(
         continue;
       }
 
+      const inboundRowId = (insertedMsg as { id?: string } | null)?.id ?? null;
+
       console.info(logW, "inbound_message_persisted", {
         conversationId,
         waMessageId: waMid,
         message_type,
+        messageRowId: inboundRowId,
       });
+
+      if (inboundRowId) {
+        const { data: chTok } = await supabase
+          .from("chat_channels")
+          .select("whatsapp_access_token")
+          .eq("id", channelId)
+          .maybeSingle();
+        const rowTok =
+          typeof (chTok as { whatsapp_access_token?: string } | null)?.whatsapp_access_token === "string"
+            ? (chTok as { whatsapp_access_token: string }).whatsapp_access_token.trim()
+            : "";
+        const mediaToken = rowTok || process.env.WHATSAPP_TOKEN?.trim() || "";
+        if (mediaToken) {
+          try {
+            await attachInboundMessageMedia({
+              supabase,
+              empresaId,
+              conversationId,
+              messageId: inboundRowId,
+              msg,
+              accessToken: mediaToken,
+            });
+          } catch (e) {
+            console.warn(logW, "inbound_media_attach_failed", {
+              conversationId,
+              messageId: inboundRowId,
+              err: e instanceof Error ? e.message : String(e),
+            });
+          }
+        }
+      }
 
       const prevStatus = existingConv.status as string;
       const nextStatus = prevStatus === "cerrado" ? "pendiente" : prevStatus;
@@ -673,6 +739,65 @@ export async function processInboundWebhookValue(
         memory_active_flow_session_id:
           (existingConv as { active_flow_session_id?: string | null }).active_flow_session_id ?? null,
       });
+
+      if (keywordHandoffPendingConfirmation) {
+        const sid =
+          (convDbAfterUnread as { active_flow_session_id?: string | null } | null)
+            ?.active_flow_session_id ??
+          (existingConv as { active_flow_session_id?: string | null }).active_flow_session_id ??
+          null;
+        await supabase.from("chat_flow_events").insert({
+          empresa_id: empresaId,
+          conversation_id: conversationId,
+          flow_code: (existingConv as { flow_code?: string | null }).flow_code ?? null,
+          node_code: (existingConv as { flow_current_node?: string | null }).flow_current_node ?? null,
+          flow_session_id: sid,
+          event_type: "human_handoff_keyword_or_button",
+          meta_button_id: metaButtonIdPre,
+          payload: {
+            trigger: message_type === "text" ? "text_keyword" : "interactive_button",
+            preview: preview.slice(0, 200),
+          },
+        });
+
+        const handoffText =
+          "Te derivamos con un asesor humano. En breve te vamos a escribir desde este mismo número.";
+        try {
+          const ctx = await getConversationWhatsAppSendContext(supabase, conversationId);
+          const sendC = await sendWhatsAppText({
+            toDigits: ctx.toDigits,
+            phoneNumberId: ctx.phoneNumberId,
+            accessToken: ctx.token,
+            text: handoffText,
+          });
+          if (sendC.ok) {
+            const nowH = new Date().toISOString();
+            await supabase.from("chat_messages").insert({
+              empresa_id: empresaId,
+              conversation_id: conversationId,
+              wa_message_id: sendC.waMessageId,
+              from_me: true,
+              sender_type: "system",
+              message_type: "text",
+              content: handoffText,
+              raw_payload: (sendC.raw ?? {}) as Record<string, unknown>,
+            });
+            await supabase
+              .from("chat_conversations")
+              .update({
+                last_message_at: nowH,
+                last_message_preview: handoffText.slice(0, 280),
+                updated_at: nowH,
+              })
+              .eq("id", conversationId);
+          }
+        } catch (e) {
+          console.warn(logW, "human_handoff_confirm_send_failed", {
+            conversationId,
+            err: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
 
       /**
        * 1) Presentar nodo actual si aún no se envió (botones/texto/media, etc.).

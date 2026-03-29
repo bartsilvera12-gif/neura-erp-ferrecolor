@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { ContactHistoryDetail, HistorySearchItem } from "@/lib/chat/history-service";
+import { getErpAttachmentPublicUrl } from "@/lib/chat/message-erp-display";
 
 function fmtDate(iso: string | null) {
   if (!iso) return "—";
@@ -293,11 +294,38 @@ export default function HistorialPage() {
                                 </span>
                               )}
                             </div>
-                            <p className="whitespace-pre-wrap break-words">
-                              {msg.message_type === "image"
-                                ? `Mensaje con imagen${msg.content ? `\n${msg.content}` : ""}`
-                                : msg.content || "—"}
-                            </p>
+                            <div className="whitespace-pre-wrap break-words space-y-2">
+                              {(() => {
+                                const url =
+                                  typeof msg.raw_payload === "object" && msg.raw_payload !== null
+                                    ? getErpAttachmentPublicUrl(
+                                        msg.raw_payload as Record<string, unknown>
+                                      )
+                                    : null;
+                                if (msg.message_type === "image" && url) {
+                                  return (
+                                    <>
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img
+                                        src={url}
+                                        alt=""
+                                        className="max-h-40 rounded-lg border border-white/20"
+                                      />
+                                      {msg.content && msg.content !== "[imagen]" ? (
+                                        <span>{msg.content}</span>
+                                      ) : null}
+                                    </>
+                                  );
+                                }
+                                return (
+                                  <>
+                                    {msg.message_type === "image"
+                                      ? `Mensaje con imagen${msg.content ? `\n${msg.content}` : ""}`
+                                      : msg.content || "—"}
+                                  </>
+                                );
+                              })()}
+                            </div>
                             <p className="text-[10px] opacity-80 mt-1">
                               {fmtDate(msg.created_at)} · {msg.message_type}
                             </p>

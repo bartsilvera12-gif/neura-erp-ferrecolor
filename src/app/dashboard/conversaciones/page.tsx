@@ -2,16 +2,25 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   approveComprobanteValidacion,
   fetchChatChannels,
   fetchChatConversations,
   fetchComprobanteValidacionesForConversation,
   markConversationRead,
+  releaseConversationToBot,
   type ComprobanteValidacionListRow,
+  type ConversacionesVista,
   type InboxConversation,
 } from "@/lib/chat/actions";
+import {
+  getErpAttachmentCaption,
+  getErpAttachmentFilename,
+  getErpAttachmentPublicUrl,
+  getMetaInboundDocumentFilename,
+  isImageMimeHint,
+} from "@/lib/chat/message-erp-display";
 import { supabase } from "@/lib/supabase";
 
 type ChatMessage = {
@@ -51,6 +60,11 @@ function mapRowToMessage(row: Record<string, unknown>): ChatMessage {
 }
 
 function parseOutgoingImageMessage(message: ChatMessage): { url: string | null; caption: string | null } {
+  const erpUrl = getErpAttachmentPublicUrl(message.raw_payload);
+  if (erpUrl) {
+    const cap = getErpAttachmentCaption(message.raw_payload) ?? getErpAttachmentFilename(message.raw_payload);
+    return { url: erpUrl, caption: cap };
+  }
   const imagePayload = (message.raw_payload?.image as { link?: string; caption?: string } | undefined) ?? {};
   const link = typeof imagePayload.link === "string" ? imagePayload.link.trim() : "";
   const captionFromPayload = typeof imagePayload.caption === "string" ? imagePayload.caption.trim() : "";
@@ -65,8 +79,24 @@ function parseOutgoingImageMessage(message: ChatMessage): { url: string | null; 
   return { url: urlLine, caption: captionLine };
 }
 
+function resolveAttachmentUrl(message: ChatMessage): string | null {
+  return getErpAttachmentPublicUrl(message.raw_payload) ?? parseOutgoingImageMessage(message).url;
+}
+
+function tabClass(active: boolean) {
+  return `px-3 py-2 text-xs font-semibold rounded-lg transition-colors ${
+    active ? "bg-white text-slate-800 shadow-sm border border-slate-200" : "text-slate-500 hover:text-slate-700"
+  }`;
+}
+
 export default function ConversacionesPage() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const vistaParam = searchParams?.get("vista") ?? "";
+  const vista: ConversacionesVista =
+    vistaParam === "bot" ? "bot" : vistaParam === "historial" ? "historial" : "inbox";
+
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -74,31 +104,38 @@ export default function ConversacionesPage() {
   const [loadingList, setLoadingList] = useState(true);
   const [loadingMsg, setLoadingMsg] = useState(false);
   const [sending, setSending] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [releasingBot, setReleasingBot] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [hasActiveChannel, setHasActiveChannel] = useState<boolean | null>(null);
   const [compVals, setCompVals] = useState<ComprobanteValidacionListRow[]>([]);
   const [compLoading, setCompLoading] = useState(false);
   const [compActionId, setCompActionId] = useState<string | null>(null);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   /** Si el usuario está cerca del final, los mensajes nuevos hacen scroll; si subió a leer historial, no. */
   const stickBottomRef = useRef(true);
   const lastMessageIdRef = useRef<string | null>(null);
   const loadConversationsRef = useRef<(opts?: { silent?: boolean }) => Promise<void>>(async () => {});
 
-  const loadConversations = useCallback(async (opts?: { silent?: boolean }) => {
-    const silent = opts?.silent ?? false;
-    try {
-      const rows = await fetchChatConversations();
-      setConversations(rows);
-      setListError(null);
-    } catch (e) {
-      setListError(e instanceof Error ? e.message : "Error al cargar conversaciones");
-    } finally {
-      if (!silent) setLoadingList(false);
-    }
-  }, []);
+  const loadConversations = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = opts?.silent ?? false;
+      try {
+        const rows = await fetchChatConversations(vista);
+        setConversations(rows);
+        setListError(null);
+      } catch (e) {
+        setListError(e instanceof Error ? e.message : "Error al cargar conversaciones");
+      } finally {
+        if (!silent) setLoadingList(false);
+      }
+    },
+    [vista]
+  );
 
   const loadMessages = useCallback(async (conversationId: string, opts?: { silent?: boolean }) => {
     const silent = opts?.silent ?? false;
@@ -122,8 +159,20 @@ export default function ConversacionesPage() {
   loadConversationsRef.current = loadConversations;
 
   useEffect(() => {
+    setLoadingList(true);
+    setSelectedId(null);
+    setMessages([]);
     loadConversations();
   }, [loadConversations]);
+
+  function setVista(next: ConversacionesVista) {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    if (next === "inbox") params.delete("vista");
+    else params.set("vista", next);
+    const qs = params.toString();
+    const base = pathname || "/dashboard/conversaciones";
+    router.push(qs ? `${base}?${qs}` : base);
+  }
 
   useEffect(() => {
     fetchChatChannels()
@@ -229,6 +278,53 @@ export default function ConversacionesPage() {
     }
   }, [loadMessages]);
 
+  async function handleSendFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !selectedId || uploadingFile) return;
+    setUploadingFile(true);
+    setSendError(null);
+    stickBottomRef.current = true;
+    try {
+      const fd = new FormData();
+      fd.set("conversation_id", selectedId);
+      fd.set("file", file);
+      const res = await fetch("/api/chat/send-media", {
+        method: "POST",
+        body: fd,
+        credentials: "same-origin",
+      });
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        throw new Error(typeof json.error === "string" ? json.error : `Error HTTP ${res.status}`);
+      }
+      await loadMessages(selectedId, { silent: true });
+      await loadConversations({ silent: true });
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "Error al enviar archivo");
+    } finally {
+      setUploadingFile(false);
+    }
+  }
+
+  async function handleReleaseToBot() {
+    if (!selectedId || releasingBot) return;
+    setReleasingBot(true);
+    setSendError(null);
+    try {
+      await releaseConversationToBot(selectedId);
+      await loadConversations({ silent: true });
+      if (vista === "inbox") {
+        setSelectedId(null);
+        setMessages([]);
+      }
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "No se pudo devolver al bot");
+    } finally {
+      setReleasingBot(false);
+    }
+  }
+
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedId || !input.trim() || sending) return;
@@ -267,6 +363,8 @@ export default function ConversacionesPage() {
   }
 
   const selected = conversations.find((c) => c.id === selectedId);
+  const isHumanActive =
+    !!selected && (selected.human_taken_over || selected.flow_status === "human");
   const requestedConversationId = searchParams?.get("conversationId") ?? null;
 
   useEffect(() => {
@@ -279,11 +377,57 @@ export default function ConversacionesPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] min-h-[480px] gap-4">
+      {lightboxUrl ? (
+        <button
+          type="button"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 border-0 cursor-zoom-out"
+          onClick={() => setLightboxUrl(null)}
+          aria-label="Cerrar vista ampliada"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={lightboxUrl}
+            alt="Vista ampliada"
+            className="max-h-[92vh] max-w-full object-contain rounded-lg shadow-2xl"
+            onClick={(ev) => ev.stopPropagation()}
+          />
+        </button>
+      ) : null}
+
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Conversaciones</h1>
-          <p className="text-sm text-slate-500">WhatsApp · bandeja de entrada</p>
+          <p className="text-sm text-slate-500">
+            WhatsApp ·{" "}
+            {vista === "inbox"
+              ? "Inbox (operador humano)"
+              : vista === "bot"
+                ? "Automatización / bot"
+                : "Historial completo"}
+          </p>
         </div>
+        <Link
+          href="/dashboard/historial"
+          className="text-xs font-medium text-slate-500 hover:text-[#0EA5E9] underline"
+        >
+          Búsqueda omnicanal por contacto
+        </Link>
+      </div>
+
+      <div className="flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-slate-100/80 p-1 w-fit">
+        <button type="button" className={tabClass(vista === "inbox")} onClick={() => setVista("inbox")}>
+          Inbox
+        </button>
+        <button type="button" className={tabClass(vista === "bot")} onClick={() => setVista("bot")}>
+          Bot
+        </button>
+        <button
+          type="button"
+          className={tabClass(vista === "historial")}
+          onClick={() => setVista("historial")}
+        >
+          Historial
+        </button>
       </div>
 
       {hasActiveChannel === false && (
@@ -325,11 +469,22 @@ export default function ConversacionesPage() {
                     <span className="font-medium text-slate-800 truncate">
                       {c.contact.name || c.contact.phone_number}
                     </span>
-                    {c.unread_count > 0 && (
-                      <span className="shrink-0 bg-[#0EA5E9] text-white text-xs font-bold px-2 py-0.5 rounded-full">
-                        {c.unread_count}
-                      </span>
-                    )}
+                    <span className="flex shrink-0 items-center gap-1">
+                      {c.human_taken_over || c.flow_status === "human" ? (
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                          Humano
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-violet-700 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded">
+                          Bot
+                        </span>
+                      )}
+                      {c.unread_count > 0 && (
+                        <span className="bg-[#0EA5E9] text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                          {c.unread_count}
+                        </span>
+                      )}
+                    </span>
                   </div>
                   <p className="text-xs text-slate-500 truncate mt-0.5">
                     {c.last_message_preview || "—"}
@@ -355,6 +510,25 @@ export default function ConversacionesPage() {
                 <span className="text-xs text-slate-400 font-mono">
                   {selected?.contact.phone_number}
                 </span>
+                {isHumanActive ? (
+                  <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                    Modo humano · el bot no responde
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-semibold text-violet-800 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full">
+                    Bot activo
+                  </span>
+                )}
+                {isHumanActive && (
+                  <button
+                    type="button"
+                    disabled={releasingBot}
+                    onClick={() => void handleReleaseToBot()}
+                    className="text-xs font-medium text-slate-600 hover:text-slate-800 border border-slate-200 rounded-lg px-2 py-1 bg-white disabled:opacity-50"
+                  >
+                    {releasingBot ? "…" : "Volver a modo bot"}
+                  </button>
+                )}
                 {selected?.contact.cliente_id && (
                   <Link
                     href={`/clientes/${selected.contact.cliente_id}`}
@@ -438,55 +612,137 @@ export default function ConversacionesPage() {
                 {loadingMsg ? (
                   <div className="text-center text-slate-400 text-sm py-8">Cargando mensajes…</div>
                 ) : (
-                  messages.map((m) => (
-                    <div
-                      key={m.id}
-                      className={`flex ${m.from_me ? "justify-end" : "justify-start"}`}
-                    >
+                  messages.map((m) => {
+                    const attachUrl = resolveAttachmentUrl(m);
+                    const metaDocName = getMetaInboundDocumentFilename(m.raw_payload);
+                    const erpName = getErpAttachmentFilename(m.raw_payload);
+                    const showAsImage =
+                      m.message_type === "image" ||
+                      m.message_type === "sticker" ||
+                      (m.message_type === "document" && isImageMimeHint(m.raw_payload, m.message_type));
+
+                    return (
                       <div
-                        className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm ${
-                          m.from_me
-                            ? "bg-[#0EA5E9] text-white rounded-br-md"
-                            : "bg-white border border-slate-200 text-slate-800 rounded-bl-md shadow-sm"
-                        }`}
+                        key={m.id}
+                        className={`flex ${m.from_me ? "justify-end" : "justify-start"}`}
                       >
-                        {m.message_type === "image" ? (
-                          (() => {
-                            const parsed = parseOutgoingImageMessage(m);
-                            return (
-                              <div className="space-y-2">
-                                <div className={`text-xs font-medium ${m.from_me ? "text-sky-100" : "text-slate-500"}`}>
-                                  Mensaje con imagen
-                                </div>
-                                {parsed.url ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img
-                                    src={parsed.url}
-                                    alt="Imagen enviada"
-                                    className="max-h-52 rounded-lg border border-white/30 bg-white object-contain"
-                                  />
-                                ) : null}
-                                {parsed.caption ? (
-                                  <p className="whitespace-pre-wrap break-words">{parsed.caption}</p>
-                                ) : null}
-                                {!parsed.url && !parsed.caption ? (
-                                  <p className="whitespace-pre-wrap break-words">{m.content}</p>
-                                ) : null}
-                              </div>
-                            );
-                          })()
-                        ) : (
-                          <p className="whitespace-pre-wrap break-words">{m.content}</p>
-                        )}
-                        <p
-                          className={`text-[10px] mt-1 ${m.from_me ? "text-sky-100" : "text-slate-400"}`}
+                        <div
+                          className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm ${
+                            m.from_me
+                              ? "bg-[#0EA5E9] text-white rounded-br-md"
+                              : "bg-white border border-slate-200 text-slate-800 rounded-bl-md shadow-sm"
+                          }`}
                         >
-                          {formatTime(m.created_at)}
-                          {m.message_type !== "text" && ` · ${m.message_type}`}
-                        </p>
+                          {showAsImage && attachUrl ? (
+                            <div className="space-y-2">
+                              <div
+                                className={`text-xs font-medium ${m.from_me ? "text-sky-100" : "text-slate-500"}`}
+                              >
+                                Imagen
+                              </div>
+                              <button
+                                type="button"
+                                className="p-0 border-0 bg-transparent cursor-zoom-in text-left"
+                                onClick={() => setLightboxUrl(attachUrl)}
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={attachUrl}
+                                  alt="Imagen del chat"
+                                  className="max-h-52 rounded-lg border border-white/30 bg-white object-contain"
+                                />
+                              </button>
+                              {m.content && m.content !== "[imagen]" ? (
+                                <p className="whitespace-pre-wrap break-words text-sm opacity-95">{m.content}</p>
+                              ) : null}
+                            </div>
+                          ) : m.message_type === "document" || m.message_type === "video" ? (
+                            <div className="space-y-2">
+                              <div
+                                className={`text-xs font-medium ${m.from_me ? "text-sky-100" : "text-slate-500"}`}
+                              >
+                                {m.message_type === "video" ? "Video" : "Documento"}
+                              </div>
+                              {attachUrl ? (
+                                <a
+                                  href={attachUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className={`inline-flex items-center gap-2 font-medium underline ${
+                                    m.from_me ? "text-white" : "text-[#0EA5E9]"
+                                  }`}
+                                >
+                                  <span className="text-lg" aria-hidden>
+                                    {m.message_type === "video" ? "▶" : "📄"}
+                                  </span>
+                                  <span className="break-all">
+                                    {erpName || metaDocName || "Abrir archivo"}
+                                  </span>
+                                </a>
+                              ) : (
+                                <p className="whitespace-pre-wrap break-words">
+                                  {erpName || metaDocName ? (
+                                    <>
+                                      <span className="font-medium">{erpName || metaDocName}</span>
+                                      {m.content ? (
+                                        <>
+                                          <br />
+                                          {m.content}
+                                        </>
+                                      ) : null}
+                                    </>
+                                  ) : (
+                                    m.content
+                                  )}
+                                </p>
+                              )}
+                            </div>
+                          ) : m.message_type === "image" ? (
+                            (() => {
+                              const parsed = parseOutgoingImageMessage(m);
+                              return (
+                                <div className="space-y-2">
+                                  <div
+                                    className={`text-xs font-medium ${m.from_me ? "text-sky-100" : "text-slate-500"}`}
+                                  >
+                                    Mensaje con imagen
+                                  </div>
+                                  {parsed.url ? (
+                                    <button
+                                      type="button"
+                                      className="p-0 border-0 bg-transparent cursor-zoom-in text-left"
+                                      onClick={() => setLightboxUrl(parsed.url!)}
+                                    >
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img
+                                        src={parsed.url}
+                                        alt="Imagen enviada"
+                                        className="max-h-52 rounded-lg border border-white/30 bg-white object-contain"
+                                      />
+                                    </button>
+                                  ) : null}
+                                  {parsed.caption ? (
+                                    <p className="whitespace-pre-wrap break-words">{parsed.caption}</p>
+                                  ) : null}
+                                  {!parsed.url && !parsed.caption ? (
+                                    <p className="whitespace-pre-wrap break-words">{m.content}</p>
+                                  ) : null}
+                                </div>
+                              );
+                            })()
+                          ) : (
+                            <p className="whitespace-pre-wrap break-words">{m.content}</p>
+                          )}
+                          <p
+                            className={`text-[10px] mt-1 ${m.from_me ? "text-sky-100" : "text-slate-400"}`}
+                          >
+                            {formatTime(m.created_at)}
+                            {m.message_type !== "text" && ` · ${m.message_type}`}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
 
@@ -494,12 +750,28 @@ export default function ConversacionesPage() {
                 onSubmit={handleSend}
                 className="p-3 border-t border-slate-200 bg-white flex flex-col gap-2"
               >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
+                  onChange={(e) => void handleSendFile(e)}
+                />
                 {sendError && (
                   <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
                     {sendError}
                   </div>
                 )}
                 <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={uploadingFile || !selectedId}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="shrink-0 border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 px-3 py-2 rounded-lg text-sm font-medium"
+                    title="Adjuntar imagen o documento"
+                  >
+                    {uploadingFile ? "…" : "Adjunto"}
+                  </button>
                   <input
                     className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#0EA5E9]/30 focus:border-[#0EA5E9] outline-none"
                     placeholder="Escribí un mensaje…"
@@ -510,7 +782,7 @@ export default function ConversacionesPage() {
                   <button
                     type="submit"
                     disabled={sending || !input.trim()}
-                    className="bg-[#0EA5E9] hover:bg-[#0284C7] disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium"
+                    className="bg-[#0EA5E9] hover:bg-[#0284C7] disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium shrink-0"
                   >
                     {sending ? "…" : "Enviar"}
                   </button>

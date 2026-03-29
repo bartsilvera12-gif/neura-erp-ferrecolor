@@ -49,7 +49,9 @@ const MENU_STRUCTURE: MenuItem[] = [
     icon: MessageCircle,
     children: [
       { label: "Inbox", href: "/dashboard/conversaciones" },
-      { label: "Historial", href: "/dashboard/historial" },
+      { label: "Bot", href: "/dashboard/conversaciones?vista=bot" },
+      { label: "Historial chats", href: "/dashboard/conversaciones?vista=historial" },
+      { label: "Búsqueda omnicanal", href: "/dashboard/historial" },
     ],
   },
   { slug: "ventas", label: "Ventas", href: "/ventas", icon: ShoppingCart },
