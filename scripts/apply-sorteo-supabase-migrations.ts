@@ -20,6 +20,7 @@ const MIGRATION_FILES = [
   "20260329140000_chat_flow_data_unique_per_flow.sql",
   "20260329150000_sorteo_finalize_confirm_payload.sql",
   "20260330180000_chat_flow_sessions.sql",
+  "20260331130000_chat_comprobante_validaciones.sql",
 ] as const;
 
 function getDbUrl(): string {

@@ -1,4 +1,10 @@
+"use server";
+
 import { getEmpresaId } from "@/lib/db/empresa";
+import {
+  SORTEO_COMPROBANTE_ESTADO_VALIDACION_FIELD,
+  SORTEO_COMPROBANTE_MOTIVO_VALIDACION_FIELD,
+} from "@/lib/chat/comprobante-validation-types";
 import { supabase } from "@/lib/supabase";
 
 export type InboxConversation = {
@@ -119,6 +125,8 @@ export type ChatChannelFormInput = {
   display_phone_number?: string;
   /** Token Meta para enviar desde el ERP; en edición, vacío = no cambiar el guardado */
   whatsapp_access_token?: string;
+  /** Se guarda en `config.comprobante_validation` (validación de comprobantes WhatsApp). */
+  comprobante_validation?: Record<string, unknown>;
 };
 
 export async function saveChatChannel(input: ChatChannelFormInput): Promise<void> {
@@ -129,11 +137,32 @@ export async function saveChatChannel(input: ChatChannelFormInput): Promise<void
   const existingId =
     typeof input.id === "string" && input.id.trim().length > 0 ? input.id.trim() : undefined;
 
-  const config: Record<string, unknown> = {
-    phone_number_id: pid,
-  };
   const disp = input.display_phone_number?.trim();
-  if (disp) config.display_phone_number = disp;
+
+  let config: Record<string, unknown> = { phone_number_id: pid };
+  if (existingId) {
+    const { data: prevRow } = await supabase
+      .from("chat_channels")
+      .select("config")
+      .eq("id", existingId)
+      .eq("empresa_id", empresa_id)
+      .maybeSingle();
+    const prev =
+      prevRow?.config &&
+      typeof prevRow.config === "object" &&
+      prevRow.config !== null &&
+      !Array.isArray(prevRow.config)
+        ? ({ ...(prevRow.config as Record<string, unknown>) } as Record<string, unknown>)
+        : {};
+    config = { ...prev, phone_number_id: pid };
+    if (disp) config.display_phone_number = disp;
+  } else if (disp) {
+    config.display_phone_number = disp;
+  }
+
+  if (input.comprobante_validation !== undefined) {
+    config.comprobante_validation = input.comprobante_validation;
+  }
 
   const base = {
     nombre: input.nombre.trim() || "WhatsApp",
@@ -177,6 +206,92 @@ export async function saveChatChannel(input: ChatChannelFormInput): Promise<void
   });
 
   if (error) throw new Error(error.message);
+}
+
+export type ComprobanteValidacionListRow = {
+  id: string;
+  estado_validacion: string;
+  motivo_validacion: string | null;
+  comprobante_url: string | null;
+  flow_code: string;
+  created_at: string;
+  ocr_referencia: string | null;
+  ocr_monto: string | null;
+};
+
+export async function fetchComprobanteValidacionesForConversation(
+  conversationId: string
+): Promise<ComprobanteValidacionListRow[]> {
+  const { data, error } = await supabase
+    .from("chat_comprobante_validaciones")
+    .select(
+      "id, estado_validacion, motivo_validacion, comprobante_url, flow_code, created_at, ocr_referencia, ocr_monto"
+    )
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as ComprobanteValidacionListRow[];
+}
+
+export async function approveComprobanteValidacion(validacionId: string): Promise<void> {
+  const empresa_id = await getEmpresaId();
+  const id = validacionId.trim();
+  if (!id) throw new Error("ID de validación inválido");
+
+  const { data: row, error: qErr } = await supabase
+    .from("chat_comprobante_validaciones")
+    .select("id, conversation_id, flow_code, flow_session_id")
+    .eq("id", id)
+    .eq("empresa_id", empresa_id)
+    .maybeSingle();
+
+  if (qErr) throw new Error(qErr.message);
+  if (!row) throw new Error("Validación no encontrada");
+
+  const r = row as {
+    id: string;
+    conversation_id: string;
+    flow_code: string;
+    flow_session_id: string;
+  };
+
+  const now = new Date().toISOString();
+  const { error: uErr } = await supabase
+    .from("chat_comprobante_validaciones")
+    .update({
+      estado_validacion: "valido",
+      motivo_validacion: "aprobado_manual_erp",
+      updated_at: now,
+    })
+    .eq("id", id)
+    .eq("empresa_id", empresa_id);
+
+  if (uErr) throw new Error(uErr.message);
+
+  const upserts = [
+    {
+      empresa_id,
+      conversation_id: r.conversation_id,
+      flow_code: r.flow_code.trim(),
+      flow_session_id: r.flow_session_id,
+      field_name: SORTEO_COMPROBANTE_ESTADO_VALIDACION_FIELD,
+      field_value: "valido",
+    },
+    {
+      empresa_id,
+      conversation_id: r.conversation_id,
+      flow_code: r.flow_code.trim(),
+      flow_session_id: r.flow_session_id,
+      field_name: SORTEO_COMPROBANTE_MOTIVO_VALIDACION_FIELD,
+      field_value: "aprobado_manual_erp",
+    },
+  ];
+
+  const { error: dErr } = await supabase.from("chat_flow_data").upsert(upserts, {
+    onConflict: "flow_session_id,field_name",
+  });
+  if (dErr) throw new Error(dErr.message);
 }
 
 export async function deleteChatChannel(id: string): Promise<void> {

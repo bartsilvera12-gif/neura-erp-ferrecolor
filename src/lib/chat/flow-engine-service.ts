@@ -1,4 +1,9 @@
 import { flowTrace, summarizeFlowDataForTrace } from "@/lib/chat/flow-trace-log";
+import { COMPROBANTE_BUTTON_IDS, parseComprobanteValidationConfig } from "@/lib/chat/comprobante-validation-types";
+import {
+  mensajeClienteComprobanteNoValido,
+  runComprobanteValidationPipeline,
+} from "@/lib/chat/comprobante-validation-service";
 import {
   sendWhatsAppInteractiveButtons,
   sendWhatsAppImage,
@@ -1282,6 +1287,95 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       return { ok: true, status: "missing_flow_state" };
     }
 
+    const currentNodePre = await getNode(
+      state.empresa_id,
+      state.flow_code,
+      state.flow_current_node
+    );
+    if (
+      currentNodePre?.node_type === "image_input" &&
+      (params.metaButtonId === COMPROBANTE_BUTTON_IDS.enviar_otro ||
+        params.metaButtonId === COMPROBANTE_BUTTON_IDS.hablar_asesor)
+    ) {
+      const sendCtxCv = await getConversationSendContext(state.id);
+      const { data: chCfg } = await supabase
+        .from("chat_channels")
+        .select("config")
+        .eq("id", state.channel_id)
+        .maybeSingle();
+      const cvMsgs = parseComprobanteValidationConfig(chCfg?.config).messages;
+      if (params.metaButtonId === COMPROBANTE_BUTTON_IDS.enviar_otro) {
+        const hint =
+          "Podés enviar otro comprobante ahora como imagen o PDF en este mismo chat.";
+        const send = await sendWhatsAppText({
+          toDigits: sendCtxCv.toDigits,
+          phoneNumberId: sendCtxCv.phoneNumberId,
+          accessToken: sendCtxCv.token,
+          text: hint,
+        });
+        if (send.ok) {
+          await persistOutgoingMessage({
+            conversation: state,
+            content: hint,
+            messageType: "text",
+            waMessageId: send.waMessageId,
+            raw: send.raw,
+            senderType: "system",
+            automationSource: "flow_engine",
+          });
+        }
+        await insertFlowEvent({
+          empresaId: state.empresa_id,
+          conversationId: state.id,
+          flowCode: state.flow_code,
+          nodeCode: state.flow_current_node,
+          flowSessionId: state.active_flow_session_id,
+          eventType: "comprobante_validation_retry",
+          metaButtonId: params.metaButtonId,
+          payload: { raw: params.rawPayload },
+        });
+        return { ok: true, status: "comprobante_retry_hint" };
+      }
+      await supabase
+        .from("chat_conversations")
+        .update({
+          flow_status: "human",
+          human_taken_over: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", state.id);
+      const handoff =
+        "Te derivamos con un asesor humano. En breve te vamos a escribir desde este mismo número.";
+      const sendH = await sendWhatsAppText({
+        toDigits: sendCtxCv.toDigits,
+        phoneNumberId: sendCtxCv.phoneNumberId,
+        accessToken: sendCtxCv.token,
+        text: handoff,
+      });
+      if (sendH.ok) {
+        await persistOutgoingMessage({
+          conversation: state,
+          content: handoff,
+          messageType: "text",
+          waMessageId: sendH.waMessageId,
+          raw: sendH.raw,
+          senderType: "system",
+          automationSource: "flow_engine",
+        });
+      }
+      await insertFlowEvent({
+        empresaId: state.empresa_id,
+        conversationId: state.id,
+        flowCode: state.flow_code,
+        nodeCode: state.flow_current_node,
+        flowSessionId: state.active_flow_session_id,
+        eventType: "comprobante_validation_asesor",
+        metaButtonId: params.metaButtonId,
+        payload: { raw: params.rawPayload, message_template: cvMsgs.revision_manual },
+      });
+      return { ok: true, status: "comprobante_asesor_handoff" };
+    }
+
     const currentNode = await getNode(
       state.empresa_id,
       state.flow_code,
@@ -1477,6 +1571,12 @@ export function createFlowEngine(ctx: FlowEngineContext) {
             supabase,
             state.empresa_id,
             state.flow_code as string
+          );
+        } else if (fin.reason === "comprobante_no_validado") {
+          detail = await mensajeClienteComprobanteNoValido(
+            supabase,
+            state.id,
+            typeof fin.comprobanteEstado === "string" ? fin.comprobanteEstado : ""
           );
         } else {
           detail = await getSorteoDatosIncompletosMessage(
@@ -1962,7 +2062,14 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       event: "comprobante_image_input",
     });
 
-    const comprobanteStagingRows: Array<{
+    const { data: chCfgImg } = await supabase
+      .from("chat_channels")
+      .select("config")
+      .eq("id", state.channel_id)
+      .maybeSingle();
+    const valSettings = parseComprobanteValidationConfig(chCfgImg?.config);
+
+    let comprobanteStagingRows: Array<{
       empresa_id: string;
       conversation_id: string;
       flow_code: string;
@@ -1987,6 +2094,25 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         field_value: publicUrl,
       },
     ];
+
+    const pipeline = await runComprobanteValidationPipeline({
+      supabase,
+      empresaId: state.empresa_id,
+      conversationId: state.id,
+      channelId: state.channel_id,
+      flowCode: state.flow_code,
+      flowSessionId: imgFlowSid,
+      mediaId: params.mediaId,
+      publicUrl,
+      bytes: Buffer.from(media.bytes),
+      mimeType: media.mimeType,
+      settings: valSettings,
+    });
+
+    if (pipeline.kind === "resolved") {
+      comprobanteStagingRows = pipeline.flowUpserts;
+    }
+
     if (currentNode.save_as_field?.trim()) {
       comprobanteStagingRows.push({
         empresa_id: state.empresa_id,
@@ -2035,8 +2161,72 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         storage_url: publicUrl,
         save_as_field: currentNode.save_as_field ?? null,
         sorteo_order_deferred_until_confirm: true,
+        comprobante_validacion:
+          pipeline.kind === "resolved"
+            ? {
+                validation_id: pipeline.validationId,
+                estado: pipeline.estado,
+                advance: pipeline.advance,
+              }
+            : null,
       },
     });
+
+    if (pipeline.kind === "resolved") {
+      const sendCtxVal = await getConversationSendContext(state.id);
+      if (pipeline.sendText?.trim()) {
+        const st = await sendWhatsAppText({
+          toDigits: sendCtxVal.toDigits,
+          phoneNumberId: sendCtxVal.phoneNumberId,
+          accessToken: sendCtxVal.token,
+          text: pipeline.sendText.trim(),
+        });
+        if (st.ok) {
+          await persistOutgoingMessage({
+            conversation: state,
+            content: pipeline.sendText.trim(),
+            messageType: "text",
+            waMessageId: st.waMessageId,
+            raw: st.raw,
+            senderType: "system",
+            automationSource: "flow_engine",
+          });
+        }
+      }
+      if (pipeline.humanTakeover) {
+        await supabase
+          .from("chat_conversations")
+          .update({
+            flow_status: "human",
+            human_taken_over: true,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", state.id);
+      }
+      if (pipeline.sendInteractive) {
+        const ib = await sendWhatsAppInteractiveButtons({
+          toDigits: sendCtxVal.toDigits,
+          phoneNumberId: sendCtxVal.phoneNumberId,
+          accessToken: sendCtxVal.token,
+          bodyText: pipeline.sendInteractive.body,
+          buttons: pipeline.sendInteractive.buttons,
+        });
+        if (ib.ok) {
+          await persistOutgoingMessage({
+            conversation: state,
+            content: pipeline.sendInteractive.body,
+            messageType: "interactive",
+            waMessageId: ib.waMessageId,
+            raw: ib.raw,
+            senderType: "system",
+            automationSource: "flow_engine",
+          });
+        }
+      }
+      if (!pipeline.advance) {
+        return { ok: true, status: "comprobante_blocked_validation" };
+      }
+    }
 
     if (!currentNode.next_node_code) {
       return { ok: true, status: "captured_no_next_node" };

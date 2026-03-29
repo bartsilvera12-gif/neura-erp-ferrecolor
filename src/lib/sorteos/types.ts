@@ -86,6 +86,8 @@ export interface SorteoEntrada {
   promo_nombre?: string | null;
   precio_fuente?: "lista" | "promo" | null;
   precio_regular_referencia?: number | null;
+  /** Fila en `chat_comprobante_validaciones` cuando la compra viene del flujo WhatsApp. */
+  comprobante_validacion_id?: string | null;
   sorteos?: { nombre: string } | null;
 }
 

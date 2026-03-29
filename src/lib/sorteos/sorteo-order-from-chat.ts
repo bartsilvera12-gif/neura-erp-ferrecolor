@@ -1,5 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { flowTrace, summarizeFlowDataForTrace } from "@/lib/chat/flow-trace-log";
+import {
+  SORTEO_COMPROBANTE_ESTADO_VALIDACION_FIELD,
+  SORTEO_COMPROBANTE_VALIDACION_ID_FIELD,
+} from "@/lib/chat/comprobante-validation-types";
 import { parseMoneyPy } from "@/lib/sorteos/parse-money-py";
 
 /** Clave estable: mismo comprobante (media) en misma conversación y flujo → una sola orden. */
@@ -589,7 +593,7 @@ export type EnsureSorteoOrderCreatedData = {
 };
 
 export type EnsureSorteoOrderFromChatResult =
-  | { ok: true; skipped: true; reason: string }
+  | { ok: true; skipped: true; reason: string; comprobanteEstado?: string }
   | ({ ok: true; skipped: false } & EnsureSorteoOrderCreatedData)
   | { ok: false; message: string };
 
@@ -732,6 +736,15 @@ export async function finalizeSorteoOrderFromConfirmedFlowData(
   const mediaId = norm(input.flowData[SORTEO_COMPROBANTE_MEDIA_ID_FIELD]);
   if (!url || !mediaId) {
     return { ok: true, skipped: true, reason: "sin_comprobante_en_sesion" };
+  }
+  const estVal = norm(input.flowData[SORTEO_COMPROBANTE_ESTADO_VALIDACION_FIELD]);
+  if (estVal && estVal !== "valido") {
+    return {
+      ok: true,
+      skipped: true,
+      reason: "comprobante_no_validado",
+      comprobanteEstado: estVal,
+    };
   }
   flowTrace("finalize_sorteo_order_invoke", {
     conversation_id: input.conversationId,
@@ -1055,6 +1068,26 @@ export async function ensureSorteoOrderFromChat(
     idempotent: row.idempotent === true,
     event: "creacion_orden_sorteo",
   });
+
+  const cvId = norm(flowData[SORTEO_COMPROBANTE_VALIDACION_ID_FIELD]);
+  if (cvId && entradaId) {
+    await supabase
+      .from("sorteo_entradas")
+      .update({
+        comprobante_validacion_id: cvId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", entradaId)
+      .eq("empresa_id", input.empresaId);
+    await supabase
+      .from("chat_comprobante_validaciones")
+      .update({
+        sorteo_entrada_id: entradaId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", cvId)
+      .eq("empresa_id", input.empresaId);
+  }
 
   return {
     ok: true,

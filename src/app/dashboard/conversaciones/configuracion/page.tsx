@@ -2,6 +2,13 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ComprobanteValidationConfigSection } from "@/components/chat/ComprobanteValidationConfigSection";
+import {
+  comprobanteValidationSettingsForForm,
+  defaultComprobanteValidationSettings,
+  parseComprobanteValidationConfig,
+  type ComprobanteValidationSettings,
+} from "@/lib/chat/comprobante-validation-types";
 import {
   deleteChatChannel,
   fetchChatChannels,
@@ -37,6 +44,9 @@ export default function ConfiguracionCanalesPage() {
   const [panelMode, setPanelMode] = useState<PanelMode>("list");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [cvSettings, setCvSettings] = useState<ComprobanteValidationSettings>(() =>
+    defaultComprobanteValidationSettings()
+  );
   const formAnchorRef = useRef<HTMLDivElement>(null);
 
   const reload = useCallback(async () => {
@@ -75,6 +85,7 @@ export default function ConfiguracionCanalesPage() {
     setSuccess(null);
     setEditingId(null);
     setForm(emptyForm());
+    setCvSettings(defaultComprobanteValidationSettings());
     setPanelMode("create");
   }
 
@@ -82,6 +93,7 @@ export default function ConfiguracionCanalesPage() {
     setError(null);
     setSuccess(null);
     setEditingId(row.id);
+    setCvSettings(parseComprobanteValidationConfig(row.config));
     setForm({
       nombre: row.nombre ?? "WhatsApp",
       meta_phone_number_id: row.meta_phone_number_id,
@@ -101,6 +113,7 @@ export default function ConfiguracionCanalesPage() {
     setSuccess(null);
     setEditingId(null);
     setForm(emptyForm());
+    setCvSettings(defaultComprobanteValidationSettings());
     setPanelMode("list");
   }
 
@@ -114,10 +127,17 @@ export default function ConfiguracionCanalesPage() {
         if (!editingId) {
           throw new Error("No hay canal seleccionado para editar. Volvé al listado y elegí «Editar».");
         }
-        await saveChatChannel({ ...form, id: editingId });
+        await saveChatChannel({
+          ...form,
+          id: editingId,
+          comprobante_validation: comprobanteValidationSettingsForForm(cvSettings),
+        });
         setSuccess("Canal actualizado correctamente.");
       } else {
-        await saveChatChannel(form);
+        await saveChatChannel({
+          ...form,
+          comprobante_validation: comprobanteValidationSettingsForForm(cvSettings),
+        });
         setSuccess("Canal creado correctamente.");
       }
       await reload();
@@ -283,6 +303,9 @@ export default function ConfiguracionCanalesPage() {
               />
               Canal activo (recibe mensajes del webhook)
             </label>
+
+            <ComprobanteValidationConfigSection value={cvSettings} onChange={setCvSettings} />
+
             <div className="flex flex-wrap gap-2 pt-1">
               <button
                 type="submit"

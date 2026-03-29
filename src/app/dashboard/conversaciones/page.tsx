@@ -4,9 +4,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
+  approveComprobanteValidacion,
   fetchChatChannels,
   fetchChatConversations,
+  fetchComprobanteValidacionesForConversation,
   markConversationRead,
+  type ComprobanteValidacionListRow,
   type InboxConversation,
 } from "@/lib/chat/actions";
 import { supabase } from "@/lib/supabase";
@@ -74,6 +77,9 @@ export default function ConversacionesPage() {
   const [listError, setListError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [hasActiveChannel, setHasActiveChannel] = useState<boolean | null>(null);
+  const [compVals, setCompVals] = useState<ComprobanteValidacionListRow[]>([]);
+  const [compLoading, setCompLoading] = useState(false);
+  const [compActionId, setCompActionId] = useState<string | null>(null);
 
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   /** Si el usuario está cerca del final, los mensajes nuevos hacen scroll; si subió a leer historial, no. */
@@ -204,6 +210,15 @@ export default function ConversacionesPage() {
     lastMessageIdRef.current = null;
     setSelectedId(id);
     await loadMessages(id);
+    setCompLoading(true);
+    try {
+      const rows = await fetchComprobanteValidacionesForConversation(id);
+      setCompVals(rows);
+    } catch {
+      setCompVals([]);
+    } finally {
+      setCompLoading(false);
+    }
     try {
       await markConversationRead(id);
       setConversations((prev) =>
@@ -355,6 +370,63 @@ export default function ConversacionesPage() {
                   >
                     Ver prospecto CRM
                   </Link>
+                )}
+              </div>
+
+              <div className="px-4 py-2 border-b border-slate-200 bg-amber-50/40 text-sm">
+                <div className="font-semibold text-slate-700 text-xs uppercase tracking-wide mb-2">
+                  Comprobantes (validación)
+                </div>
+                {compLoading ? (
+                  <p className="text-xs text-slate-500">Cargando…</p>
+                ) : compVals.length === 0 ? (
+                  <p className="text-xs text-slate-500">No hay comprobantes registrados en esta conversación.</p>
+                ) : (
+                  <ul className="space-y-2 max-h-40 overflow-y-auto">
+                    {compVals.map((v) => (
+                      <li
+                        key={v.id}
+                        className="flex flex-wrap items-center gap-2 text-xs bg-white border border-slate-200 rounded-lg px-2 py-1.5"
+                      >
+                        <span className="font-mono text-slate-600">{v.estado_validacion}</span>
+                        {v.comprobante_url ? (
+                          <a
+                            href={v.comprobante_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[#0EA5E9] hover:underline"
+                          >
+                            Ver archivo
+                          </a>
+                        ) : null}
+                        {v.estado_validacion !== "valido" ? (
+                          <button
+                            type="button"
+                            disabled={compActionId === v.id}
+                            onClick={async () => {
+                              const convId = selectedId;
+                              if (!convId) return;
+                              setCompActionId(v.id);
+                              try {
+                                await approveComprobanteValidacion(v.id);
+                                const rows = await fetchComprobanteValidacionesForConversation(convId);
+                                setCompVals(rows);
+                              } catch (e) {
+                                setSendError(
+                                  e instanceof Error ? e.message : "No se pudo aprobar el comprobante"
+                                );
+                              } finally {
+                                setCompActionId(null);
+                              }
+                            }}
+                            className="text-emerald-700 font-medium hover:underline disabled:opacity-50"
+                          >
+                            Aprobar (cerrar compra)
+                          </button>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
 

@@ -83,6 +83,7 @@ export default async function SorteoEntradasPage() {
                   <th className="text-left text-sm font-semibold text-slate-600 px-5 py-3">Fecha pago</th>
                   <th className="text-left text-sm font-semibold text-slate-600 px-5 py-3">Validado</th>
                   <th className="text-left text-sm font-semibold text-slate-600 px-5 py-3">Creado</th>
+                  <th className="text-left text-sm font-semibold text-slate-600 px-5 py-3">Comprobante</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
@@ -117,6 +118,20 @@ export default async function SorteoEntradasPage() {
                     <td className="px-5 py-3 text-sm whitespace-nowrap">{formatFecha(r.fecha_pago)}</td>
                     <td className="px-5 py-3 text-sm">{r.validado_por ?? "—"}</td>
                     <td className="px-5 py-3 text-sm whitespace-nowrap">{formatFecha(r.created_at)}</td>
+                    <td className="px-5 py-3 text-sm">
+                      {r.comprobante_url?.trim() ? (
+                        <a
+                          href={r.comprobante_url.trim()}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[#0EA5E9] hover:underline font-medium"
+                        >
+                          Abrir
+                        </a>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
