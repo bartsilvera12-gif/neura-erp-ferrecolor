@@ -34,6 +34,8 @@ type Usuario = {
   modulo_ids?: string[];
   modulos_empresa?: ModuloOpt[];
   puede_editar_modulos?: boolean;
+  /** admin / administrador: acceso a todos los módulos de la empresa sin filas en usuario_modulos */
+  es_admin_empresa?: boolean;
 };
 
 function UsuarioDetailContent() {
@@ -125,7 +127,7 @@ function UsuarioDetailContent() {
         fecha_nacimiento: form.fecha_nacimiento || undefined,
         estado: form.estado,
       };
-      if (usuario.puede_editar_modulos) {
+      if (usuario.puede_editar_modulos && !usuario.es_admin_empresa) {
         body.modulo_ids = form.modulo_ids;
       }
 
@@ -145,7 +147,8 @@ function UsuarioDetailContent() {
         telefono: form.telefono.trim() || null,
         fecha_nacimiento: form.fecha_nacimiento || null,
         estado: form.estado,
-        modulo_ids: usuario.puede_editar_modulos ? [...form.modulo_ids] : usuario.modulo_ids,
+        modulo_ids:
+          usuario.puede_editar_modulos && !usuario.es_admin_empresa ? [...form.modulo_ids] : usuario.modulo_ids,
       });
       setEditing(false);
       setSuccessMessage("Cambios guardados correctamente en la base de datos.");
@@ -270,23 +273,45 @@ function UsuarioDetailContent() {
 
           {(usuario.modulos_empresa?.length ?? 0) > 0 && (
             <SectionCard title="Módulos del usuario" icon="📦">
-              <p className="text-xs text-gray-500 mb-3">
-                Solo se listan módulos habilitados para la empresa. El acceso efectivo es la intersección con lo asignado a este usuario.
-              </p>
-              <ul className="flex flex-wrap gap-2">
-                {(usuario.modulos_empresa ?? [])
-                  .filter((m) => (usuario.modulo_ids ?? []).includes(m.id))
-                  .map((m) => (
-                    <li
-                      key={m.id}
-                      className="text-sm font-medium px-3 py-1 rounded-full bg-slate-100 text-slate-800 border border-slate-200"
-                    >
-                      {m.nombre}
-                    </li>
-                  ))}
-              </ul>
-              {(usuario.modulo_ids ?? []).length === 0 && (
-                <p className="text-sm text-amber-700 mt-2">Sin módulos asignados (solo verá el inicio hasta que un administrador asigne módulos).</p>
+              {usuario.es_admin_empresa ? (
+                <>
+                  <p className="text-xs text-gray-500 mb-3">
+                    Los administradores de la empresa tienen acceso automático a todos los módulos habilitados para la organización. No hace falta asignarlos uno a uno.
+                  </p>
+                  <ul className="flex flex-wrap gap-2">
+                    {(usuario.modulos_empresa ?? []).map((m) => (
+                      <li
+                        key={m.id}
+                        className="text-sm font-medium px-3 py-1 rounded-full bg-slate-100 text-slate-800 border border-slate-200"
+                      >
+                        {m.nombre}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs text-gray-500 mb-3">
+                    Módulos habilitados para la empresa que este usuario puede usar (supervisores y usuarios operativos).
+                  </p>
+                  <ul className="flex flex-wrap gap-2">
+                    {(usuario.modulos_empresa ?? [])
+                      .filter((m) => (usuario.modulo_ids ?? []).includes(m.id))
+                      .map((m) => (
+                        <li
+                          key={m.id}
+                          className="text-sm font-medium px-3 py-1 rounded-full bg-slate-100 text-slate-800 border border-slate-200"
+                        >
+                          {m.nombre}
+                        </li>
+                      ))}
+                  </ul>
+                  {(usuario.modulo_ids ?? []).length === 0 && (
+                    <p className="text-sm text-amber-700 mt-2">
+                      Sin módulos asignados (solo verá el inicio hasta que un administrador asigne módulos).
+                    </p>
+                  )}
+                </>
               )}
             </SectionCard>
           )}
@@ -353,10 +378,12 @@ function UsuarioDetailContent() {
             </div>
           </SectionCard>
 
-          {usuario.puede_editar_modulos && (usuario.modulos_empresa?.length ?? 0) > 0 && (
+          {usuario.puede_editar_modulos &&
+            !usuario.es_admin_empresa &&
+            (usuario.modulos_empresa?.length ?? 0) > 0 && (
             <SectionCard title="Módulos del usuario" icon="📦">
               <p className="text-xs text-gray-500 mb-4">
-                Marcá solo los módulos que esta persona puede usar. La lista muestra únicamente lo habilitado para tu empresa.
+                Solo aplica a supervisores y usuarios. Marcá los módulos que esta persona puede usar (lo habilitado para tu empresa).
               </p>
               <div className="space-y-2">
                 {(usuario.modulos_empresa ?? []).map((m) => (

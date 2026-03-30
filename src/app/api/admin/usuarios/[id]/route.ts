@@ -1,6 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { filterModuloIdsForEmpresa } from "@/lib/modulos/resolve-effective-modules";
+import {
+  esRolAdminEmpresa,
+  filterModuloIdsForEmpresa,
+} from "@/lib/modulos/resolve-effective-modules";
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -61,7 +64,7 @@ export async function PATCH(
 
     const { data: usuario, error: errGet } = await supabase
       .from("usuarios")
-      .select("id, email, nombre, estado, auth_user_id, empresa_id")
+      .select("id, email, nombre, estado, auth_user_id, empresa_id, rol")
       .eq("id", id)
       .single();
 
@@ -117,7 +120,7 @@ export async function PATCH(
       }
     }
 
-    if (Array.isArray(modulo_ids)) {
+    if (Array.isArray(modulo_ids) && !esRolAdminEmpresa(usuario.rol)) {
       if (!usuario.empresa_id) {
         return NextResponse.json(
           { error: "El usuario no tiene empresa; no se pueden asignar módulos." },

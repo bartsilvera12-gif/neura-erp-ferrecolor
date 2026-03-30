@@ -2,9 +2,35 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type ModuloRow = { id: string; nombre: string; slug: string };
 
+/** Admin de empresa (`admin` al crear empresa, `administrador` en el alta interna): ven todos los módulos habilitados para la empresa. */
+export function esRolAdminEmpresa(rol: string | null | undefined): boolean {
+  const r = (rol ?? "").trim().toLowerCase();
+  return r === "admin" || r === "administrador";
+}
+
+async function modulosRowsByIds(
+  supabase: SupabaseClient,
+  moduloIds: string[]
+): Promise<ModuloRow[]> {
+  if (moduloIds.length === 0) return [];
+  const { data: modulos, error: errMod } = await supabase
+    .from("modulos")
+    .select("id, nombre, slug")
+    .in("id", moduloIds)
+    .order("slug");
+  if (errMod) throw new Error(errMod.message);
+  return (modulos ?? []).map((m) => ({
+    id: m.id as string,
+    nombre: (m.nombre as string) ?? "",
+    slug: (m.slug as string) ?? "",
+  }));
+}
+
 /**
- * Resuelve módulos efectivos para el usuario: intersección empresa (activo) ∩ usuario_modulos.
- * super_admin → todos los módulos del catálogo.
+ * Resuelve módulos efectivos:
+ * - super_admin → catálogo completo
+ * - admin / administrador de empresa → todos los módulos activos de empresa_modulos
+ * - resto (supervisor, usuario, etc.) → intersección empresa (activo) ∩ usuario_modulos
  */
 export async function resolveEffectiveModules(
   supabase: SupabaseClient,
@@ -35,6 +61,10 @@ export async function resolveEffectiveModules(
   const empresaModuloIds = [...new Set((emData ?? []).map((r) => r.modulo_id as string).filter(Boolean))];
   if (empresaModuloIds.length === 0) return [];
 
+  if (esRolAdminEmpresa(usuario.rol)) {
+    return modulosRowsByIds(supabase, empresaModuloIds);
+  }
+
   const { data: umData, error: errUm } = await supabase
     .from("usuario_modulos")
     .select("modulo_id")
@@ -53,18 +83,7 @@ export async function resolveEffectiveModules(
 
   if (moduloIds.length === 0) return [];
 
-  const { data: modulos, error: errMod } = await supabase
-    .from("modulos")
-    .select("id, nombre, slug")
-    .in("id", moduloIds)
-    .order("slug");
-
-  if (errMod) throw new Error(errMod.message);
-  return (modulos ?? []).map((m) => ({
-    id: m.id as string,
-    nombre: (m.nombre as string) ?? "",
-    slug: (m.slug as string) ?? "",
-  }));
+  return modulosRowsByIds(supabase, moduloIds);
 }
 
 /** Filtra modulo_ids contra los habilitados para la empresa. */

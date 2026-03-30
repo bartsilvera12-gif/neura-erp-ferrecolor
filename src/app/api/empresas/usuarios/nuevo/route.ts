@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { esRolAdminEmpresa } from "@/lib/modulos/resolve-effective-modules";
 
 function emailExistsInAuthError(msg: string): boolean {
   const m = msg.toLowerCase();
@@ -152,22 +153,24 @@ export async function POST(req: Request) {
     }
 
     await supabase.from("usuario_modulos").delete().eq("usuario_id", targetId);
-    const { data: emActivos } = await supabase
-      .from("empresa_modulos")
-      .select("modulo_id")
-      .eq("empresa_id", empresaId)
-      .eq("activo", true);
-    if (emActivos && emActivos.length > 0) {
-      const umRows = emActivos.map((r) => ({
-        usuario_id: targetId,
-        modulo_id: r.modulo_id as string,
-      }));
-      const { error: errUm } = await supabase.from("usuario_modulos").insert(umRows);
-      if (errUm) {
-        return NextResponse.json(
-          { error: `Usuario guardado pero error al asignar módulos: ${errUm.message}` },
-          { status: 400 }
-        );
+    if (!esRolAdminEmpresa(rol)) {
+      const { data: emActivos } = await supabase
+        .from("empresa_modulos")
+        .select("modulo_id")
+        .eq("empresa_id", empresaId)
+        .eq("activo", true);
+      if (emActivos && emActivos.length > 0) {
+        const umRows = emActivos.map((r) => ({
+          usuario_id: targetId,
+          modulo_id: r.modulo_id as string,
+        }));
+        const { error: errUm } = await supabase.from("usuario_modulos").insert(umRows);
+        if (errUm) {
+          return NextResponse.json(
+            { error: `Usuario guardado pero error al asignar módulos: ${errUm.message}` },
+            { status: 400 }
+          );
+        }
       }
     }
 

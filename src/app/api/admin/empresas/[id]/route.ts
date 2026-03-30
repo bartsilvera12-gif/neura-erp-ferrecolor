@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { esRolAdminEmpresa } from "@/lib/modulos/resolve-effective-modules";
 
 export async function GET(
   _req: Request,
@@ -27,6 +28,14 @@ export async function GET(
     if (errEmpresa || !empresa) {
       return NextResponse.json({ error: "Empresa no encontrada" }, { status: 404 });
     }
+
+    const { data: emData } = await supabase
+      .from("empresa_modulos")
+      .select("modulo_id")
+      .eq("empresa_id", id)
+      .eq("activo", true);
+
+    const empresaModuloIds = (emData ?? []).map((r) => r.modulo_id).filter(Boolean) as string[];
 
     // 2. Usuarios de la empresa (incluye estado y módulos si existe)
     const { data: usuariosRaw } = await supabase
@@ -56,17 +65,11 @@ export async function GET(
 
     const usuariosConModulos = usuarios.map((u) => ({
       ...u,
-      modulo_ids: usuarioModulosMap[u.id] ?? [],
+      modulo_ids: esRolAdminEmpresa(u.rol) ? [...empresaModuloIds] : usuarioModulosMap[u.id] ?? [],
     }));
 
     // 3. Módulos habilitados (empresa_modulos + modulos)
-    const { data: emData } = await supabase
-      .from("empresa_modulos")
-      .select("modulo_id")
-      .eq("empresa_id", id)
-      .eq("activo", true);
-
-    const moduloIds = (emData ?? []).map((r) => r.modulo_id).filter(Boolean);
+    const moduloIds = empresaModuloIds;
     let modulos: { id: string; nombre: string; slug: string }[] = [];
 
     if (moduloIds.length > 0) {

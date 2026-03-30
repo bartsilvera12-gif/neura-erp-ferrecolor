@@ -2,7 +2,10 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { filterModuloIdsForEmpresa } from "@/lib/modulos/resolve-effective-modules";
+import {
+  esRolAdminEmpresa,
+  filterModuloIdsForEmpresa,
+} from "@/lib/modulos/resolve-effective-modules";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getAuthUserId(supabase: any, usuario: { auth_user_id?: string | null; email?: string }): Promise<string | null> {
@@ -97,14 +100,25 @@ export async function GET(
         .select("modulo_id")
         .eq("usuario_id", id);
       modulo_ids = (umData ?? []).map((r) => (r as { modulo_id: string }).modulo_id);
+      if (esRolAdminEmpresa(usuario.rol)) {
+        modulo_ids = mids;
+      }
     }
+
+    const es_admin_empresa = esRolAdminEmpresa(usuario.rol);
 
     const puede_editar_modulos =
       (currentUser?.rol ?? "").trim() === "super_admin" ||
       ["admin", "administrador"].includes((currentUser?.rol ?? "").trim());
 
     const { empresa_id: _e, ...rest } = usuario;
-    return NextResponse.json({ ...rest, modulo_ids, modulos_empresa, puede_editar_modulos });
+    return NextResponse.json({
+      ...rest,
+      modulo_ids,
+      modulos_empresa,
+      puede_editar_modulos,
+      es_admin_empresa,
+    });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Error";
     return NextResponse.json({ error: msg }, { status: 500 });
@@ -150,7 +164,7 @@ export async function PATCH(
 
     const { data: usuario, error: errGet } = await supabase
       .from("usuarios")
-      .select("id, email, estado, auth_user_id, empresa_id")
+      .select("id, email, estado, auth_user_id, empresa_id, rol")
       .eq("id", id)
       .single();
 
@@ -213,7 +227,7 @@ export async function PATCH(
       }
     }
 
-    if (Array.isArray(modulo_ids) && usuario.empresa_id) {
+    if (Array.isArray(modulo_ids) && usuario.empresa_id && !esRolAdminEmpresa(usuario.rol)) {
       const validIds = await filterModuloIdsForEmpresa(supabase, usuario.empresa_id, modulo_ids);
       const { error: errDel } = await supabase.from("usuario_modulos").delete().eq("usuario_id", id);
       if (errDel) {
