@@ -25,7 +25,8 @@ function getSupabase() {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
-const ESTADOS_BLOQUEADOS_XML = new Set<string>(["aprobado", "enviado", "firmado"]);
+/** `firmado` permite regenerar (p. ej. migrar borrador legacy → rDE); la firma previa se invalida en DB y en Storage. */
+const ESTADOS_BLOQUEADOS_XML = new Set<string>(["aprobado", "enviado"]);
 
 /**
  * POST /api/facturas/[id]/sifen/xml
@@ -53,7 +54,7 @@ export async function POST(
 
     const { data: feSnapshot, error: errSnap } = await supabase
       .from("factura_electronica")
-      .select("id, xml_path, estado_sifen")
+      .select("id, xml_path, xml_firmado_path, estado_sifen")
       .eq("factura_id", fid)
       .eq("empresa_id", auth.empresa_id)
       .maybeSingle();
@@ -132,12 +133,17 @@ export async function POST(
       feSnapshot.xml_path === null || feSnapshot.xml_path === undefined
         ? null
         : String(feSnapshot.xml_path);
+    const previousSignedPath =
+      feSnapshot.xml_firmado_path === null || feSnapshot.xml_firmado_path === undefined
+        ? null
+        : String(feSnapshot.xml_firmado_path).trim() || null;
 
     const { data: updatedRow, error: errUpdate } = await supabase
       .from("factura_electronica")
       .update({
         xml_path: objectPath,
         estado_sifen: "generado",
+        xml_firmado_path: null,
         ...(cdc ? { cdc } : {}),
       })
       .eq("id", feSnapshot.id)
@@ -175,6 +181,7 @@ export async function POST(
         .update({
           xml_path: previousXmlPath,
           estado_sifen: previousEstado,
+          xml_firmado_path: previousSignedPath,
         })
         .eq("id", feSnapshot.id)
         .eq("empresa_id", auth.empresa_id);
@@ -183,6 +190,10 @@ export async function POST(
         errorResponse(`No se pudo registrar el evento; se revirtió el estado y el archivo: ${errEvento.message}`),
         { status: 500 }
       );
+    }
+
+    if (previousSignedPath) {
+      await removeSifenObject(supabase, previousSignedPath);
     }
 
     const data: SifenXmlGeneracionResponseData = {

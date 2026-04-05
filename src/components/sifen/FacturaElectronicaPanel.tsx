@@ -195,7 +195,7 @@ function EstadoEmisionElectronicaBlock({ resumen }: { resumen: Resumen }) {
   );
 }
 
-const XML_BLOQUEADOS = new Set(["aprobado", "enviado", "firmado"]);
+const XML_BLOQUEADOS = new Set(["aprobado", "enviado"]);
 const FIRMAR_BLOQUEADOS = new Set(["aprobado", "enviado"]);
 
 async function readApiError(res: Response): Promise<string> {
