@@ -23,6 +23,8 @@ import {
 } from "./sifen-cdc";
 
 const NS = "http://ekuatia.set.gov.py/sifen/xsd";
+const XMLNS_XSI = "http://www.w3.org/2001/XMLSchema-instance";
+const RDE_SCHEMA_LOCATION = `${NS} siRecepDE_v150.xsd`;
 
 /** Enumeraciones / literales exactos según DE_Types_v150.xsd (y catálogos referidos). */
 const XSD_DES_TI_DE_FACTURA = "Factura electrónica";
@@ -481,7 +483,7 @@ export function buildOfficialRdeFacturaElectronicaXml(
 
   const xml =
     `<?xml version="1.0" encoding="UTF-8"?>\n` +
-    `<rDE xmlns="${NS}">` +
+    `<rDE xmlns="${NS}" xmlns:xsi="${XMLNS_XSI}" xsi:schemaLocation="${escapeXml(RDE_SCHEMA_LOCATION)}">` +
     textEl("dVerFor", "150") +
     de +
     `</rDE>\n`;
