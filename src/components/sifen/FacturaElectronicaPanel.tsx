@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useState } from "react";
-import type { FacturaElectronicaDTO } from "@/lib/sifen/types";
+import type { FacturaElectronicaDTO, SifenConsultaLoteUltimaPersistida } from "@/lib/sifen/types";
 import { SifenEstadoBadge, labelSifenEstado } from "./SifenEstadoBadge";
 
 type Resumen = {
@@ -198,6 +198,25 @@ function EstadoEmisionElectronicaBlock({ resumen }: { resumen: Resumen }) {
 
 const XML_BLOQUEADOS = new Set(["aprobado", "enviado"]);
 const FIRMAR_BLOQUEADOS = new Set(["aprobado", "enviado"]);
+
+/** Texto cuando consulta-lote no trae `gResProcLote` (0365 ≠ “sigue en cola”). */
+function mensajeConsultaSinFilasPorCdc(uc: SifenConsultaLoteUltimaPersistida): string {
+  const rawCod = (uc.dCodResLot ?? "").trim();
+  const codSinCeros = rawCod.replace(/^0+/, "") || rawCod;
+  const msg = (uc.dMsgResLot ?? "").toLowerCase();
+  const loteCancelado =
+    codSinCeros === "365" || /\b0365\b/.test(rawCod) || msg.includes("cancelad");
+  if (loteCancelado) {
+    return (
+      "SET respondió que el lote está cancelado y no incluyó filas por CDC. " +
+      "Eso es habitual cuando recibe-lote devolvió 0301 (todos los DE rechazados): el motivo del rechazo no se repite aquí por documento. " +
+      "Revisá en TEST duplicidad de timbrado + establecimiento + punto de expedición + número de documento, el XML frente al XSD y el certificado usado al firmar."
+    );
+  }
+  return (
+    "Sin detalle por CDC en esta respuesta. Si el envío fue hace poco, el lote podría seguir en proceso: reintentá la consulta en unos minutos."
+  );
+}
 
 async function readApiError(res: Response): Promise<string> {
   try {
@@ -497,9 +516,7 @@ export function FacturaElectronicaPanel({
                       </ul>
                     )}
                     {ultimaConsulta.loteSinDetalleCdc && !ultimaConsulta.soapFault && (
-                      <p className="text-amber-800">
-                        Sin detalle por CDC en esta respuesta (lote posiblemente aún en cola).
-                      </p>
+                      <p className="text-amber-900 leading-snug">{mensajeConsultaSinFilasPorCdc(ultimaConsulta)}</p>
                     )}
                     {ultimaConsulta.soapFault && ultimaConsulta.faultString && (
                       <p className="text-red-700">Fault: {ultimaConsulta.faultString}</p>

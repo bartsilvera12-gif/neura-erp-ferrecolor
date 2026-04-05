@@ -101,7 +101,7 @@ export interface SifenConsultaLoteUltimaPersistida {
   httpStatus: number;
   soapFault: boolean;
   faultString: string | null;
-  /** true si la respuesta no es fault pero no vino ningún `gResProcLote` (suele indicar lote aún en cola). */
+  /** true si no vino ningún `gResProcLote` (p. ej. lote en cola, o lote cancelado 0365 sin filas por CDC). */
   loteSinDetalleCdc: boolean;
   detallePorCdc: SifenConsultaLoteDetallePersistido[];
 }
