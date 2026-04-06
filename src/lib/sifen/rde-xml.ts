@@ -45,11 +45,6 @@ function textEl(name: string, value: string | number): string {
   return `<${name}>${c}</${name}>`;
 }
 
-/** Monto en guaraníes: entero sin separadores. */
-function montoGs(n: number): string {
-  return String(Math.round(Number.isFinite(n) ? n : 0));
-}
-
 /** `tgTotSub.dRedon` — tipo `tdCRed` (decimal, hasta 4 decimales). */
 function montoRedondeo(n: number): string {
   const v = Number.isFinite(n) ? n : 0;
@@ -84,6 +79,32 @@ function inferirTasaIva(subtotal: number, iva: number): 0 | 5 | 10 {
   if (Math.abs(p - 10) <= 1) return 10;
   if (Math.abs(p - 5) <= 1) return 5;
   return 10;
+}
+
+/**
+ * IVA incluido en el total de línea (PYG): base + IVA = T, alícuota 5% o 10%.
+ * Alineado a totales SET (ej. dSub10 / dIVA10 / dBaseGrav10).
+ */
+function splitIvaIncluidoDesdeTotal(totalConIva: number, tasa: 5 | 10): { base: number; iva: number } {
+  const T = Math.round(totalConIva);
+  if (tasa === 10) {
+    const base = Math.round(T / 1.1);
+    return { base, iva: T - base };
+  }
+  const base = Math.round(T / 1.05);
+  return { base, iva: T - base };
+}
+
+/** tMontoBase / tdCantProSer: hasta 8 decimales, sin ceros finales innecesarios. */
+function formatDecimalSifen(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return "0";
+  const s = n.toFixed(8).replace(/\.?0+$/, "");
+  return s === "" || s === "-" ? "0" : s;
+}
+
+function cantidadProSerValida(cant: number): number {
+  if (!Number.isFinite(cant) || cant <= 0) return 1;
+  return cant;
 }
 
 /** `tdDesAfecIVA`: solo coinciden textos fijos del XSD (la tasa va en `dTasaIVA`). */
@@ -328,15 +349,31 @@ export function buildOfficialRdeFacturaElectronicaXml(
 
   items.forEach((it, idx) => {
     const tasa = inferirTasaIva(it.subtotal, it.iva);
+    /** Total línea en guaraníes (con IVA incluido en el precio al público, modelo SET). */
     const dTotOpeItem = Math.round(it.total);
-    const dLiq = Math.round(it.iva);
-    const baseGrav = tasa === 0 ? 0 : Math.max(0, Math.round(it.subtotal));
+    const cantNum = cantidadProSerValida(Number(it.cantidad));
+    const cantStr = formatDecimalSifen(cantNum);
+    /**
+     * SET valida coherencia: dTotBruOpeItem = dCantProSer × dPUniProSer (tMontoBase con decimales).
+     * El ERP guarda precio sin IVA + IVA aparte; el DE debe expresar precio unitario con IVA (= T/cant).
+     */
+    const dPUniProSerNum = dTotOpeItem / cantNum;
+    const dPUniStr = formatDecimalSifen(dPUniProSerNum);
+    const dTotBruOpeItem = dTotOpeItem;
 
+    let baseGrav = 0;
+    let dLiq = 0;
     if (tasa === 10) {
+      const sp = splitIvaIncluidoDesdeTotal(dTotOpeItem, 10);
+      baseGrav = sp.base;
+      dLiq = sp.iva;
       sumSub10 += dTotOpeItem;
       sumIva10 += dLiq;
       sumBase10 += baseGrav;
     } else if (tasa === 5) {
+      const sp = splitIvaIncluidoDesdeTotal(dTotOpeItem, 5);
+      baseGrav = sp.base;
+      dLiq = sp.iva;
       sumSub5 += dTotOpeItem;
       sumIva5 += dLiq;
       sumBase5 += baseGrav;
@@ -345,14 +382,6 @@ export function buildOfficialRdeFacturaElectronicaXml(
     }
 
     const iAfec = tasa === 0 ? "3" : "1";
-    const cUniMed = "77";
-    const dDesUniMed = XSD_DES_UNI_MED;
-    const dCant = Number(it.cantidad);
-    const cantStr = Number.isFinite(dCant) ? String(dCant) : "1";
-
-    const subR = Math.round(it.subtotal);
-    const ivaR = Math.round(it.iva);
-    const dTotBruOpeItem = Math.max(dTotOpeItem, subR + ivaR, subR);
 
     itemsXml.push("<gCamItem>");
     itemsXml.push(textEl("dCodInt", `L${idx + 1}`.slice(0, 20)));
@@ -361,11 +390,11 @@ export function buildOfficialRdeFacturaElectronicaXml(
         ? SIFEN_TEST_LITERAL_DOCUMENTO
         : it.descripcion.slice(0, 120);
     itemsXml.push(textEl("dDesProSer", dDesProSer));
-    itemsXml.push(textEl("cUniMed", cUniMed));
-    itemsXml.push(textEl("dDesUniMed", dDesUniMed));
+    itemsXml.push(textEl("cUniMed", "77"));
+    itemsXml.push(textEl("dDesUniMed", XSD_DES_UNI_MED));
     itemsXml.push(textEl("dCantProSer", cantStr));
     itemsXml.push("<gValorItem>");
-    itemsXml.push(textEl("dPUniProSer", montoGs(it.precio_unitario)));
+    itemsXml.push(textEl("dPUniProSer", dPUniStr));
     itemsXml.push(textEl("dTotBruOpeItem", dTotBruOpeItem));
     itemsXml.push("<gValorRestaItem>");
     itemsXml.push(textEl("dDescItem", "0"));
