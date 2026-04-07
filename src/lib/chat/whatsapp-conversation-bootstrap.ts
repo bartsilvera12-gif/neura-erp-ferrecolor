@@ -1,0 +1,121 @@
+/**
+ * Creación de conversación WhatsApp con flujo activo de la empresa (mismo criterio que el webhook Meta).
+ */
+import { insertActiveFlowSessionRow } from "@/lib/chat/flow-session-service";
+import { flowTrace } from "@/lib/chat/flow-trace-log";
+import {
+  getFirstActiveNodeCodeForFlow,
+  listActiveWhatsappFlowsForEmpresa,
+} from "@/lib/chat/resolve-whatsapp-active-flow";
+import type { SupabaseAdmin } from "@/lib/chat/types";
+
+export type WhatsappConversationRow = {
+  id: string;
+  status: string;
+  unread_count: number;
+  flow_code: string | null;
+  flow_current_node: string | null;
+  flow_status: string;
+  human_taken_over: boolean;
+  active_flow_session_id: string | null;
+};
+
+/**
+ * Inserta `chat_conversations` para (contacto, canal) con boot de flujo si hay un único flujo activo.
+ * Maneja carrera 23505 releyendo la fila existente.
+ */
+export async function createWhatsappConversationWithActiveFlow(
+  supabase: SupabaseAdmin,
+  empresaId: string,
+  channelId: string,
+  contactId: string
+): Promise<{ conv: WhatsappConversationRow | null; error: string | null }> {
+  const catalogNew = await listActiveWhatsappFlowsForEmpresa(supabase, empresaId);
+  let flowCodeIns: string | null = null;
+  let nodeIns: string | null = null;
+  if (catalogNew.kind === "single") {
+    flowCodeIns = catalogNew.flowCode;
+    nodeIns =
+      (await getFirstActiveNodeCodeForFlow(supabase, empresaId, flowCodeIns)) ?? "inicio";
+    console.info("[whatsapp-conversation-bootstrap]", "resolved_active_flow", {
+      context: "new_conversation_insert",
+      empresaId,
+      flowCode: flowCodeIns,
+      flow_current_node: nodeIns,
+    });
+  } else if (catalogNew.kind === "multiple") {
+    console.error("[whatsapp-conversation-bootstrap]", "multiple_active_flows", {
+      context: "new_conversation_insert",
+      empresaId,
+      activeFlowCodes: catalogNew.flowCodes,
+    });
+  } else {
+    console.warn("[whatsapp-conversation-bootstrap]", "no_active_flow_found", {
+      context: "new_conversation_insert",
+      empresaId,
+    });
+  }
+
+  const { data: conv, error: convErr } = await supabase
+    .from("chat_conversations")
+    .insert({
+      empresa_id: empresaId,
+      channel_id: channelId,
+      contact_id: contactId,
+      status: "nuevo",
+      flow_code: flowCodeIns,
+      flow_current_node: nodeIns,
+      flow_status: "bot",
+      human_taken_over: false,
+      last_message_at: null,
+      last_message_preview: null,
+      unread_count: 0,
+    })
+    .select(
+      "id, status, unread_count, flow_code, flow_current_node, flow_status, human_taken_over, active_flow_session_id"
+    )
+    .single();
+
+  let existingConv: WhatsappConversationRow | null = conv as WhatsappConversationRow | null;
+
+  if (conv && flowCodeIns) {
+    const bootSid = await insertActiveFlowSessionRow(supabase, empresaId, conv.id, flowCodeIns);
+    if (bootSid) {
+      await supabase
+        .from("chat_conversations")
+        .update({ active_flow_session_id: bootSid, updated_at: new Date().toISOString() })
+        .eq("id", conv.id)
+        .eq("empresa_id", empresaId);
+      flowTrace("new_conversation_flow_session_bootstrapped", {
+        conversation_id: conv.id,
+        empresa_id: empresaId,
+        flow_code: flowCodeIns,
+        new_flow_session_id: bootSid,
+        event: "post_insert_bootstrap",
+      });
+    }
+    const { data: fresh } = await supabase
+      .from("chat_conversations")
+      .select(
+        "id, status, unread_count, flow_code, flow_current_node, flow_status, human_taken_over, active_flow_session_id"
+      )
+      .eq("id", conv.id)
+      .eq("empresa_id", empresaId)
+      .maybeSingle();
+    if (fresh) existingConv = fresh as WhatsappConversationRow;
+  } else if (convErr?.code === "23505") {
+    const { data: again } = await supabase
+      .from("chat_conversations")
+      .select(
+        "id, status, unread_count, flow_code, flow_current_node, flow_status, human_taken_over, active_flow_session_id"
+      )
+      .eq("contact_id", contactId)
+      .eq("channel_id", channelId)
+      .maybeSingle();
+    existingConv = again as WhatsappConversationRow | null;
+  } else if (convErr) {
+    return { conv: null, error: convErr.message };
+  }
+
+  return { conv: existingConv, error: null };
+}

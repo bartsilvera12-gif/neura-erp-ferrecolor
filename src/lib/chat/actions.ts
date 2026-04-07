@@ -16,6 +16,11 @@ export type InboxConversation = {
   unread_count: number;
   flow_status: string;
   human_taken_over: boolean;
+  channel: {
+    id: string;
+    type: string;
+    nombre: string | null;
+  };
   contact: {
     id: string;
     name: string | null;
@@ -64,8 +69,10 @@ export async function fetchChatConversations(
       last_message_preview,
       unread_count,
       contact_id,
+      channel_id,
       flow_status,
-      human_taken_over
+      human_taken_over,
+      chat_channels ( id, type, nombre )
     `
   );
   if (vista === "inbox") {
@@ -94,6 +101,13 @@ export async function fetchChatConversations(
 
   return list.map((row) => {
     const c = byId[row.contact_id as string];
+    const chRaw = row.chat_channels as
+      | { id?: string; type?: string; nombre?: string | null }
+      | null
+      | undefined;
+    const channelId = (row.channel_id as string) ?? chRaw?.id ?? "";
+    const channelType = (chRaw?.type as string) ?? "whatsapp";
+    const channelNombre = (chRaw?.nombre as string | null) ?? null;
     return {
       id: row.id as string,
       status: row.status as string,
@@ -102,6 +116,11 @@ export async function fetchChatConversations(
       unread_count: (row.unread_count as number) ?? 0,
       flow_status: String(row.flow_status ?? "bot"),
       human_taken_over: Boolean(row.human_taken_over),
+      channel: {
+        id: channelId,
+        type: channelType,
+        nombre: channelNombre,
+      },
       contact: {
         id: c?.id ?? (row.contact_id as string),
         name: c?.name ?? null,

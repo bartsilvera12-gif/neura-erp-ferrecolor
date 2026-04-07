@@ -22,6 +22,7 @@ import {
   isImageMimeHint,
 } from "@/lib/chat/message-erp-display";
 import { supabase } from "@/lib/supabase";
+import { ChannelBadge } from "@/components/chat/ChannelBadge";
 
 type ChatMessage = {
   id: string;
@@ -398,7 +399,7 @@ export default function ConversacionesPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Conversaciones</h1>
           <p className="text-sm text-slate-500">
-            WhatsApp ·{" "}
+            Omnicanal ·{" "}
             {vista === "inbox"
               ? "Inbox (operador humano)"
               : vista === "bot"
@@ -426,7 +427,7 @@ export default function ConversacionesPage() {
 
       {hasActiveChannel === false && (
         <div className="bg-amber-50 border border-amber-200 text-amber-900 text-sm rounded-lg px-4 py-3 shrink-0">
-          No hay un canal WhatsApp activo para tu empresa. Los mensajes no se registrarán hasta configurarlo.
+          No hay un canal de conversación activo para tu empresa. Los mensajes no se registrarán hasta configurarlo.
         </div>
       )}
 
@@ -460,8 +461,13 @@ export default function ConversacionesPage() {
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <span className="font-medium text-slate-800 truncate">
-                      {c.contact.name || c.contact.phone_number}
+                    <span className="min-w-0 flex-1">
+                      <span className="font-medium text-slate-800 truncate block">
+                        {c.contact.name || c.contact.phone_number}
+                      </span>
+                      <span className="mt-1 block">
+                        <ChannelBadge type={c.channel.type} nombre={c.channel.nombre} />
+                      </span>
                     </span>
                     <span className="flex shrink-0 items-center gap-1">
                       {c.human_taken_over || c.flow_status === "human" ? (
@@ -498,8 +504,13 @@ export default function ConversacionesPage() {
           ) : (
             <>
               <div className="px-4 py-3 border-b border-slate-200 bg-white flex flex-wrap items-center gap-2">
-                <div className="font-semibold text-slate-800">
-                  {selected?.contact.name || selected?.contact.phone_number}
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <div className="font-semibold text-slate-800 truncate">
+                    {selected?.contact.name || selected?.contact.phone_number}
+                  </div>
+                  {selected ? (
+                    <ChannelBadge type={selected.channel.type} nombre={selected.channel.nombre} />
+                  ) : null}
                 </div>
                 <span className="text-xs text-slate-400 font-mono">
                   {selected?.contact.phone_number}

@@ -3,16 +3,15 @@ import {
   type WebhookProvisionEnv,
 } from "@/lib/chat/channel-provision";
 import { createFlowEngine } from "@/lib/chat/flow-engine-service";
-import { insertActiveFlowSessionRow } from "@/lib/chat/flow-session-service";
 import { flowTrace } from "@/lib/chat/flow-trace-log";
+import { persistInboundChatMessageAndBump } from "@/lib/chat/incoming-message-service";
+import { createWhatsappConversationWithActiveFlow } from "@/lib/chat/whatsapp-conversation-bootstrap";
 import { getConversationWhatsAppSendContext } from "@/lib/chat/conversation-send-context";
 import { attachInboundMessageMedia } from "@/lib/chat/inbound-media-attach";
 import {
   CONV_LOG,
-  getFirstActiveNodeCodeForFlow,
   isFlowKnownAndActiveInCatalog,
   isNodeActiveInFlow,
-  listActiveWhatsappFlowsForEmpresa,
   matchesConversationRestartKeyword,
   matchesHumanHandoffKeyword,
   restartWhatsappConversationToFlowStart,
@@ -317,85 +316,17 @@ export async function processInboundWebhookValue(
         : new Date().toISOString();
 
       if (!existingConv) {
-        const catalogNew = await listActiveWhatsappFlowsForEmpresa(supabase, empresaId);
-        let flowCodeIns: string | null = null;
-        let nodeIns: string | null = null;
-        if (catalogNew.kind === "single") {
-          flowCodeIns = catalogNew.flowCode;
-          nodeIns =
-            (await getFirstActiveNodeCodeForFlow(supabase, empresaId, flowCodeIns)) ?? "inicio";
-          console.info("[webhook/whatsapp][flow-resolve]", "resolved_active_flow", {
-            context: "new_conversation_insert",
-            empresaId,
-            flowCode: flowCodeIns,
-            flow_current_node: nodeIns,
-          });
-        } else if (catalogNew.kind === "multiple") {
-          console.error("[webhook/whatsapp][flow-resolve]", "multiple_active_flows", {
-            context: "new_conversation_insert",
-            empresaId,
-            activeFlowCodes: catalogNew.flowCodes,
-          });
-        } else {
-          console.warn("[webhook/whatsapp][flow-resolve]", "no_active_flow_found", {
-            context: "new_conversation_insert",
-            empresaId,
-          });
-        }
-
-        const { data: conv, error: convErr } = await supabase
-          .from("chat_conversations")
-          .insert({
-            empresa_id: empresaId,
-            channel_id: channelId,
-            contact_id: contactId,
-            status: "nuevo",
-            flow_code: flowCodeIns,
-            flow_current_node: nodeIns,
-            flow_status: "bot",
-            human_taken_over: false,
-            last_message_at: null,
-            last_message_preview: null,
-            unread_count: 0,
-          })
-          .select(
-            "id, status, unread_count, flow_code, flow_current_node, flow_status, human_taken_over, active_flow_session_id"
-          )
-          .single();
-
-        if (conv) {
-          existingConv = conv;
-          if (flowCodeIns) {
-            const bootSid = await insertActiveFlowSessionRow(supabase, empresaId, conv.id, flowCodeIns);
-            if (bootSid) {
-              await supabase
-                .from("chat_conversations")
-                .update({ active_flow_session_id: bootSid, updated_at: new Date().toISOString() })
-                .eq("id", conv.id)
-                .eq("empresa_id", empresaId);
-              flowTrace("new_conversation_flow_session_bootstrapped", {
-                conversation_id: conv.id,
-                empresa_id: empresaId,
-                flow_code: flowCodeIns,
-                new_flow_session_id: bootSid,
-                event: "post_insert_bootstrap",
-              });
-            }
-          }
-        } else if (convErr?.code === "23505") {
-          const { data: again } = await supabase
-            .from("chat_conversations")
-            .select(
-              "id, status, unread_count, flow_code, flow_current_node, flow_status, human_taken_over, active_flow_session_id"
-            )
-            .eq("contact_id", contactId)
-            .eq("channel_id", channelId)
-            .maybeSingle();
-          if (again) existingConv = again;
-        } else if (convErr) {
-          errors.push(`Conversación: ${convErr.message}`);
+        const { conv, error: bootErr } = await createWhatsappConversationWithActiveFlow(
+          supabase,
+          empresaId,
+          channelId,
+          contactId
+        );
+        if (bootErr) {
+          errors.push(`Conversación: ${bootErr}`);
           continue;
         }
+        if (conv) existingConv = conv;
       }
 
       if (!existingConv) {
@@ -605,31 +536,40 @@ export async function processInboundWebhookValue(
 
       const flowEngine = createFlowEngine({ supabase });
 
-      const { data: insertedMsg, error: insErr } = await supabase
-        .from("chat_messages")
-        .insert({
-          empresa_id: empresaId,
-          conversation_id: conversationId,
-          wa_message_id: waMid,
-          from_me: false,
-          sender_type: "contact",
-          message_type,
-          content,
-          raw_payload: msg as unknown as Record<string, unknown>,
-        })
-        .select("id")
-        .single();
+      const persistInbound = await persistInboundChatMessageAndBump({
+        supabase,
+        empresaId,
+        conversationId,
+        externalMessageId: waMid,
+        messageType: message_type,
+        content,
+        rawPayload: msg as unknown as Record<string, unknown>,
+        timestampIso: ts,
+        preview,
+        fromMe: false,
+        senderType: "contact",
+        conversationState: {
+          flow_code: (existingConv as { flow_code?: string | null }).flow_code ?? null,
+          flow_current_node: (existingConv as { flow_current_node?: string | null }).flow_current_node ?? null,
+          flow_status: (existingConv as { flow_status?: string | null }).flow_status ?? "bot",
+          human_taken_over: Boolean(
+            (existingConv as { human_taken_over?: boolean | null }).human_taken_over
+          ),
+          unread_count: (existingConv.unread_count as number) ?? 0,
+          status: existingConv.status as string,
+        },
+      });
 
-      if (insErr) {
-        if (insErr.code === "23505") {
+      if (!persistInbound.ok) {
+        if (persistInbound.duplicate) {
           skipped += 1;
           continue;
         }
-        errors.push(`Insert mensaje: ${insErr.message}`);
+        errors.push(`Insert mensaje: ${persistInbound.error}`);
         continue;
       }
 
-      const inboundRowId = (insertedMsg as { id?: string } | null)?.id ?? null;
+      const inboundRowId = persistInbound.message_id;
 
       console.info(logW, "inbound_message_persisted", {
         conversationId,
@@ -669,27 +609,7 @@ export async function processInboundWebhookValue(
         }
       }
 
-      const prevStatus = existingConv.status as string;
-      const nextStatus = prevStatus === "cerrado" ? "pendiente" : prevStatus;
-
-      await supabase
-        .from("chat_conversations")
-        .update({
-          flow_code: (existingConv as { flow_code?: string | null }).flow_code ?? null,
-          flow_current_node: (existingConv as { flow_current_node?: string | null }).flow_current_node ?? null,
-          flow_status:
-            (existingConv as { flow_status?: string | null }).flow_status ?? "bot",
-          human_taken_over:
-            (existingConv as { human_taken_over?: boolean | null }).human_taken_over ?? false,
-          last_message_at: ts,
-          last_message_preview: preview,
-          unread_count: (existingConv.unread_count as number) + 1,
-          status: nextStatus,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", conversationId);
-
-      console.info(logW, "conversation_updated_unread", { conversationId, nextStatus });
+      console.info(logW, "conversation_updated_unread", { conversationId });
 
       const { data: convDbAfterUnread } = await supabase
         .from("chat_conversations")

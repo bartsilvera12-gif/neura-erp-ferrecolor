@@ -1,0 +1,55 @@
+"use client";
+
+import type { ReactNode } from "react";
+import { Facebook, Instagram, Mail, MessageCircle } from "lucide-react";
+
+const LABELS: Record<string, string> = {
+  whatsapp: "WhatsApp",
+  instagram: "Instagram",
+  facebook: "Facebook",
+  email: "Email",
+};
+
+export function channelTypeLabel(type: string): string {
+  const k = type.trim().toLowerCase();
+  return LABELS[k] ?? type;
+}
+
+export function ChannelBadge({
+  type,
+  nombre,
+  className = "",
+}: {
+  type: string;
+  nombre: string | null;
+  className?: string;
+}) {
+  const t = type.trim().toLowerCase();
+  const label = nombre?.trim() || channelTypeLabel(t);
+  const iconClass = "h-3.5 w-3.5 shrink-0 opacity-90";
+  let icon: ReactNode;
+  switch (t) {
+    case "instagram":
+      icon = <Instagram className={iconClass} aria-hidden />;
+      break;
+    case "facebook":
+      icon = <Facebook className={iconClass} aria-hidden />;
+      break;
+    case "email":
+      icon = <Mail className={iconClass} aria-hidden />;
+      break;
+    default:
+      icon = <MessageCircle className={iconClass} aria-hidden />;
+      break;
+  }
+
+  return (
+    <span
+      className={`inline-flex max-w-full items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 ${className}`}
+      title={label}
+    >
+      {icon}
+      <span className="truncate">{label}</span>
+    </span>
+  );
+}
