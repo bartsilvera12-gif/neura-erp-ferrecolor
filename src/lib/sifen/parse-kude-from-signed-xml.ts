@@ -130,14 +130,20 @@ function columnasMontosPorItem(totalLineaStr: string, gIva: XmlElement | undefin
   }
   const iAfec = textOf(firstNs(gIva, "iAfecIVA"));
   const tasa = parseNumLoose(textOf(firstNs(gIva, "dTasaIVA")));
-  if (iAfec === "3" || tasa === 0) {
-    return { exenta: tot, g5: "0", g10: "0" };
+  const liq = parseNumLoose(textOf(firstNs(gIva, "dLiqIVAItem")));
+  /** Tasa y liquidación del ítem prevalecen sobre iAfec=exento mal cargado en algunos XML. */
+  if (liq > 0) {
+    if (Math.abs(tasa - 5) < 0.6) return { exenta: "0", g5: tot, g10: "0" };
+    if (Math.abs(tasa - 10) < 0.6 || tasa >= 9) return { exenta: "0", g5: "0", g10: tot };
   }
   if (Math.abs(tasa - 5) < 0.1) {
     return { exenta: "0", g5: tot, g10: "0" };
   }
-  if (Math.abs(tasa - 10) < 0.1) {
+  if (Math.abs(tasa - 10) < 0.1 || (tasa >= 9 && tasa <= 11)) {
     return { exenta: "0", g5: "0", g10: tot };
+  }
+  if (iAfec === "3" || tasa === 0) {
+    return { exenta: tot, g5: "0", g10: "0" };
   }
   if (iAfec === "1") {
     if (tasa <= 5.5) return { exenta: "0", g5: tot, g10: "0" };
@@ -408,6 +414,45 @@ function reconcileKudeFiscalDisplay(
       const it = items[0]!;
       items[0] = { ...it, montoExenta: "0", montoGrav5: it.totalLinea };
     }
+  }
+
+  const sumLine10 = items.reduce((s, i) => s + parseNumLoose(i.montoGrav10), 0);
+  const sumLine5 = items.reduce((s, i) => s + parseNumLoose(i.montoGrav5), 0);
+  let sub10n = parseNumLoose(tot.dSub10);
+  let sub5n = parseNumLoose(tot.dSub5);
+  iv10 = parseNumLoose(tot.dIVA10);
+  iv5 = parseNumLoose(tot.dIVA5);
+  b10 = parseNumLoose(tot.dBaseGrav10);
+  b5 = parseNumLoose(tot.dBaseGrav5);
+
+  if (sub10n <= 0 && sumLine10 > 0.5) {
+    sub10n = Math.round(sumLine10);
+    tot.dSub10 = String(sub10n);
+    if (b10 <= 0) {
+      b10 = Math.round(sub10n / 1.1);
+      if (iv10 <= 0) iv10 = Math.max(0, sub10n - b10);
+    } else if (iv10 <= 0) {
+      iv10 = Math.max(0, Math.round(sub10n - b10));
+    }
+    tot.dBaseGrav10 = String(Math.round(b10));
+    tot.dIVA10 = String(Math.round(iv10));
+    tot.dTBasGraIVA = String(Math.round(b5 + b10));
+    tot.dTotIVA = String(Math.round(iv5 + iv10));
+  }
+
+  if (sub5n <= 0 && sumLine5 > 0.5) {
+    sub5n = Math.round(sumLine5);
+    tot.dSub5 = String(sub5n);
+    if (b5 <= 0) {
+      b5 = Math.round(sub5n / 1.05);
+      if (iv5 <= 0) iv5 = Math.max(0, sub5n - b5);
+    } else if (iv5 <= 0) {
+      iv5 = Math.max(0, Math.round(sub5n - b5));
+    }
+    tot.dBaseGrav5 = String(Math.round(b5));
+    tot.dIVA5 = String(Math.round(iv5));
+    tot.dTBasGraIVA = String(Math.round(b5 + b10));
+    tot.dTotIVA = String(Math.round(iv5 + iv10));
   }
 
   return { ...p, totales: tot, items };

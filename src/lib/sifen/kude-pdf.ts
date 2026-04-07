@@ -130,6 +130,11 @@ function drawLabelValue(
   page.drawText(value, { x: x + w + 1.5, y, size, font, color: BLACK });
 }
 
+/** Origen x de columnas de montos (Exentas / 5% / 10%) — debe coincidir con `drawTableChunk`. */
+function kudeTableMoneyXs(margin: number) {
+  return { xEx: margin + 316, x5: margin + 366, x10: margin + 414 };
+}
+
 function drawTableChunk(
   page: PDFPage,
   items: KudeItemRow[],
@@ -154,9 +159,7 @@ function drawTableChunk(
   const xUm = margin + 186;
   const xPr = margin + 228;
   const xCan = margin + 282;
-  const xEx = margin + 316;
-  const x5 = margin + 366;
-  const x10 = margin + 414;
+  const { xEx, x5, x10 } = kudeTableMoneyXs(margin);
   let headerBaseline = fromTop + 11;
 
   const drawH = (txt: string, x: number, bold: boolean) => {
@@ -442,110 +445,89 @@ export async function buildKudePdfBuffer(input: BuildKudePdfInput): Promise<Buff
     cursorTop = margin;
   }
   sectionTitle("TOTALES Y LIQUIDACIÓN DEL IVA");
-  const totH = 152;
-  drawRectFromTop(page, margin, cursorTop, innerW, totH, { fill: rgb(1, 1, 1), border: NEURA_BLUE });
+  const { xEx, x5, x10 } = kudeTableMoneyXs(margin);
+  const rEx = x5 - 4;
+  const r5 = x10 - 4;
+  const r10 = margin + innerW - 8;
 
-  const xL = margin + 10;
-  const xR = margin + innerW * 0.5;
-  let lt = cursorTop + 12;
-  const putL = (a: string, b: string, useBoldValue: boolean) => {
-    page.drawText(a, { x: xL, y: baselineFromTop(page, lt), size: 8, font, color: BLACK });
-    page.drawText(b, {
-      x: xL + 128,
-      y: baselineFromTop(page, lt),
-      size: 8,
-      font: useBoldValue ? fontBold : font,
-      color: BLACK,
-    });
-    lt += 11;
-  };
-  putL("Subtotal exentas:", formatMonto(parsed.totales.dSubExe, parsed.monedaCodigo), true);
-  putL("Subtotal gravadas 5%:", formatMonto(parsed.totales.dSub5, parsed.monedaCodigo), true);
-  putL("Subtotal gravadas 10%:", formatMonto(parsed.totales.dSub10, parsed.monedaCodigo), true);
-  lt += 4;
+  const totBoxH = 94;
+  drawRectFromTop(page, margin, cursorTop, innerW, totBoxH, {
+    fill: NEURA_BLUE_FILL,
+    border: NEURA_BLUE,
+  });
+
+  let ty = cursorTop + 14;
+  const fsTot = 8.5;
+
+  page.drawText("SUBTOTAL", {
+    x: margin + 10,
+    y: baselineFromTop(page, ty),
+    size: fsTot,
+    font: fontBold,
+    color: BLACK,
+  });
+  drawTextRight(page, formatMonto(parsed.totales.dSubExe, parsed.monedaCodigo), rEx, ty, fsTot, fontBold, BLACK);
+  drawTextRight(page, formatMonto(parsed.totales.dSub5, parsed.monedaCodigo), r5, ty, fsTot, fontBold, BLACK);
+  drawTextRight(page, formatMonto(parsed.totales.dSub10, parsed.monedaCodigo), r10, ty, fsTot, fontBold, BLACK);
+  ty += 17;
+
+  page.drawText("TOTAL DE LA OPERACIÓN", {
+    x: margin + 10,
+    y: baselineFromTop(page, ty),
+    size: fsTot,
+    font: fontBold,
+    color: BLACK,
+  });
+  drawTextRight(
+    page,
+    formatMonto(parsed.totales.dTotOpe, parsed.monedaCodigo),
+    rightEdge,
+    ty,
+    fsTot,
+    fontBold,
+    BLACK
+  );
+  ty += 16;
+
+  page.drawText("TOTAL EN GUARANÍES", {
+    x: margin + 10,
+    y: baselineFromTop(page, ty),
+    size: fsTot,
+    font: fontBold,
+    color: BLACK,
+  });
+  drawTextRight(
+    page,
+    formatMonto(parsed.totales.dTotGralOpe, parsed.monedaCodigo),
+    rightEdge,
+    ty,
+    fsTot,
+    fontBold,
+    BLACK
+  );
+  ty += 14;
+
   page.drawLine({
-    start: { x: margin + 6, y: baselineFromTop(page, lt) },
-    end: { x: margin + innerW * 0.46, y: baselineFromTop(page, lt) },
+    start: { x: margin + 8, y: baselineFromTop(page, ty) },
+    end: { x: margin + innerW - 8, y: baselineFromTop(page, ty) },
     thickness: 0.45,
     color: NEURA_BLUE,
   });
-  lt += 10;
-  page.drawText("Total de la operación:", {
-    x: xL,
-    y: baselineFromTop(page, lt),
-    size: 9,
-    font: fontBold,
-    color: BLACK,
-  });
-  page.drawText(formatMonto(parsed.totales.dTotOpe, parsed.monedaCodigo), {
-    x: xL + 138,
-    y: baselineFromTop(page, lt),
-    size: 9,
-    font: fontBold,
-    color: BLACK,
-  });
-  lt += 13;
-  putL("Total en guaraníes:", formatMonto(parsed.totales.dTotGralOpe, parsed.monedaCodigo), true);
+  ty += 12;
 
-  let rt = cursorTop + 12;
-  page.drawText("Liquidación IVA", {
-    x: xR,
-    y: baselineFromTop(page, rt),
-    size: 9,
-    font: fontBold,
-    color: NEURA_BLUE,
-  });
-  rt += 13;
-  const putIvaLine = (lab: string, val: string) => {
-    page.drawText(lab, { x: xR, y: baselineFromTop(page, rt), size: 8, font, color: BLACK });
-    page.drawText(val, {
-      x: xR + 104,
-      y: baselineFromTop(page, rt),
-      size: 8,
-      font: fontBold,
-      color: BLACK,
-    });
-    rt += 11;
-  };
-  putIvaLine("Base gravada 5%:", formatMonto(parsed.totales.dBaseGrav5, parsed.monedaCodigo));
-  putIvaLine("IVA 5%:", formatMonto(parsed.totales.dIVA5, parsed.monedaCodigo));
-  putIvaLine("Base gravada 10%:", formatMonto(parsed.totales.dBaseGrav10, parsed.monedaCodigo));
-  putIvaLine("IVA 10%:", formatMonto(parsed.totales.dIVA10, parsed.monedaCodigo));
-  rt += 5;
-  page.drawLine({
-    start: { x: xR - 2, y: baselineFromTop(page, rt) },
-    end: { x: rightEdge, y: baselineFromTop(page, rt) },
-    thickness: 0.5,
-    color: NEURA_BLUE,
-  });
-  rt += 10;
-  page.drawText("Total IVA:", {
-    x: xR,
-    y: baselineFromTop(page, rt),
-    size: 9,
-    font: fontBold,
-    color: BLACK,
-  });
-  page.drawText(formatMonto(parsed.totales.dTotIVA, parsed.monedaCodigo), {
-    x: xR + 104,
-    y: baselineFromTop(page, rt),
-    size: 9,
-    font: fontBold,
-    color: BLACK,
-  });
-  rt += 13;
   const liq5 = formatMonto(parsed.totales.dIVA5, parsed.monedaCodigo);
   const liq10 = formatMonto(parsed.totales.dIVA10, parsed.monedaCodigo);
   const liqTot = formatMonto(parsed.totales.dTotIVA, parsed.monedaCodigo);
-  page.drawText(`LIQUIDACIÓN DEL IVA  (5%) ${liq5}    (10%) ${liq10}    TOTAL IVA: ${liqTot}`, {
-    x: xR,
-    y: baselineFromTop(page, rt),
-    size: 7.5,
+  page.drawText(`LIQUIDACIÓN DEL IVA    (5%) ${liq5}    (10%) ${liq10}`, {
+    x: margin + 10,
+    y: baselineFromTop(page, ty),
+    size: 8,
     font: fontBold,
     color: BLACK,
   });
+  drawTextRight(page, `TOTAL IVA: ${liqTot}`, rightEdge, ty, 8, fontBold, BLACK);
 
-  cursorTop += totH + 12;
+  cursorTop += totBoxH + 12;
 
   /* Pie: fila 1 = QR (izq) + textos (der); fila 2 = leyendas ancho completo debajo del QR */
   if (A4_H - cursorTop < 185) {
