@@ -47,7 +47,10 @@ const MENU_STRUCTURE: MenuItem[] = [
     label: "Conversaciones",
     href: "/dashboard/conversaciones",
     icon: MessageCircle,
-    children: [{ label: "Historial omnicanal", href: "/dashboard/historial" }],
+    children: [
+      { label: "Historial omnicanal", href: "/dashboard/historial" },
+      { label: "Colas y agentes", href: "/dashboard/conversaciones/operacion" },
+    ],
   },
   { slug: "ventas", label: "Ventas", href: "/ventas", icon: ShoppingCart },
   { slug: "inventario", label: "Inventario", href: "/inventario", icon: Package, children: [

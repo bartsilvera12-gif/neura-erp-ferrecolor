@@ -10,10 +10,23 @@ import {
   fetchComprobanteValidacionesForConversation,
   markConversationRead,
   releaseConversationToBot,
+  type ChatInboxAssignmentFilter,
+  type ChatInboxFilters,
   type ComprobanteValidacionListRow,
   type ConversacionesVista,
   type InboxConversation,
 } from "@/lib/chat/actions";
+import {
+  assignConversationToAgent,
+  assignConversationToMe,
+  changeConversationPriority,
+  changeConversationQueue,
+  changeConversationStatus,
+  listChatAgentsDirectory,
+  listChatQueues,
+  type ChatAgentDirectoryRow,
+  type ChatQueueListRow,
+} from "@/lib/chat/chat-ops-actions";
 import {
   getErpAttachmentCaption,
   getErpAttachmentFilename,
@@ -90,6 +103,58 @@ function tabClass(active: boolean) {
   }`;
 }
 
+function parseInboxFilters(sp: URLSearchParams): ChatInboxFilters | undefined {
+  const rawA = sp.get("asignacion");
+  const assignment: ChatInboxAssignmentFilter =
+    rawA === "mios" ? "mine" : rawA === "sin_asignar" ? "unassigned" : "all";
+  const queue_id = sp.get("cola")?.trim() || null;
+  const statusRaw = sp.get("estado")?.trim().toLowerCase() || null;
+  const priorityRaw = sp.get("prioridad")?.trim().toLowerCase() || null;
+  const status =
+    statusRaw && ["open", "pending", "closed"].includes(statusRaw) ? statusRaw : null;
+  const priority =
+    priorityRaw && ["low", "medium", "high"].includes(priorityRaw) ? priorityRaw : null;
+  const has =
+    assignment !== "all" ||
+    (queue_id && queue_id.length > 0) ||
+    status !== null ||
+    priority !== null;
+  if (!has) return undefined;
+  return {
+    assignment,
+    queue_id: queue_id && queue_id.length > 0 ? queue_id : null,
+    status,
+    priority,
+  };
+}
+
+function labelEstado(s: string) {
+  if (s === "open") return "Abierta";
+  if (s === "pending") return "Pendiente";
+  if (s === "closed") return "Cerrada";
+  return s;
+}
+
+function labelPrioridad(p: string) {
+  if (p === "low") return "Baja";
+  if (p === "medium") return "Media";
+  if (p === "high") return "Alta";
+  return p;
+}
+
+function badgeEstadoClass(s: string) {
+  if (s === "open") return "text-sky-800 bg-sky-50 border-sky-200";
+  if (s === "pending") return "text-amber-800 bg-amber-50 border-amber-200";
+  if (s === "closed") return "text-slate-600 bg-slate-100 border-slate-200";
+  return "text-slate-600 bg-slate-50 border-slate-200";
+}
+
+function badgePrioridadClass(p: string) {
+  if (p === "high") return "text-red-800 bg-red-50 border-red-200";
+  if (p === "medium") return "text-amber-800 bg-amber-50 border-amber-200";
+  return "text-slate-600 bg-slate-50 border-slate-200";
+}
+
 export default function ConversacionesPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -114,6 +179,11 @@ export default function ConversacionesPage() {
   const [compLoading, setCompLoading] = useState(false);
   const [compActionId, setCompActionId] = useState<string | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [opsQueues, setOpsQueues] = useState<ChatQueueListRow[]>([]);
+  const [opsAgents, setOpsAgents] = useState<ChatAgentDirectoryRow[]>([]);
+  const [opsBusy, setOpsBusy] = useState(false);
+
+  const inboxFilterKey = searchParams?.toString() ?? "";
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
@@ -126,7 +196,9 @@ export default function ConversacionesPage() {
     async (opts?: { silent?: boolean }) => {
       const silent = opts?.silent ?? false;
       try {
-        const rows = await fetchChatConversations(vista);
+        const sp = new URLSearchParams(inboxFilterKey);
+        const filters = parseInboxFilters(sp);
+        const rows = await fetchChatConversations(vista, filters);
         setConversations(rows);
         setListError(null);
       } catch (e) {
@@ -135,7 +207,24 @@ export default function ConversacionesPage() {
         if (!silent) setLoadingList(false);
       }
     },
-    [vista]
+    [vista, inboxFilterKey]
+  );
+
+  const patchInboxQuery = useCallback(
+    (patch: Record<string, string | null | undefined>) => {
+      const params = new URLSearchParams(searchParams?.toString() ?? "");
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === null || v === undefined || v === "" || v === "all") {
+          params.delete(k);
+        } else {
+          params.set(k, v);
+        }
+      }
+      const base = pathname || "/dashboard/conversaciones";
+      const qs = params.toString();
+      router.push(qs ? `${base}?${qs}` : base);
+    },
+    [pathname, router, searchParams]
   );
 
   const loadMessages = useCallback(async (conversationId: string, opts?: { silent?: boolean }) => {
@@ -160,11 +249,23 @@ export default function ConversacionesPage() {
   loadConversationsRef.current = loadConversations;
 
   useEffect(() => {
-    setLoadingList(true);
     setSelectedId(null);
     setMessages([]);
+  }, [vista]);
+
+  useEffect(() => {
+    setLoadingList(true);
     loadConversations();
   }, [loadConversations]);
+
+  useEffect(() => {
+    listChatQueues()
+      .then(setOpsQueues)
+      .catch(() => setOpsQueues([]));
+    listChatAgentsDirectory()
+      .then(setOpsAgents)
+      .catch(() => setOpsAgents([]));
+  }, []);
 
   function setVista(next: ConversacionesVista) {
     const params = new URLSearchParams(searchParams?.toString() ?? "");
@@ -326,6 +427,20 @@ export default function ConversacionesPage() {
     }
   }
 
+  async function runConversationOp(fn: () => Promise<void>) {
+    if (!selectedId || opsBusy) return;
+    setOpsBusy(true);
+    setSendError(null);
+    try {
+      await fn();
+      await loadConversations({ silent: true });
+    } catch (e) {
+      setSendError(e instanceof Error ? e.message : "Error en la acción");
+    } finally {
+      setOpsBusy(false);
+    }
+  }
+
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedId || !input.trim() || sending) return;
@@ -368,6 +483,16 @@ export default function ConversacionesPage() {
     !!selected && (selected.human_taken_over || selected.flow_status === "human");
   const requestedConversationId = searchParams?.get("conversationId") ?? null;
 
+  const asignacionSel =
+    searchParams?.get("asignacion") === "mios"
+      ? "mios"
+      : searchParams?.get("asignacion") === "sin_asignar"
+        ? "sin_asignar"
+        : "all";
+  const colaSel = searchParams?.get("cola") ?? "";
+  const estadoSel = searchParams?.get("estado") ?? "";
+  const prioridadSel = searchParams?.get("prioridad") ?? "";
+
   useEffect(() => {
     if (!requestedConversationId || !conversations.length) return;
     if (selectedId === requestedConversationId) return;
@@ -375,6 +500,13 @@ export default function ConversacionesPage() {
     if (!exists) return;
     void handleSelect(requestedConversationId);
   }, [requestedConversationId, conversations, selectedId, handleSelect]);
+
+  useEffect(() => {
+    if (selectedId && !conversations.some((c) => c.id === selectedId)) {
+      setSelectedId(null);
+      setMessages([]);
+    }
+  }, [conversations, selectedId]);
 
   return (
     <div className="flex flex-col flex-1 min-h-0 gap-3">
@@ -401,12 +533,18 @@ export default function ConversacionesPage() {
           <p className="text-sm text-slate-500">
             Omnicanal ·{" "}
             {vista === "inbox"
-              ? "Inbox (operador humano)"
+              ? "Inbox (abiertas y pendientes)"
               : vista === "bot"
                 ? "Automatización / bot"
                 : "Historial completo"}
           </p>
         </div>
+        <Link
+          href="/dashboard/conversaciones/operacion"
+          className="text-sm font-medium text-[#0EA5E9] hover:underline shrink-0"
+        >
+          Colas y agentes
+        </Link>
       </div>
 
       <div className="flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-slate-100/80 p-1 w-fit shrink-0">
@@ -425,6 +563,55 @@ export default function ConversacionesPage() {
         </button>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shrink-0">
+        <span className="font-semibold text-slate-500 uppercase tracking-wide">Filtros</span>
+        <select
+          className="border border-slate-200 rounded-md px-2 py-1.5 bg-white text-slate-700 max-w-[160px]"
+          value={asignacionSel}
+          onChange={(e) => patchInboxQuery({ asignacion: e.target.value })}
+          aria-label="Asignación"
+        >
+          <option value="all">Todas</option>
+          <option value="mios">Mis conversaciones</option>
+          <option value="sin_asignar">Sin asignar</option>
+        </select>
+        <select
+          className="border border-slate-200 rounded-md px-2 py-1.5 bg-white text-slate-700 max-w-[160px]"
+          value={colaSel}
+          onChange={(e) => patchInboxQuery({ cola: e.target.value || null })}
+          aria-label="Cola"
+        >
+          <option value="">Todas las colas</option>
+          {opsQueues.filter((q) => q.is_active).map((q) => (
+            <option key={q.id} value={q.id}>
+              {q.nombre}
+            </option>
+          ))}
+        </select>
+        <select
+          className="border border-slate-200 rounded-md px-2 py-1.5 bg-white text-slate-700 max-w-[140px]"
+          value={estadoSel}
+          onChange={(e) => patchInboxQuery({ estado: e.target.value || null })}
+          aria-label="Estado"
+        >
+          <option value="">Todos los estados</option>
+          <option value="open">Abierta</option>
+          <option value="pending">Pendiente</option>
+          <option value="closed">Cerrada</option>
+        </select>
+        <select
+          className="border border-slate-200 rounded-md px-2 py-1.5 bg-white text-slate-700 max-w-[130px]"
+          value={prioridadSel}
+          onChange={(e) => patchInboxQuery({ prioridad: e.target.value || null })}
+          aria-label="Prioridad"
+        >
+          <option value="">Todas</option>
+          <option value="low">Prioridad baja</option>
+          <option value="medium">Prioridad media</option>
+          <option value="high">Prioridad alta</option>
+        </select>
+      </div>
+
       {hasActiveChannel === false && (
         <div className="bg-amber-50 border border-amber-200 text-amber-900 text-sm rounded-lg px-4 py-3 shrink-0">
           No hay un canal de conversación activo para tu empresa. Los mensajes no se registrarán hasta configurarlo.
@@ -439,7 +626,7 @@ export default function ConversacionesPage() {
 
       <div className="flex flex-1 min-h-0 border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm">
         {/* Lista */}
-        <div className="w-full max-w-[340px] border-r border-slate-200 flex flex-col bg-slate-50/80">
+        <div className="w-full max-w-[420px] border-r border-slate-200 flex flex-col bg-slate-50/80">
           <div className="p-3 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wide">
             Chats
           </div>
@@ -489,6 +676,32 @@ export default function ConversacionesPage() {
                   <p className="text-xs text-slate-500 truncate mt-0.5">
                     {c.last_message_preview || "—"}
                   </p>
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    <span
+                      className={`text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded border ${badgeEstadoClass(c.status)}`}
+                    >
+                      {labelEstado(c.status)}
+                    </span>
+                    <span
+                      className={`text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded border ${badgePrioridadClass(c.priority)}`}
+                    >
+                      {labelPrioridad(c.priority)}
+                    </span>
+                    {c.queue_name ? (
+                      <span
+                        className="text-[9px] font-medium text-indigo-800 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded truncate max-w-full"
+                        title={c.queue_name}
+                      >
+                        {c.queue_name}
+                      </span>
+                    ) : null}
+                    <span
+                      className="text-[9px] font-medium text-slate-600 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded truncate max-w-full"
+                      title={c.assigned_agent_name ?? "Sin asignar"}
+                    >
+                      {c.assigned_agent_name ?? "Sin asignar"}
+                    </span>
+                  </div>
                 </button>
               ))
             )}
@@ -550,6 +763,131 @@ export default function ConversacionesPage() {
                     Ver prospecto CRM
                   </Link>
                 )}
+                {selected ? (
+                  <div className="flex flex-wrap w-full gap-2 items-center pt-2 border-t border-slate-100 mt-1">
+                    <span
+                      className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded border ${badgeEstadoClass(selected.status)}`}
+                    >
+                      {labelEstado(selected.status)}
+                    </span>
+                    <span
+                      className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded border ${badgePrioridadClass(selected.priority)}`}
+                    >
+                      {labelPrioridad(selected.priority)}
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      Cola:{" "}
+                      <span className="font-medium text-slate-700">
+                        {selected.queue_name ?? "—"}
+                      </span>
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      Agente:{" "}
+                      <span className="font-medium text-slate-700">
+                        {selected.assigned_agent_name ?? "Sin asignar"}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      disabled={opsBusy}
+                      onClick={() =>
+                        void runConversationOp(() => assignConversationToMe(selected.id))
+                      }
+                      className="text-[11px] font-medium text-white bg-[#0EA5E9] hover:bg-[#0284C7] rounded-md px-2 py-1 disabled:opacity-50"
+                    >
+                      Asignarme
+                    </button>
+                    <select
+                      disabled={opsBusy}
+                      className="text-[11px] border border-slate-200 rounded-md px-1.5 py-1 max-w-[200px]"
+                      value=""
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        (e.target as HTMLSelectElement).value = "";
+                        if (v && selected) {
+                          void runConversationOp(() => assignConversationToAgent(selected.id, v));
+                        }
+                      }}
+                      aria-label="Reasignar conversación"
+                    >
+                      <option value="">Reasignar a…</option>
+                      {opsAgents
+                        .filter((a) => a.id !== selected.assigned_agent_id)
+                        .map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.nombre} · {a.queue_nombre}
+                          </option>
+                        ))}
+                    </select>
+                    <select
+                      disabled={opsBusy}
+                      className="text-[11px] border border-slate-200 rounded-md px-1.5 py-1 max-w-[160px]"
+                      value={selected.queue_id ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v && selected) {
+                          void runConversationOp(() => changeConversationQueue(selected.id, v));
+                        }
+                      }}
+                      aria-label="Cambiar cola"
+                    >
+                      <option value="" disabled>
+                        Cola…
+                      </option>
+                      {opsQueues.map((q) => (
+                        <option key={q.id} value={q.id}>
+                          {q.nombre}
+                          {!q.is_active ? " (inactiva)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      disabled={opsBusy}
+                      className="text-[11px] border border-slate-200 rounded-md px-1.5 py-1"
+                      value={selected.priority}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v && selected) {
+                          void runConversationOp(() =>
+                            changeConversationPriority(selected.id, v)
+                          );
+                        }
+                      }}
+                      aria-label="Prioridad"
+                    >
+                      <option value="low">Prioridad baja</option>
+                      <option value="medium">Prioridad media</option>
+                      <option value="high">Prioridad alta</option>
+                    </select>
+                    {selected.status !== "closed" ? (
+                      <button
+                        type="button"
+                        disabled={opsBusy}
+                        onClick={() =>
+                          void runConversationOp(() =>
+                            changeConversationStatus(selected.id, "closed")
+                          )
+                        }
+                        className="text-[11px] font-medium text-slate-700 border border-slate-300 rounded-md px-2 py-1 hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        Cerrar
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={opsBusy}
+                        onClick={() =>
+                          void runConversationOp(() =>
+                            changeConversationStatus(selected.id, "open")
+                          )
+                        }
+                        className="text-[11px] font-medium text-emerald-800 border border-emerald-300 rounded-md px-2 py-1 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50"
+                      >
+                        Reabrir
+                      </button>
+                    )}
+                  </div>
+                ) : null}
               </div>
 
               <div className="px-4 py-2 border-b border-slate-200 bg-amber-50/40 text-sm">
