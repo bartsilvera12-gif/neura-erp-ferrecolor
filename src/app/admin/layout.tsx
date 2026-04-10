@@ -2,29 +2,78 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
+import { getSession, getCurrentUser } from "@/lib/auth";
+import { isBootstrapSuperAdminEmail } from "@/lib/auth/super-admin-bootstrap-email";
 
+/**
+ * No usar solo getCurrentUser() aquí: el cliente anon + RLS en `zentra_erp.usuarios`
+ * puede fallar o devolver null para super_admin y redirigía erróneamente a /login.
+ * La API module-access resuelve rol con service role (misma lógica que AuthGuard).
+ */
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [ok, setOk] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getCurrentUser()
-      .then((u) => {
-        if (!u) {
-          router.push("/login");
+    let cancelled = false;
+
+    async function run() {
+      try {
+        const session = await getSession();
+        if (cancelled) return;
+        if (!session?.user) {
+          router.replace("/login");
           return;
         }
-        const rol = (u as { rol?: string }).rol;
-        if (rol !== "super_admin") {
-          router.push("/");
+
+        if (isBootstrapSuperAdminEmail(session.user.email ?? null)) {
+          setOk(true);
+          return;
+        }
+
+        const res = await fetchWithSupabaseSession("/api/empresas/module-access", {
+          cache: "no-store",
+        });
+        if (cancelled) return;
+
+        if (res.status === 401) {
+          router.replace("/login");
+          return;
+        }
+
+        let isSuper = false;
+        if (res.ok) {
+          const data = (await res.json()) as { superAdmin?: boolean };
+          isSuper = !!data.superAdmin;
+        }
+
+        if (!isSuper) {
+          try {
+            const u = await getCurrentUser();
+            if ((u?.rol ?? "").trim() === "super_admin") isSuper = true;
+          } catch {
+            /* RLS u error de red */
+          }
+        }
+
+        if (!isSuper) {
+          router.replace("/");
           return;
         }
         setOk(true);
-      })
-      .catch(() => router.push("/login"))
-      .finally(() => setLoading(false));
+      } catch {
+        if (!cancelled) router.replace("/login");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   if (loading) {
