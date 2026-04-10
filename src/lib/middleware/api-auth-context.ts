@@ -42,21 +42,23 @@ function extractBearerFromRequest(request?: Request | null): string | null {
   return t || null;
 }
 
-/** Bearer del Request o de los headers de la petición entrante (fetch browser con JWT en localStorage). */
-async function extractBearerToken(request?: Request | null): Promise<string | null> {
+type BearerResolved = { token: string | null; source: "request" | "next-headers" | "none" };
+
+/** Bearer del Request o de `headers()` (fallback). Incluye fuente para diagnóstico NEURA_DIAG_AUTH. */
+async function resolveBearerToken(request?: Request | null): Promise<BearerResolved> {
   const fromReq = extractBearerFromRequest(request);
-  if (fromReq) return fromReq;
+  if (fromReq) return { token: fromReq, source: "request" };
   try {
     const h = await headers();
     const a = h.get("authorization");
     if (a?.toLowerCase().startsWith("bearer ")) {
       const t = a.slice(7).trim();
-      if (t) return t;
+      if (t) return { token: t, source: "next-headers" };
     }
   } catch {
     /* fuera de contexto de petición */
   }
-  return null;
+  return { token: null, source: "none" };
 }
 
 type UsuarioRow = {
@@ -85,12 +87,20 @@ export async function resolveApiAuthContext(
     return { ok: false, code: "missing_public_env" };
   }
 
-  const bearer = await extractBearerToken(request);
+  const rawAuthOnRequest = request?.headers.get("authorization") ?? null;
+  const bearerResolved = await resolveBearerToken(request);
+  const bearer = bearerResolved.token;
+
   if (DIAG) {
     const cs = await cookies();
     logDiag({
-      step: "request",
-      hasBearer: !!bearer,
+      step: "auth_ingress",
+      hasRequestObject: request != null,
+      requestAuthHeaderLen: rawAuthOnRequest?.length ?? 0,
+      requestAuthStartsWithBearer: rawAuthOnRequest?.toLowerCase().startsWith("bearer ") ?? false,
+      bearerDetected: !!bearer,
+      bearerSource: bearerResolved.source,
+      bearerTokenLen: bearer?.length ?? 0,
       cookieCount: cs.getAll().length,
       cookieNames: cs.getAll().map((c) => c.name),
     });
@@ -107,7 +117,13 @@ export async function resolveApiAuthContext(
     }) as AppSupabaseClient;
     const { data, error } = await userScopedSupabase.auth.getUser(bearer);
     if (error || !data.user?.id) {
-      logDiag({ step: "get_user_bearer", err: error?.message });
+      logDiag({
+        step: "no_session",
+        branch: "bearer_getUser",
+        getUserErr: error?.message ?? null,
+        hasUserId: !!data.user?.id,
+        bearerSource: bearerResolved.source,
+      });
       return { ok: false, code: "no_session", detail: error?.message };
     }
     user = data.user;
@@ -128,7 +144,13 @@ export async function resolveApiAuthContext(
     }) as AppSupabaseClient;
     const { data, error } = await userScopedSupabase.auth.getUser();
     if (error || !data.user?.id) {
-      logDiag({ step: "get_user_cookie", err: error?.message });
+      logDiag({
+        step: "no_session",
+        branch: "cookie_getUser",
+        getUserErr: error?.message ?? null,
+        hasUserId: !!data.user?.id,
+        bearerSource: bearerResolved.source,
+      });
       return { ok: false, code: "no_session", detail: error?.message };
     }
     user = data.user;
@@ -167,11 +189,22 @@ export async function resolveApiAuthContext(
   }
 
   if (!row && lastUsuarioErr) {
+    logDiag({
+      step: "fail",
+      code: "usuario_query_error",
+      detail: lastUsuarioErr,
+      authUserIdHint: user.id?.slice(0, 8) ?? null,
+    });
     return { ok: false, code: "usuario_query_error", detail: lastUsuarioErr };
   }
 
   if (!row) {
-    logDiag({ step: "usuario_rows", count: 0 });
+    logDiag({
+      step: "fail",
+      code: "usuario_zero_rows",
+      authUserIdHint: user.id?.slice(0, 8) ?? null,
+      emailHint: user.email?.replace(/^(.{2}).+(@.+)$/, "$1…$2") ?? null,
+    });
     return { ok: false, code: "usuario_zero_rows" };
   }
 
@@ -213,6 +246,11 @@ export async function resolveApiAuthContext(
     };
   }
 
-  logDiag({ step: "empresa_id_null" });
+  logDiag({
+    step: "fail",
+    code: "empresa_id_null",
+    authUserIdHint: user.id?.slice(0, 8) ?? null,
+    usuarioRol: usuarioRol ?? null,
+  });
   return { ok: false, code: "empresa_id_null" };
 }
