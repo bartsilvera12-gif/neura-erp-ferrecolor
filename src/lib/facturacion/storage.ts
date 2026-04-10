@@ -1,5 +1,5 @@
-import { supabase } from "@/lib/supabase";
 import { montosFacturaItemParaInsert } from "@/lib/facturacion/factura-item-montos";
+import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
 import { getCurrentUser } from "@/lib/auth";
 import { getConfig, saveConfig } from "@/lib/config/storage";
 import type { Suscripcion, FacturaItem, Pago } from "./types";
@@ -49,6 +49,7 @@ interface PagoRow {
 // ─── Suscripciones ───────────────────────────────────────────────────────────
 
 export async function getSuscripciones(clienteId: string): Promise<Suscripcion[]> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const { data, error } = await supabase
     .from("suscripciones")
     .select("*")
@@ -93,6 +94,7 @@ export async function saveSuscripcion(
   datos: NuevaSuscripcionData,
   planNombre?: string
 ): Promise<Suscripcion | null> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const usuario = await getCurrentUser();
   if (!usuario?.empresa_id) throw new Error("Usuario no autenticado o sin empresa");
 
@@ -163,6 +165,7 @@ async function generarFacturaDesdeSuscripcion(
   suscripcion: SuscripcionRow,
   planNombre: string
 ): Promise<Factura | null> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const usuario = await getCurrentUser();
   if (!usuario?.empresa_id) return null;
 
@@ -230,6 +233,7 @@ export async function crearFacturaContado(
   descripcion: string,
   moneda: "GS" | "USD" = "GS"
 ): Promise<Factura | null> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const usuario = await getCurrentUser();
   if (!usuario?.empresa_id) return null;
 
@@ -281,6 +285,7 @@ export { getFacturas } from "@/lib/gestion-clientes/storage";
 // ─── Pagos ───────────────────────────────────────────────────────────────────
 
 export async function getPagos(facturaId?: string): Promise<Pago[]> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   let query = supabase
     .from("pagos")
     .select("*")
@@ -313,6 +318,7 @@ export type NuevoPagoData = {
 };
 
 export async function savePago(datos: NuevoPagoData): Promise<Pago | null> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const usuario = await getCurrentUser();
   if (!usuario?.empresa_id) throw new Error("Usuario no autenticado o sin empresa");
 

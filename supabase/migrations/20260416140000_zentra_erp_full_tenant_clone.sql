@@ -77,15 +77,15 @@ AS $$
 DECLARE
   s text;
   suf text;
-  full text;
+  v_schema_name text;
 BEGIN
   s := zentra_erp.neura_sanitize_schema_slug(p_slug);
   suf := substring(replace(p_empresa_id::text, '-', '') from 1 for 8);
-  full := 'erp_' || s || '_' || suf;
-  IF full !~ '^erp_[a-z0-9_]+$' OR length(full) > 63 THEN
-    RAISE EXCEPTION 'nombre de schema inválido tras sanitizar: %', full;
+  v_schema_name := 'erp_' || s || '_' || suf;
+  IF v_schema_name !~ '^erp_[a-z0-9_]+$' OR length(v_schema_name) > 63 THEN
+    RAISE EXCEPTION 'nombre de schema inválido tras sanitizar: %', v_schema_name;
   END IF;
-  RETURN full;
+  RETURN v_schema_name;
 END;
 $$;
 

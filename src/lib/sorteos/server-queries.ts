@@ -1,11 +1,11 @@
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServerClientForEmpresaData } from "@/lib/supabase/empresa-data-server";
 import type { SorteoCuponOrdenRow, SorteoEntrada } from "@/lib/sorteos/types";
 
 export async function fetchSorteoEntradasServer(): Promise<{
   data: SorteoEntrada[];
   error: string | null;
 }> {
-  const supabase = await createSupabaseServerClient();
+  const supabase = await createSupabaseServerClientForEmpresaData();
   const { data, error } = await supabase
     .from("sorteo_entradas")
     .select("*, sorteos(nombre)")
@@ -21,7 +21,7 @@ export async function fetchSorteoCuponesOrdenesServer(): Promise<{
   data: SorteoCuponOrdenRow[];
   error: string | null;
 }> {
-  const supabase = await createSupabaseServerClient();
+  const supabase = await createSupabaseServerClientForEmpresaData();
   const { data, error } = await supabase
     .from("sorteo_entradas")
     .select("*, sorteos(nombre), sorteo_cupones(numero_cupon)")

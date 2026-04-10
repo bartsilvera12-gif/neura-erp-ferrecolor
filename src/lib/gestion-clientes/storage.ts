@@ -1,5 +1,5 @@
-import { supabase } from "@/lib/supabase";
 import { getCurrentUser } from "@/lib/auth";
+import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
 import type {
   Factura,
   Tipificacion,
@@ -68,6 +68,7 @@ function rowToTipificacion(row: TipificacionRow): Tipificacion {
 
 /** Lista facturas. RLS filtra por empresa. */
 export async function getFacturas(clienteId?: string): Promise<Factura[]> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   let query = supabase
     .from("facturas")
     .select("*")
@@ -92,6 +93,7 @@ export type NuevaFacturaData = Omit<Factura, "id">;
 export async function saveFactura(
   datos: NuevaFacturaData
 ): Promise<Factura | null> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const usuario = await getCurrentUser();
   if (!usuario?.empresa_id) throw new Error("Usuario no autenticado o sin empresa");
 
@@ -125,6 +127,7 @@ export async function saveFactura(
 
 /** Lista tipificaciones de un cliente. RLS filtra por empresa. */
 export async function getTipificaciones(clienteId: string): Promise<Tipificacion[]> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const { data, error } = await supabase
     .from("tipificaciones")
     .select("*")
@@ -150,6 +153,7 @@ export interface NuevaTipificacion {
 export async function saveTipificacion(
   datos: NuevaTipificacion
 ): Promise<Tipificacion | null> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const usuario = await getCurrentUser();
   if (!usuario?.empresa_id) throw new Error("Usuario no autenticado o sin empresa");
 

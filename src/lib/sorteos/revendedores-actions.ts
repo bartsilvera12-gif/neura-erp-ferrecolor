@@ -1,5 +1,5 @@
 import { getEmpresaId } from "@/lib/db/empresa";
-import { supabase } from "@/lib/supabase";
+import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
 
 export type SorteoRevendedorRow = {
   id: string;
@@ -33,6 +33,7 @@ function mapRev(r: Record<string, unknown>): SorteoRevendedorRow {
 }
 
 export async function listRevendedoresBySorteo(sorteoId: string): Promise<SorteoRevendedorRow[]> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const empresaId = await getEmpresaId();
   const { data, error } = await supabase
     .from("sorteo_revendedores")
@@ -53,6 +54,7 @@ export type RevendedorInput = {
 };
 
 export async function createRevendedor(sorteoId: string, input: RevendedorInput): Promise<SorteoRevendedorRow> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const empresa_id = await getEmpresaId();
   const codigo = input.codigo_referido.trim();
   const nombre = input.nombre.trim();
@@ -90,6 +92,7 @@ export async function updateRevendedor(
   id: string,
   input: RevendedorInput
 ): Promise<SorteoRevendedorRow> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const empresa_id = await getEmpresaId();
   const codigo = input.codigo_referido.trim();
   const nombre = input.nombre.trim();
@@ -115,6 +118,7 @@ export async function updateRevendedor(
 }
 
 export async function setRevendedorActivo(id: string, activo: boolean): Promise<void> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const empresa_id = await getEmpresaId();
   const { error } = await supabase
     .from("sorteo_revendedores")
@@ -135,6 +139,7 @@ export type RevendedorStats = {
 };
 
 export async function getRevendedorStats(revendedorId: string): Promise<RevendedorStats> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const empresa_id = await getEmpresaId();
 
   const { count: clicks, error: e1 } = await supabase

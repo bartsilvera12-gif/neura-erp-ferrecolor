@@ -1,10 +1,13 @@
+import { clearBrowserEmpresaDataSchemaCache } from "@/lib/supabase/browser-data-client";
 import { supabase } from "./supabase";
 
 export async function signIn(email: string, password: string) {
+  clearBrowserEmpresaDataSchemaCache();
   return supabase.auth.signInWithPassword({ email, password });
 }
 
 export async function signOut() {
+  clearBrowserEmpresaDataSchemaCache();
   return supabase.auth.signOut();
 }
 

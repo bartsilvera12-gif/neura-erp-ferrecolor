@@ -1,5 +1,5 @@
 import { getEmpresaId } from "@/lib/db/empresa";
-import { supabase } from "@/lib/supabase";
+import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
 
 export type Gasto = {
   id: string;
@@ -41,6 +41,7 @@ function mapRow(r: Record<string, unknown>): Gasto {
 
 /** Obtiene todos los gastos de la empresa, ordenados por fecha desc. RLS filtra por empresa. */
 export async function getGastos(): Promise<Gasto[]> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const { data, error } = await supabase
     .from("gastos")
     .select("*")
@@ -52,6 +53,7 @@ export async function getGastos(): Promise<Gasto[]> {
 
 /** Obtiene los gastos del mes actual (para Dashboard). RLS filtra por empresa. */
 export async function getGastosMesActual(): Promise<Gasto[]> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const hoy = new Date();
   const inicioMes = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-01`;
   const finMes = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-31`;
@@ -70,6 +72,7 @@ export async function getGastosMesActual(): Promise<Gasto[]> {
 export async function createGasto(input: GastoInput): Promise<Gasto> {
   if (input.monto <= 0) throw new Error("El monto debe ser mayor a 0");
 
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const empresa_id = await getEmpresaId();
 
   const { data, error } = await supabase
@@ -94,6 +97,7 @@ export async function createGasto(input: GastoInput): Promise<Gasto> {
 export async function updateGasto(id: string, input: Partial<GastoInput>): Promise<Gasto> {
   if (input.monto !== undefined && input.monto <= 0) throw new Error("El monto debe ser mayor a 0");
 
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const update: Record<string, unknown> = {};
   if (input.categoria !== undefined) update.categoria = input.categoria.trim() || null;
   if (input.descripcion !== undefined) update.descripcion = input.descripcion.trim() || null;
@@ -115,6 +119,7 @@ export async function updateGasto(id: string, input: Partial<GastoInput>): Promi
 }
 
 export async function deleteGasto(id: string): Promise<void> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const { error } = await supabase.from("gastos").delete().eq("id", id);
 
   if (error) throw new Error(error.message);

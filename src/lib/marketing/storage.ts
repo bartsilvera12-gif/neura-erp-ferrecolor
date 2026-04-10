@@ -1,5 +1,5 @@
-import { supabase } from "@/lib/supabase";
 import { getCurrentUser } from "@/lib/auth";
+import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
 import type { MarketingTask, NuevaMarketingTask } from "./types";
 
 interface TaskRow {
@@ -42,6 +42,7 @@ function rowToTask(r: TaskRow): MarketingTask {
 
 /** Lista tareas de marketing de un cliente. Filtra por empresa (RLS). Solo clientes activos con tipo marketing. */
 export async function getMarketingTasks(clienteId: string): Promise<MarketingTask[]> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const usuario = await getCurrentUser();
   if (!usuario?.empresa_id) return [];
 
@@ -72,6 +73,7 @@ export async function getMarketingTasks(clienteId: string): Promise<MarketingTas
 
 /** Lista tareas del mes. RLS filtra por empresa. */
 export async function getMarketingTasksDelMes(mes: string): Promise<MarketingTask[]> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const usuario = await getCurrentUser();
   if (!usuario?.empresa_id) return [];
 
@@ -97,6 +99,7 @@ export async function getMarketingTasksDelMes(mes: string): Promise<MarketingTas
 
 /** Lista todas las tareas de clientes marketing activos de la empresa. */
 export async function getTodasMarketingTasks(): Promise<MarketingTask[]> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const usuario = await getCurrentUser();
   if (!usuario?.empresa_id) return [];
 
@@ -126,6 +129,7 @@ export async function getTodasMarketingTasks(): Promise<MarketingTask[]> {
 
 /** Crea tarea de marketing. Valida que el cliente sea marketing activo. */
 export async function createMarketingTask(datos: NuevaMarketingTask): Promise<MarketingTask | null> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const usuario = await getCurrentUser();
   if (!usuario?.empresa_id) throw new Error("Usuario no autenticado o sin empresa");
 
@@ -170,6 +174,7 @@ export async function updateMarketingTask(
   id: string,
   datos: Partial<Pick<MarketingTask, "titulo" | "descripcion" | "tipo_contenido" | "estado" | "fecha_entrega" | "responsable_user_id" | "prioridad">>
 ): Promise<MarketingTask | null> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const patch: Record<string, unknown> = {};
   if (datos.titulo !== undefined) patch.titulo = datos.titulo;
   if (datos.descripcion !== undefined) patch.descripcion = datos.descripcion ?? null;
@@ -209,6 +214,7 @@ export interface MetricasCumplimiento {
 
 /** Métricas de cumplimiento para un mes: total tareas, completadas (aprobado/publicado), porcentaje */
 export async function getMetricasCumplimiento(mes: string): Promise<MetricasCumplimiento> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const usuario = await getCurrentUser();
   if (!usuario?.empresa_id) return { total: 0, completadas: 0, porcentaje: 0 };
 

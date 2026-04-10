@@ -1,5 +1,5 @@
-import { supabase } from "@/lib/supabase";
 import { getCurrentUser } from "@/lib/auth";
+import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
 import type { Cliente, EstadoCliente, NotaCliente } from "./types";
 
 // ─── Tipo de fila Supabase ────────────────────────────────────────────────────
@@ -108,6 +108,7 @@ function rowToCliente(row: SupabaseRow): Cliente {
 
 /** Lista clientes. RLS filtra por empresa. Excluye eliminados (soft delete). */
 export async function getClientes(opts?: { incluirEliminados?: boolean; incluirPlanActivo?: boolean }): Promise<Cliente[]> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   let q = supabase
     .from("clientes")
     .select("*")
@@ -125,7 +126,7 @@ export async function getClientes(opts?: { incluirEliminados?: boolean; incluirP
   const clientes = (data as SupabaseRow[]).map(rowToCliente);
 
   if (opts?.incluirPlanActivo) {
-    const planMap = await getPlanActivoPorClienteMap(clientes.map((c) => c.id));
+    const planMap = await getPlanActivoPorClienteMap(supabase, clientes.map((c) => c.id));
     clientes.forEach((c) => {
       (c as Cliente).plan_activo = planMap.get(c.id) ?? undefined;
     });
@@ -135,7 +136,10 @@ export async function getClientes(opts?: { incluirEliminados?: boolean; incluirP
 }
 
 /** Obtiene mapa cliente_id -> nombre del plan activo (suscripción activa más reciente). Una sola query en batch. */
-async function getPlanActivoPorClienteMap(clienteIds: string[]): Promise<Map<string, string>> {
+async function getPlanActivoPorClienteMap(
+  supabase: Awaited<ReturnType<typeof getBrowserSupabaseForEmpresaData>>,
+  clienteIds: string[]
+): Promise<Map<string, string>> {
   if (clienteIds.length === 0) return new Map();
 
   const { data, error } = await supabase
@@ -165,6 +169,7 @@ async function getPlanActivoPorClienteMap(clienteIds: string[]): Promise<Map<str
 
 /** Obtiene un cliente por ID. RLS filtra por empresa. Por defecto excluye eliminados. */
 export async function getCliente(id: string, opts?: { incluirEliminados?: boolean }): Promise<Cliente | null> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   let q = supabase
     .from("clientes")
     .select("*")
@@ -194,6 +199,7 @@ export type NuevoClienteData = Omit<
 
 /** Crea cliente. empresa_id y created_by se obtienen del usuario; RLS valida acceso. */
 export async function saveCliente(datos: NuevoClienteData): Promise<Cliente | null> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const usuario = await getCurrentUser();
   if (!usuario?.empresa_id) throw new Error("Usuario no autenticado o sin empresa");
 
@@ -246,6 +252,7 @@ export async function updateCliente(
   id: string,
   datos: Partial<Omit<Cliente, "id" | "codigo_cliente" | "created_at">>
 ): Promise<Cliente | null> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const patch: Record<string, unknown> = {};
   if (datos.tipo_cliente !== undefined) patch.tipo_cliente = datos.tipo_cliente;
   if (datos.empresa !== undefined) patch.empresa = datos.empresa ?? null;
@@ -297,6 +304,7 @@ export async function softDeleteCliente(
   userId: string,
   reason: string
 ): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const { error } = await supabase
     .from("clientes")
     .update({
@@ -320,6 +328,7 @@ export async function softDeleteCliente(
  * Mantenido para compatibilidad; en producción usar DELETE /api/clientes/[id].
  */
 export async function deleteCliente(id: string): Promise<void> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const { error } = await supabase.from("clientes").delete().eq("id", id);
   if (error) console.error("[clientes] deleteCliente:", error.message);
 }
@@ -328,6 +337,7 @@ export async function deleteCliente(id: string): Promise<void> {
 
 /** Obtiene notas del cliente desde Supabase. Fallback a [] si no hay datos. */
 export async function getNotasCliente(clienteId: string): Promise<NotaCliente[]> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const { data, error } = await supabase
     .from("clientes")
     .select("notas")
@@ -340,6 +350,7 @@ export async function getNotasCliente(clienteId: string): Promise<NotaCliente[]>
 
 /** Añade una nota al cliente y persiste en Supabase. */
 export async function addNotaCliente(clienteId: string, texto: string): Promise<NotaCliente> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const notas = await getNotasCliente(clienteId);
   const nota: NotaCliente = {
     id:    Date.now(),

@@ -1,5 +1,5 @@
 import { getEmpresaId } from "@/lib/db/empresa";
-import { supabase } from "@/lib/supabase";
+import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
 import type {
   Sorteo,
   SorteoConversacion,
@@ -31,6 +31,7 @@ function mapSorteo(r: Record<string, unknown>): Sorteo {
 }
 
 export async function getSorteos(): Promise<Sorteo[]> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const { data, error } = await supabase
     .from("sorteos")
     .select("*")
@@ -41,6 +42,7 @@ export async function getSorteos(): Promise<Sorteo[]> {
 }
 
 export async function getSorteoById(id: string): Promise<Sorteo | null> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   let q = supabase.from("sorteos").select("*").eq("id", id);
   try {
     const empresaId = await getEmpresaId();
@@ -66,6 +68,7 @@ export type SorteoInput = {
 };
 
 export async function createSorteo(input: SorteoInput): Promise<Sorteo> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const empresa_id = await getEmpresaId();
   const { data, error } = await supabase
     .from("sorteos")
@@ -88,6 +91,7 @@ export async function createSorteo(input: SorteoInput): Promise<Sorteo> {
 }
 
 export async function updateSorteo(id: string, input: SorteoInput): Promise<Sorteo> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   let q = supabase
     .from("sorteos")
     .update({
@@ -115,6 +119,7 @@ export async function updateSorteo(id: string, input: SorteoInput): Promise<Sort
 }
 
 export async function getSorteoConversaciones(): Promise<SorteoConversacion[]> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const { data, error } = await supabase
     .from("sorteo_conversaciones")
     .select("*, sorteos(nombre)")
@@ -125,6 +130,7 @@ export async function getSorteoConversaciones(): Promise<SorteoConversacion[]> {
 }
 
 export async function getSorteoEntradas(): Promise<SorteoEntrada[]> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const { data, error } = await supabase
     .from("sorteo_entradas")
     .select("*, sorteos(nombre)")
@@ -135,6 +141,7 @@ export async function getSorteoEntradas(): Promise<SorteoEntrada[]> {
 }
 
 export async function getSorteoCupones(): Promise<SorteoCupon[]> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const { data, error } = await supabase
     .from("sorteo_cupones")
     .select("*, sorteos(nombre), sorteo_entradas(nombre_participante)")
@@ -146,6 +153,7 @@ export async function getSorteoCupones(): Promise<SorteoCupon[]> {
 
 /** Una fila por orden con los números de cupón agregados (vista operativa Cupones). */
 export async function getSorteoCuponesOrdenes(): Promise<SorteoCuponOrdenRow[]> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const { data, error } = await supabase
     .from("sorteo_entradas")
     .select("*, sorteos(nombre), sorteo_cupones(numero_cupon)")

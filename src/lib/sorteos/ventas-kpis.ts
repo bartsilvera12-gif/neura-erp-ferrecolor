@@ -1,12 +1,16 @@
 "use server";
 
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseServerClient,
+  createSupabaseServerClientWithDbSchema,
+} from "@/lib/supabase/server";
+import { SUPABASE_APP_SCHEMA } from "@/lib/supabase/schema";
 import { asuncionDayBoundsUtc, asuncionMonthBoundsUtc } from "@/lib/sorteos/kpis-time-bounds";
 
 /**
  * KPIs de ventas de sorteos (página principal).
  *
- * Tabla: public.sorteo_entradas (cada fila = una orden / compra de boletos).
+ * Tabla: `sorteo_entradas` en el schema de datos de la empresa (`data_schema` o plantilla legada).
  * Criterio de fecha: created_at (momento en que se registró la orden en el ERP).
  * Boletos: suma de cantidad_boletos (excluye filas con estado_pago = 'rechazado').
  * Monto: suma de monto_total en la misma moneda de la fila (PYG), mismo filtro de estado.
@@ -33,15 +37,15 @@ function sumRows(
 }
 
 export async function getSorteosVentasKpis(): Promise<SorteosVentasKpis> {
-  const supabase = await createSupabaseServerClient();
+  const catalog = await createSupabaseServerClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await catalog.auth.getUser();
   if (!user?.email) {
     return { boletosHoy: 0, boletosMes: 0, montoHoy: 0, montoMes: 0 };
   }
 
-  const { data: usuario, error: uErr } = await supabase
+  const { data: usuario, error: uErr } = await catalog
     .from("usuarios")
     .select("empresa_id")
     .eq("email", user.email)
@@ -52,6 +56,16 @@ export async function getSorteosVentasKpis(): Promise<SorteosVentasKpis> {
   }
 
   const empresaId = usuario.empresa_id as string;
+
+  const { data: emp } = await catalog
+    .from("empresas")
+    .select("data_schema")
+    .eq("id", empresaId)
+    .maybeSingle();
+  const ds = (emp as { data_schema?: string | null } | null)?.data_schema?.trim();
+  const schema = ds && ds.length > 0 ? ds : SUPABASE_APP_SCHEMA;
+  const supabase = await createSupabaseServerClientWithDbSchema(schema);
+
   const day = asuncionDayBoundsUtc();
   const month = asuncionMonthBoundsUtc();
 

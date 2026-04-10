@@ -1,5 +1,5 @@
-import { supabase } from "@/lib/supabase";
 import { getCurrentUser } from "@/lib/auth";
+import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
 
 /**
  * Obtiene empresa_id del usuario actual.
@@ -22,8 +22,11 @@ export async function getEmpresaId(): Promise<string> {
  * const { data } = await (await queryEmpresa("clientes")).select("*").order("nombre");
  */
 export async function queryEmpresa(tabla: string) {
-  const empresaId = await getEmpresaId();
+  const [sb, empresaId] = await Promise.all([
+    getBrowserSupabaseForEmpresaData(),
+    getEmpresaId(),
+  ]);
   // Tabla dinámica: Supabase tipa por nombre literal; con string el builder no expone .eq() en tipos
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (supabase.from(tabla as any) as any).eq("empresa_id", empresaId);
+  return (sb.from(tabla as any) as any).eq("empresa_id", empresaId);
 }

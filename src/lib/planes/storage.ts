@@ -1,5 +1,5 @@
-import { supabase } from "@/lib/supabase";
 import { getCurrentUser } from "@/lib/auth";
+import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
 import type { Plan, EstadoPlan, PlanMarketingPlantilla } from "./types";
 
 // ─── Tipos de fila Supabase ───────────────────────────────────────────────────
@@ -50,8 +50,10 @@ function rowToPlan(row: PlanRow): Plan {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function generarCodigoPlan(): Promise<string> {
-  const { data } = await supabase
+async function generarCodigoPlan(
+  sb: Awaited<ReturnType<typeof getBrowserSupabaseForEmpresaData>>
+): Promise<string> {
+  const { data } = await sb
     .from("planes")
     .select("codigo_plan")
     .order("created_at", { ascending: false })
@@ -67,6 +69,7 @@ async function generarCodigoPlan(): Promise<string> {
 
 /** Lista planes. RLS filtra por empresa. */
 export async function getPlanes(): Promise<Plan[]> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const { data, error } = await supabase
     .from("planes")
     .select("*")
@@ -81,6 +84,7 @@ export async function getPlanes(): Promise<Plan[]> {
 
 /** Obtiene un plan por ID. */
 export async function getPlan(id: string): Promise<Plan | null> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const { data, error } = await supabase
     .from("planes")
     .select("*")
@@ -98,10 +102,11 @@ export type NuevoPlanData = Omit<Plan, "id" | "codigo_plan" | "created_at" | "up
 
 /** Crea plan. empresa_id desde getCurrentUser(). */
 export async function savePlan(datos: NuevoPlanData): Promise<Plan | null> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const usuario = await getCurrentUser();
   if (!usuario?.empresa_id) throw new Error("Usuario no autenticado o sin empresa");
 
-  const codigoPlan = await generarCodigoPlan();
+  const codigoPlan = await generarCodigoPlan(supabase);
 
   const insert: Record<string, unknown> = {
     empresa_id: usuario.empresa_id,
@@ -137,6 +142,7 @@ export async function updatePlan(
   id: string,
   datos: Partial<Omit<Plan, "id" | "codigo_plan" | "created_at">>
 ): Promise<Plan | null> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const patch: Record<string, unknown> = {};
   if (datos.nombre !== undefined) patch.nombre = datos.nombre;
   if (datos.descripcion !== undefined) patch.descripcion = datos.descripcion ?? null;
@@ -171,6 +177,7 @@ export async function toggleEstadoPlan(id: string, estado: EstadoPlan): Promise<
 
 /** Elimina un plan. */
 export async function deletePlan(id: string): Promise<void> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const { error } = await supabase.from("planes").delete().eq("id", id);
   if (error) console.error("[planes] deletePlan:", error.message);
 }

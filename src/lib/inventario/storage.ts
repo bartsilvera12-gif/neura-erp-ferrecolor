@@ -1,5 +1,5 @@
-import { supabase } from "@/lib/supabase";
 import { getCurrentUser } from "@/lib/auth";
+import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
 import type {
   Producto,
   MovimientoInventario,
@@ -76,6 +76,7 @@ function rowToMovimiento(row: MovimientoRow): MovimientoInventario {
 
 /** Lista productos. RLS filtra por empresa automáticamente. */
 export async function getProductos(): Promise<Producto[]> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const { data, error } = await supabase
     .from("productos")
     .select("*")
@@ -91,6 +92,7 @@ export async function getProductos(): Promise<Producto[]> {
 
 /** Obtiene un producto por ID. */
 export async function getProducto(id: string): Promise<Producto | null> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const { data, error } = await supabase
     .from("productos")
     .select("*")
@@ -130,6 +132,7 @@ export type NuevoProductoData = Omit<Producto, "id">;
 export async function saveProducto(
   datos: NuevoProductoData
 ): Promise<Producto | null> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const usuario = await getCurrentUser();
   if (!usuario?.empresa_id) throw new Error("Usuario no autenticado o sin empresa");
 
@@ -188,6 +191,7 @@ export async function updateProducto(
   id: string,
   datos: Partial<Omit<Producto, "id">>
 ): Promise<Producto | null> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const patch: Record<string, unknown> = {};
   if (datos.nombre !== undefined) patch.nombre = datos.nombre;
   if (datos.sku !== undefined) patch.sku = datos.sku;
@@ -216,6 +220,7 @@ export async function updateProducto(
 
 /** Lista movimientos. RLS filtra por empresa automáticamente. */
 export async function getMovimientos(): Promise<MovimientoInventario[]> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const { data, error } = await supabase
     .from("movimientos_inventario")
     .select("*")
@@ -243,6 +248,7 @@ export type NuevoMovimientoData = Omit<MovimientoInventario, "id">;
 export async function saveMovimiento(
   mov: NuevoMovimientoData
 ): Promise<MovimientoInventario | null> {
+  const supabase = await getBrowserSupabaseForEmpresaData();
   const usuario = await getCurrentUser();
   if (!usuario?.empresa_id) throw new Error("Usuario no autenticado o sin empresa");
 
