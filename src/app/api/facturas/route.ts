@@ -5,6 +5,7 @@ import { API_ERRORS } from "@/lib/api/errors";
 import { emitEvent, EVENT_TYPES } from "@/lib/integrations/events";
 import { fechaMasDiasCalendario, fechaVencimientoSuscripcion, toCalendarDateStr } from "@/lib/fechas/calendario";
 import { montosFacturaItemParaInsert } from "@/lib/facturacion/factura-item-montos";
+import { parseFacturaPostTipo } from "@/lib/facturacion/factura-post-tipo";
 
 
 export async function GET(request: NextRequest) {
@@ -74,9 +75,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(errorResponse("monto debe ser >= 0"), { status: 400 });
     }
 
-    const tipoStr = typeof tipo === "string" ? tipo.toLowerCase() : "";
-    const tipoFac: "contado" | "credito" | "suscripcion" =
-      tipoStr === "contado" || tipoStr === "credito" || tipoStr === "suscripcion" ? tipoStr : "credito";
+    const parsedTipo = parseFacturaPostTipo(tipo);
+    if (!parsedTipo.ok) {
+      return NextResponse.json(errorResponse(parsedTipo.error), { status: 400 });
+    }
+    const tipoFac = parsedTipo.tipo;
+
     const fechaNorm = toCalendarDateStr(String(fecha)) || String(fecha).slice(0, 10);
     let fechaVenc: string;
     if (fecha_vencimiento != null && String(fecha_vencimiento).trim() !== "") {
@@ -88,11 +92,9 @@ export async function POST(request: NextRequest) {
       /** Misma regla que emitir suscripción: día de vencimiento en el mes de emisión o mes siguiente si ya pasó. */
       const diaV = Math.min(31, Math.max(1, Number.isFinite(dia_vencimiento_susc) ? dia_vencimiento_susc : 10));
       fechaVenc = fechaVencimientoSuscripcion(fechaNorm, diaV);
-    } else if (tipoFac === "credito") {
+    } else {
       const diasCred = Number(process.env.FACTURA_DIAS_CREDITO_DEFAULT ?? 30);
       fechaVenc = fechaMasDiasCalendario(fechaNorm, Number.isFinite(diasCred) ? diasCred : 30);
-    } else {
-      fechaVenc = fechaNorm;
     }
     const insert = {
       empresa_id: auth.empresa_id,

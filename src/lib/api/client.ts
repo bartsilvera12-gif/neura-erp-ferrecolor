@@ -138,7 +138,7 @@ export async function apiCreateFactura(data: {
   fecha: string;
   fecha_vencimiento: string;
   monto: number;
-  tipo?: string;
+  tipo: "contado" | "credito" | "suscripcion";
   moneda?: string;
   /** Línea única de detalle (inserta factura_items en el servidor; evita Supabase browser). */
   descripcion_linea?: string;
