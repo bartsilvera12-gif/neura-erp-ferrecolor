@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Calendar } from "lucide-react";
+import { Calendar, ChevronDown, ChevronUp, SlidersHorizontal } from "lucide-react";
 import { SifenEstadoBadge } from "@/components/sifen/SifenEstadoBadge";
 import { useFacturaSifenEstados } from "@/hooks/useFacturaSifenEstados";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
@@ -15,8 +15,8 @@ import type { EstadoFactura, Factura } from "@/lib/gestion-clientes/types";
 // ── Estilos ────────────────────────────────────────────────────────────────────
 
 const fInputClass =
-  "w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none bg-white";
-const fLabelClass = "block text-xs font-medium text-slate-500 mb-0.5";
+  "w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none bg-white";
+const fLabelClass = "mb-0.5 block text-[11px] font-medium text-slate-500";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -198,7 +198,7 @@ function BotonOperativo({
   onClick?: () => void;
 }) {
   const base =
-    "flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium transition-colors";
+    "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-medium transition-colors";
   const activeClass  = "border-gray-800 bg-gray-900 text-white hover:bg-gray-700";
   const disabledClass = "border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed";
   const iconEl = iconNode ?? <span>{icon}</span>;
@@ -227,13 +227,27 @@ function BotonOperativo({
   );
 }
 
-// ── Sección header de columna ─────────────────────────────────────────────────
+// ── Etiqueta de sección (UI compacta) ─────────────────────────────────────────
 
-function ColHeader({ children }: { children: React.ReactNode }) {
+function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
-      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{children}</p>
-    </div>
+    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{children}</p>
+  );
+}
+
+function matchesClienteBusqueda(c: Cliente, raw: string) {
+  const q = raw.trim().toLowerCase();
+  if (!q) return true;
+  return (
+    (c.empresa ?? "").toLowerCase().includes(q) ||
+    c.nombre_contacto.toLowerCase().includes(q) ||
+    (c.telefono ?? "").toLowerCase().includes(q) ||
+    (c.telefono_secundario ?? "").toLowerCase().includes(q) ||
+    (c.ruc ?? "").toLowerCase().includes(q) ||
+    (c.documento ?? "").toLowerCase().includes(q) ||
+    (c.email ?? "").toLowerCase().includes(q) ||
+    (c.email_secundario ?? "").toLowerCase().includes(q) ||
+    (c.codigo_cliente ?? "").toLowerCase().includes(q)
   );
 }
 
@@ -402,70 +416,59 @@ function ModalFacturacion({
   );
 }
 
-// ── Lookup de cliente (popup buscador) ───────────────────────────────────────
+// ── Búsqueda global de cliente (barra única, misma lógica de coincidencia en cliente) ─
 
-function ClienteLookup({
+function IconoLupa({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+    </svg>
+  );
+}
+
+function ClienteBusquedaGlobal({
   clientes,
   selected,
   onSelect,
   onClear,
+  variant,
 }: {
   clientes: Cliente[];
   selected: Cliente | null;
   onSelect: (c: Cliente) => void;
-  onClear:  () => void;
+  onClear: () => void;
+  variant: "landing" | "toolbar";
 }) {
-  const [open,  setOpen]  = useState(false);
+  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
-  const inputRef     = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const resultados = useMemo(() => {
     const q = query.trim().toLowerCase();
     const base = q
-      ? clientes.filter((c) =>
-          (c.empresa         ?? "").toLowerCase().includes(q) ||
-          c.nombre_contacto.toLowerCase().includes(q)         ||
-          (c.telefono        ?? "").toLowerCase().includes(q) ||
-          (c.ruc             ?? "").toLowerCase().includes(q) ||
-          (c.documento       ?? "").toLowerCase().includes(q) ||
-          (c.email           ?? "").toLowerCase().includes(q)
-        )
-      : clientes;
-    return base.slice(0, 10);
+      ? clientes.filter((c) => matchesClienteBusqueda(c, q))
+      : [...clientes].sort((a, b) =>
+          clienteNombre(a).localeCompare(clienteNombre(b), "es", { sensitivity: "base" })
+        );
+    return base.slice(0, q ? 50 : 24);
   }, [clientes, query]);
 
-  // Cerrar al hacer click fuera del popup
   useEffect(() => {
     if (!open) return;
     function onMouseDown(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false);
+        if (variant === "toolbar") setQuery("");
       }
     }
     document.addEventListener("mousedown", onMouseDown);
     return () => document.removeEventListener("mousedown", onMouseDown);
-  }, [open]);
+  }, [open, variant]);
 
-  // Foco automático al abrir
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 0);
   }, [open]);
-
-  function handleOpen() {
-    setQuery("");
-    setOpen(true);
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Escape") {
-      setOpen(false);
-    } else if (e.key === "Enter" && resultados.length > 0) {
-      onSelect(resultados[0]);
-      setOpen(false);
-      setQuery("");
-    }
-  }
 
   function handleSelect(c: Cliente) {
     onSelect(c);
@@ -473,65 +476,100 @@ function ClienteLookup({
     setQuery("");
   }
 
-  return (
-    <div ref={containerRef} className="relative">
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Escape") {
+      setOpen(false);
+      setQuery("");
+    } else if (e.key === "Enter" && resultados.length > 0) {
+      handleSelect(resultados[0]);
+    }
+  }
 
-      {/* ── Trigger ── */}
-      <div className="flex items-center gap-1">
+  if (variant === "toolbar" && selected && !open) {
+    return (
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <button
           type="button"
-          onClick={handleOpen}
-          className={`flex-1 min-w-0 border rounded-md px-3 py-1.5 text-xs flex items-center gap-1.5 transition-colors text-left ${
-            open
-              ? "border-blue-400 bg-white ring-1 ring-blue-200"
-              : "border-gray-200 bg-white hover:border-gray-300"
-          }`}
+          onClick={() => {
+            setQuery("");
+            setOpen(true);
+          }}
+          className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-lg border border-slate-200/90 bg-white px-2.5 py-1.5 text-left text-xs font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+          title="Buscar otro cliente"
         >
-          <svg className="w-3 h-3 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          {selected ? (
-            <span className="font-semibold text-gray-800 truncate">{clienteNombre(selected)}</span>
-          ) : (
-            <span className="text-gray-400">Buscar cliente...</span>
-          )}
+          <IconoLupa className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+          <span className="min-w-0 truncate">{clienteNombre(selected)}</span>
+          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Cambiar</span>
         </button>
-        {selected && (
-          <button
-            type="button"
-            onClick={onClear}
-            className="shrink-0 p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-            title="Limpiar selección"
-          >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={onClear}
+          className="shrink-0 rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+          title="Quitar cliente"
+        >
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+    );
+  }
+
+  const shellClass =
+    variant === "landing"
+      ? "w-full rounded-xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-900/[0.04] transition focus-within:border-sky-400/80 focus-within:ring-2 focus-within:ring-sky-200/70"
+      : "w-full min-w-[200px] rounded-lg border border-slate-200 bg-white shadow-lg ring-1 ring-slate-900/5 transition focus-within:border-sky-400/80 focus-within:ring-2 focus-within:ring-sky-200/70";
+
+  return (
+    <div
+      ref={containerRef}
+      className={`relative ${variant === "landing" ? "mx-auto w-full max-w-2xl" : "min-w-0 flex-1"}`}
+    >
+      <div className={shellClass}>
+        <div className="flex items-center gap-2 px-3 py-2 sm:py-2.5">
+          <IconoLupa className="h-4 w-4 shrink-0 text-slate-400" />
+          <input
+            ref={inputRef}
+            type="search"
+            autoComplete="off"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onFocus={() => setOpen(true)}
+            placeholder="Nombre, RUC, teléfono, correo, documento, código…"
+            className="min-w-0 flex-1 border-0 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+            aria-label="Buscar cliente"
+          />
+          {query ? (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+            >
+              Limpiar
+            </button>
+          ) : null}
+          {variant === "toolbar" && selected && open ? (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                setQuery("");
+              }}
+              className="shrink-0 text-[11px] font-semibold text-slate-500 hover:text-slate-800"
+            >
+              Listo
+            </button>
+          ) : null}
+        </div>
       </div>
 
-      {/* ── Dropdown popup ── */}
       {open && (
-        <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-gray-200 rounded-xl shadow-2xl z-50 overflow-hidden">
-
-          {/* Buscador interno */}
-          <div className="p-2 border-b border-gray-100 bg-gray-50/60">
-            <input
-              ref={inputRef}
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Escribí para buscar..."
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none bg-white"
-            />
-          </div>
-
-          {/* Resultados */}
-          <div className="overflow-y-auto max-h-56">
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+          <div className="max-h-64 overflow-y-auto overscroll-y-contain">
             {resultados.length === 0 ? (
-              <div className="py-6 text-center text-xs text-gray-400">
-                Sin resultados para &ldquo;{query}&rdquo;
+              <div className="px-4 py-8 text-center text-xs text-slate-400">
+                {query.trim() ? <>Sin resultados para &ldquo;{query.trim()}&rdquo;</> : <>Sin clientes cargados</>}
               </div>
             ) : (
               resultados.map((c, i) => (
@@ -539,30 +577,27 @@ function ClienteLookup({
                   key={c.id}
                   type="button"
                   onClick={() => handleSelect(c)}
-                  className={`w-full text-left px-3 py-2.5 border-b border-slate-200 last:border-0 transition-colors hover:bg-slate-50 ${
-                    i === 0 ? "bg-[#0EA5E9]/10" : ""
+                  className={`w-full border-b border-slate-100 px-3 py-2 text-left transition last:border-0 hover:bg-slate-50 ${
+                    i === 0 && query.trim() ? "bg-sky-50/70" : ""
                   }`}
                 >
-                  <p className="text-xs font-bold text-gray-900 truncate">{clienteNombre(c)}</p>
-                  <div className="flex flex-wrap gap-x-3 mt-0.5">
-                    {c.ruc && (
-                      <span className="text-xs text-gray-500">RUC: {c.ruc}</span>
-                    )}
-                    <span className="text-xs text-gray-500">Contacto: {c.nombre_contacto}</span>
+                  <p className="truncate text-xs font-semibold text-slate-900">{clienteNombre(c)}</p>
+                  <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
+                    <span className="font-mono text-[10px] text-slate-400">{c.codigo_cliente}</span>
+                    {c.ruc ? <span className="text-[10px] text-slate-500">RUC {c.ruc}</span> : null}
+                    {c.telefono ? <span className="text-[10px] text-slate-500">{c.telefono}</span> : null}
                   </div>
                 </button>
               ))
             )}
           </div>
-
-          {/* Atajos de teclado */}
-          <div className="flex items-center gap-4 px-3 py-1.5 bg-gray-50 border-t border-gray-100">
-            <span className="text-xs text-gray-400 flex items-center gap-1">
-              <kbd className="bg-white border border-gray-200 rounded px-1 py-0.5 text-[10px] font-mono leading-none">↵</kbd>
-              seleccionar primero
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-slate-100 bg-slate-50 px-3 py-1.5 text-[10px] text-slate-400">
+            <span className="inline-flex items-center gap-1">
+              <kbd className="rounded border border-slate-200 bg-white px-1 py-0.5 font-mono text-[9px] leading-none">↵</kbd>
+              primer resultado
             </span>
-            <span className="text-xs text-gray-400 flex items-center gap-1">
-              <kbd className="bg-white border border-gray-200 rounded px-1 py-0.5 text-[10px] font-mono leading-none">Esc</kbd>
+            <span className="inline-flex items-center gap-1">
+              <kbd className="rounded border border-slate-200 bg-white px-1 py-0.5 font-mono text-[9px] leading-none">Esc</kbd>
               cerrar
             </span>
           </div>
@@ -579,14 +614,10 @@ export default function GestionClientesPage() {
   const [selected,  setSelected]  = useState<Cliente | null>(null);
   const [facturas,  setFacturas]  = useState<Factura[]>([]);
   const [modalFacturacion, setModalFacturacion] = useState(false);
+  const [facturasDetalleAbierto, setFacturasDetalleAbierto] = useState(true);
+  const [panelFiltrosFacturas, setPanelFiltrosFacturas] = useState(false);
 
   const [filters, setFilters] = useState({
-    cliente:                 "",
-    nombre:                  "",
-    ruc:                     "",
-    telefono:                "",
-    correo:                  "",
-    nro_documento:           "",
     fecha_desde:             "",
     fecha_hasta:             "",
     vencimiento_desde:       "",
@@ -603,9 +634,7 @@ export default function GestionClientesPage() {
   /** Al elegir cliente: misma API que la ficha (`/api/facturas?cliente_id=`) y filtros de período en blanco para no ocultar filas. */
   function selectCliente(c: Cliente) {
     setSelected(c);
-    setFilters((prev) => ({
-      ...prev,
-      cliente: clienteNombre(c),
+    setFilters({
       fecha_desde: "",
       fecha_hasta: "",
       vencimiento_desde: "",
@@ -613,7 +642,8 @@ export default function GestionClientesPage() {
       moneda: "",
       incluir_saldo_cero: true,
       incluir_factura_contado: true,
-    }));
+    });
+    setPanelFiltrosFacturas(false);
     getFacturas(c.id).then(setFacturas);
   }
 
@@ -626,14 +656,16 @@ export default function GestionClientesPage() {
     }));
   }
 
-  function limpiarFiltros() {
+  function limpiarFiltrosFacturas() {
     setFilters({
-      cliente: "", nombre: "", ruc: "", telefono: "", correo: "", nro_documento: "",
-      fecha_desde: "", fecha_hasta: "", vencimiento_desde: "", vencimiento_hasta: "",
-      incluir_saldo_cero: true, incluir_factura_contado: true, moneda: "",
+      fecha_desde: "",
+      fecha_hasta: "",
+      vencimiento_desde: "",
+      vencimiento_hasta: "",
+      incluir_saldo_cero: true,
+      incluir_factura_contado: true,
+      moneda: "",
     });
-    setSelected(null);
-    setFacturas([]);
   }
 
   // Handlers del lookup
@@ -644,26 +676,23 @@ export default function GestionClientesPage() {
   function handleClearLookup() {
     setSelected(null);
     setFacturas([]);
-    setFilters((prev) => ({ ...prev, cliente: "" }));
+    limpiarFiltrosFacturas();
+    setPanelFiltrosFacturas(false);
   }
 
-  // ── Filtrado de clientes (columna izquierda) ─────────────────────────────
+  const filtrosFacturasActivos = useMemo(() => {
+    return Boolean(
+      filters.fecha_desde.trim() ||
+        filters.fecha_hasta.trim() ||
+        filters.vencimiento_desde.trim() ||
+        filters.vencimiento_hasta.trim() ||
+        filters.moneda ||
+        !filters.incluir_saldo_cero ||
+        !filters.incluir_factura_contado
+    );
+  }, [filters]);
 
-  const clientesFiltrados = useMemo(() => {
-    return clientes.filter((c) => {
-      const nombre = clienteNombre(c).toLowerCase();
-      if (filters.cliente      && !nombre.includes(filters.cliente.toLowerCase())
-                                && !(c.codigo_cliente ?? "").toLowerCase().includes(filters.cliente.toLowerCase())) return false;
-      if (filters.nombre       && !nombre.includes(filters.nombre.toLowerCase()))                                   return false;
-      if (filters.ruc          && !(c.ruc       ?? "").toLowerCase().includes(filters.ruc.toLowerCase()))           return false;
-      if (filters.telefono     && !(c.telefono  ?? "").toLowerCase().includes(filters.telefono.toLowerCase()))      return false;
-      if (filters.correo       && !(c.email     ?? "").toLowerCase().includes(filters.correo.toLowerCase()))        return false;
-      if (filters.nro_documento && !(c.documento ?? "").toLowerCase().includes(filters.nro_documento.toLowerCase())) return false;
-      return true;
-    });
-  }, [clientes, filters.cliente, filters.nombre, filters.ruc, filters.telefono, filters.correo, filters.nro_documento]);
-
-  // ── Filtrado de facturas (columna derecha) ───────────────────────────────
+  // ── Filtrado de facturas ─────────────────────────────────────────────────
 
   const facturasFiltradas = useMemo(() => {
     const fd = toCalendarDateStr(filters.fecha_desde) || filters.fecha_desde.trim();
@@ -728,420 +757,366 @@ export default function GestionClientesPage() {
   const sifenPorFactura = useFacturaSifenEstados(facturasOrdenadas.map((f) => f.id));
 
   return (
-    <div className="flex flex-col gap-4 h-full">
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
+      <header className="shrink-0 border-b border-slate-200/80 pb-2">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight text-slate-900">Gestión del Cliente</h1>
+            <p className="text-[11px] text-slate-500">Panel operativo · consultas y tipificaciones</p>
+          </div>
+          {clientes.length > 0 ? (
+            <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400 tabular-nums">
+              {clientes.length} en cartera
+            </span>
+          ) : null}
+        </div>
+      </header>
 
-      {/* ── Header ─────────────────────────────────────────────────────── */}
-      <div className="shrink-0">
-        <h1 className="text-3xl font-bold text-gray-800">Gestión del Cliente</h1>
-        <p className="text-gray-500 text-sm mt-1">Panel operativo · consultas y tipificaciones</p>
-      </div>
-
-      {/* ── Panel dos columnas ──────────────────────────────────────────── */}
       <div
-        className="flex border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-white flex-1 min-h-0"
-        style={{ height: "calc(100vh - 170px)" }}
+        className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-900/[0.03]"
+        style={{ minHeight: "min(560px, calc(100dvh - 10.5rem))" }}
       >
-
-        {/* ══════════════════════════════════════════════════════════════
-            COLUMNA IZQUIERDA — Filtros + Lista de clientes
-        ══════════════════════════════════════════════════════════════ */}
-        <div className="w-[340px] shrink-0 border-r border-gray-200 flex flex-col overflow-hidden bg-gray-50/40 min-h-0">
-
-          <ColHeader>Filtros de búsqueda</ColHeader>
-
-          {/* Formulario de filtros */}
-          <div className="flex-1 min-h-0 overflow-y-auto">
-            <div className="p-4 space-y-3">
-
-              {/* Criterios de texto */}
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Criterios</p>
-
-                <div>
-                  <label className={fLabelClass}>Cliente</label>
-                  <ClienteLookup
-                    clientes={clientes}
-                    selected={selected}
-                    onSelect={handleSelectFromLookup}
-                    onClear={handleClearLookup}
-                  />
-                </div>
-                <div>
-                  <label className={fLabelClass}>Nombre</label>
-                  <input name="nombre" value={filters.nombre} onChange={handleChange} placeholder="Nombre del contacto" className={fInputClass} />
-                </div>
-                <div>
-                  <label className={fLabelClass}>RUC</label>
-                  <input name="ruc" value={filters.ruc} onChange={handleChange} placeholder="00000000-0" className={fInputClass} />
-                </div>
-                <div>
-                  <label className={fLabelClass}>Teléfono</label>
-                  <input name="telefono" value={filters.telefono} onChange={handleChange} placeholder="021 / 09XX" className={fInputClass} />
-                </div>
-                <div>
-                  <label className={fLabelClass}>Correo</label>
-                  <input name="correo" value={filters.correo} onChange={handleChange} placeholder="email@dominio.com" className={fInputClass} />
-                </div>
-                <div>
-                  <label className={fLabelClass}>Nro. documento</label>
-                  <input name="nro_documento" value={filters.nro_documento} onChange={handleChange} placeholder="CI o pasaporte" className={fInputClass} />
-                </div>
+        {selected === null ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-5 px-4 py-8">
+            <div className="space-y-1 text-center">
+              <p className="text-sm font-semibold text-slate-800">Buscá un cliente</p>
+              <p className="mx-auto max-w-md text-xs leading-relaxed text-slate-500">
+                Un solo campo cubre nombre, razón social, RUC, teléfonos, correos, documento y código interno.
+              </p>
+            </div>
+            <ClienteBusquedaGlobal
+              variant="landing"
+              clientes={clientes}
+              selected={null}
+              onSelect={handleSelectFromLookup}
+              onClear={handleClearLookup}
+            />
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="shrink-0 border-b border-slate-200/80 bg-slate-50/70">
+              <div className="flex flex-wrap items-center gap-2 px-3 py-2 sm:px-4">
+                <ClienteBusquedaGlobal
+                  variant="toolbar"
+                  clientes={clientes}
+                  selected={selected}
+                  onSelect={handleSelectFromLookup}
+                  onClear={handleClearLookup}
+                />
+                <button
+                  type="button"
+                  onClick={() => setPanelFiltrosFacturas((v) => !v)}
+                  aria-expanded={panelFiltrosFacturas}
+                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                    panelFiltrosFacturas || filtrosFacturasActivos
+                      ? "border-sky-300 bg-sky-50 text-sky-900"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                  }`}
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden />
+                  Filtros facturas
+                  {filtrosFacturasActivos ? (
+                    <span className="ml-0.5 inline-flex h-1.5 w-1.5 rounded-full bg-sky-500" title="Hay filtros aplicados" />
+                  ) : null}
+                </button>
               </div>
-
-              {/* Filtros de período */}
-              <div className="space-y-2 pt-2 border-t border-gray-200">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Período facturas</p>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className={fLabelClass}>Fecha desde</label>
-                    <input type="date" name="fecha_desde" value={filters.fecha_desde} onChange={handleChange} className={fInputClass} />
+              {panelFiltrosFacturas ? (
+                <div className="space-y-3 border-t border-slate-200/70 bg-white px-3 py-3 sm:px-4">
+                  <SectionLabel>Filtros sobre el listado de facturas</SectionLabel>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div>
+                      <label className={fLabelClass}>Fecha emisión desde</label>
+                      <input type="date" name="fecha_desde" value={filters.fecha_desde} onChange={handleChange} className={fInputClass} />
+                    </div>
+                    <div>
+                      <label className={fLabelClass}>Fecha emisión hasta</label>
+                      <input type="date" name="fecha_hasta" value={filters.fecha_hasta} onChange={handleChange} className={fInputClass} />
+                    </div>
+                    <div>
+                      <label className={fLabelClass}>Vencimiento desde</label>
+                      <input type="date" name="vencimiento_desde" value={filters.vencimiento_desde} onChange={handleChange} className={fInputClass} />
+                    </div>
+                    <div>
+                      <label className={fLabelClass}>Vencimiento hasta</label>
+                      <input type="date" name="vencimiento_hasta" value={filters.vencimiento_hasta} onChange={handleChange} className={fInputClass} />
+                    </div>
                   </div>
-                  <div>
-                    <label className={fLabelClass}>Fecha hasta</label>
-                    <input type="date" name="fecha_hasta" value={filters.fecha_hasta} onChange={handleChange} className={fInputClass} />
+                  <div className="flex flex-wrap items-center gap-4 border-t border-slate-100 pt-3">
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        name="incluir_saldo_cero"
+                        checked={filters.incluir_saldo_cero}
+                        onChange={handleChange}
+                        className="rounded border-gray-300 accent-gray-800"
+                      />
+                      <span className="text-xs text-slate-600">Incluir saldo cero</span>
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        name="incluir_factura_contado"
+                        checked={filters.incluir_factura_contado}
+                        onChange={handleChange}
+                        className="rounded border-gray-300 accent-gray-800"
+                      />
+                      <span className="text-xs text-slate-600">Incluir factura contado</span>
+                    </label>
+                    <div className="min-w-[10rem] flex-1">
+                      <label className={fLabelClass}>Moneda</label>
+                      <select name="moneda" value={filters.moneda} onChange={handleChange} className={fInputClass}>
+                        <option value="">Todas</option>
+                        <option value="GS">Guaraníes (GS)</option>
+                        <option value="USD">Dólares (USD)</option>
+                      </select>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={limpiarFiltrosFacturas}
+                      className="self-end rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+                    >
+                      Restablecer filtros
+                    </button>
                   </div>
                 </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className={fLabelClass}>Venc. desde</label>
-                    <input type="date" name="vencimiento_desde" value={filters.vencimiento_desde} onChange={handleChange} className={fInputClass} />
-                  </div>
-                  <div>
-                    <label className={fLabelClass}>Venc. hasta</label>
-                    <input type="date" name="vencimiento_hasta" value={filters.vencimiento_hasta} onChange={handleChange} className={fInputClass} />
-                  </div>
-                </div>
-              </div>
-
-              {/* Opciones */}
-              <div className="space-y-2 pt-2 border-t border-gray-200">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Opciones</p>
-
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    name="incluir_saldo_cero"
-                    checked={filters.incluir_saldo_cero}
-                    onChange={handleChange}
-                    className="rounded border-gray-300 accent-gray-800"
-                  />
-                  <span className="text-xs text-gray-600">Incluir saldo cero</span>
-                </label>
-
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    name="incluir_factura_contado"
-                    checked={filters.incluir_factura_contado}
-                    onChange={handleChange}
-                    className="rounded border-gray-300 accent-gray-800"
-                  />
-                  <span className="text-xs text-gray-600">Incluir factura contado</span>
-                </label>
-
-                <div>
-                  <label className={fLabelClass}>Moneda</label>
-                  <select name="moneda" value={filters.moneda} onChange={handleChange} className={fInputClass}>
-                    <option value="">Todas</option>
-                    <option value="GS">Guaraníes (GS)</option>
-                    <option value="USD">Dólares (USD)</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Botón limpiar */}
-              <button
-                type="button"
-                onClick={limpiarFiltros}
-                className="w-full text-xs text-gray-500 border border-gray-200 rounded-lg py-1.5 hover:bg-gray-100 transition-colors"
-              >
-                Limpiar filtros
-              </button>
+              ) : null}
             </div>
 
-            {/* ── Lista de resultados ──────────────────────────────────── */}
-            <div className="border-t border-gray-200">
-              <div className="px-4 py-2 bg-gray-100/50 flex items-center justify-between">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Resultados</p>
-                <span className="text-xs font-bold text-gray-600 bg-white border border-gray-200 px-1.5 py-0.5 rounded-full">
-                  {clientesFiltrados.length}
-                </span>
-              </div>
-
-              {clientesFiltrados.length === 0 ? (
-                <div className="px-4 py-8 text-center text-xs text-gray-400">
-                  Sin resultados para los filtros aplicados
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+              <section className="border-b border-slate-200/80 px-3 py-3 sm:px-5 sm:py-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <h2 className="text-base font-semibold tracking-tight text-slate-900 sm:text-lg">
+                      {clienteNombre(selected)}
+                    </h2>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
+                      <span className="font-mono text-slate-400">{selected.codigo_cliente}</span>
+                      {selected.ruc ? <span>· RUC {selected.ruc}</span> : null}
+                      {selected.documento && !selected.ruc ? <span>· Doc. {selected.documento}</span> : null}
+                    </div>
+                  </div>
+                  <BadgeEstado estado={selected.estado} />
                 </div>
-              ) : (
-                <div className="divide-y divide-gray-100">
-                  {clientesFiltrados.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => selectCliente(c)}
-                      className={`w-full text-left px-4 py-3 transition-colors hover:bg-blue-50/60 ${
-                        selected?.id === c.id
-                          ? "bg-blue-50 border-l-[3px] border-l-blue-500"
-                          : "border-l-[3px] border-l-transparent"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className={`text-xs font-semibold truncate ${selected?.id === c.id ? "text-blue-800" : "text-gray-800"}`}>
-                            {clienteNombre(c)}
-                          </p>
-                          <p className="text-xs text-gray-400 mt-0.5 font-mono">
-                            {c.codigo_cliente}
-                            {(c.ruc || c.documento) && ` · ${c.ruc ?? c.documento}`}
-                          </p>
-                        </div>
-                        <BadgeEstado estado={c.estado} />
-                      </div>
-                    </button>
+
+                <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                  {[
+                    { label: "RUC", value: selected.ruc ?? "—" },
+                    { label: "Contacto", value: selected.nombre_contacto },
+                    { label: "Correo", value: selected.email ?? "—" },
+                    { label: "Teléfono", value: selected.telefono ?? "—" },
+                    { label: "Dirección", value: selected.direccion ?? "—" },
+                    { label: "Ciudad", value: selected.ciudad ?? "—" },
+                    { label: "Condición", value: selected.condicion_pago ?? "—" },
+                    { label: "Moneda", value: selected.moneda_preferida ?? "GS" },
+                    { label: "Fecha alta", value: formatFechaIso(selected.created_at) },
+                  ].map((item) => (
+                    <div key={item.label} className="min-w-0">
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">{item.label}</p>
+                      <p className="truncate text-xs font-medium text-slate-800" title={item.value}>
+                        {item.value}
+                      </p>
+                    </div>
                   ))}
                 </div>
-              )}
-            </div>
 
-          </div>
-        </div>
-
-        {/* ══════════════════════════════════════════════════════════════
-            COLUMNA DERECHA — Información del cliente
-        ══════════════════════════════════════════════════════════════ */}
-        <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-
-          {selected === null ? (
-            /* Empty state */
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center">
-                <span className="text-5xl">👤</span>
-                <p className="mt-4 text-base font-semibold text-gray-600">Seleccioná un cliente</p>
-                <p className="text-sm text-gray-400 mt-1 max-w-xs">
-                  Buscá en la columna izquierda y hacé click en un cliente para ver su información
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-
-              {/* ── Panel info del cliente ─────────────────────────── */}
-              <div className="shrink-0 border-b border-gray-200 max-h-[min(52vh,520px)] overflow-y-auto">
-                <ColHeader>Información del cliente</ColHeader>
-                <div className="px-6 py-4">
-                  <div className="flex items-start justify-between mb-4">
-                    <div>
-                      <h2 className="text-lg font-bold text-gray-900">{clienteNombre(selected)}</h2>
-                      <span className="font-mono text-xs text-gray-400">{selected.codigo_cliente}</span>
-                    </div>
-                    <BadgeEstado estado={selected.estado} />
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-x-8 gap-y-2.5 text-sm">
-                    {[
-                      { label: "RUC",        value: selected.ruc        ?? "—" },
-                      { label: "Contacto",   value: selected.nombre_contacto   },
-                      { label: "Correo",     value: selected.email      ?? "—" },
-                      { label: "Teléfono",   value: selected.telefono   ?? "—" },
-                      { label: "Dirección",  value: selected.direccion  ?? "—" },
-                      { label: "Ciudad",     value: selected.ciudad     ?? "—" },
-                      { label: "Condición",  value: selected.condicion_pago ?? "—" },
-                      { label: "Moneda",     value: selected.moneda_preferida ?? "GS" },
-                      { label: "Fecha alta", value: formatFechaIso(selected.created_at) },
-                    ].map((item) => (
-                      <div key={item.label}>
-                        <p className="text-xs text-gray-400">{item.label}</p>
-                        <p className="font-medium text-gray-800 truncate" title={item.value}>{item.value}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* ── Botones operativos ─────────────────────────── */}
-                <div className="px-6 pb-4 flex flex-wrap gap-2">
-                  <BotonOperativo
-                    label="Tipificación"
-                    icon="📋"
-                    activo
-                    href={`/clientes/${selected.id}/tipificacion`}
-                  />
+                <div className="mt-3 flex flex-wrap gap-1.5 border-t border-slate-100 pt-3">
+                  <BotonOperativo label="Tipificación" icon="📋" activo href={`/clientes/${selected.id}/tipificacion`} />
                   <BotonOperativo
                     label="Facturación"
                     icon="📄"
-                    iconNode={<Calendar className="w-3.5 h-3.5" />}
+                    iconNode={<Calendar className="h-3.5 w-3.5" />}
                     activo
                     onClick={() => setModalFacturacion(true)}
                   />
-                  <BotonOperativo label="Servicios asociados"   icon="🔗" />
-                  <BotonOperativo label="Cambio de plan"        icon="🔄" />
-                  <BotonOperativo label="Cambio fecha venc."    icon="📅" />
-                  <BotonOperativo label="Historial cliente"     icon="🕐" />
+                  <BotonOperativo label="Servicios asociados" icon="🔗" />
+                  <BotonOperativo label="Cambio de plan" icon="🔄" />
+                  <BotonOperativo label="Cambio fecha venc." icon="📅" />
+                  <BotonOperativo label="Historial cliente" icon="🕐" />
                 </div>
-              </div>
+              </section>
 
-              {/* ── Facturas: un solo scroll (resumen + tabla + pie) evita que el tbody quede con altura 0 cuando el resumen ocupa todo el flex */}
-              <div className="flex-1 min-h-[200px] flex flex-col overflow-hidden border-t border-gray-100">
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
-                  <ColHeader>
-                    Facturas del cliente
-                    {facturasFiltradas.length !== facturas.length && (
-                      <span className="ml-2 normal-case font-normal text-gray-400">
-                        ({facturasFiltradas.length} de {facturas.length} con filtros aplicados)
+              <section>
+                <button
+                  type="button"
+                  onClick={() => setFacturasDetalleAbierto((v) => !v)}
+                  className="flex w-full items-center justify-between gap-2 border-b border-slate-200/60 bg-slate-50/90 px-3 py-2.5 text-left transition hover:bg-slate-100/90 sm:px-4"
+                >
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5">
+                    <span className="inline-flex shrink-0 text-slate-500" aria-hidden>
+                      {facturasDetalleAbierto ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </span>
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">Facturas</span>
+                    <span className="hidden text-[10px] font-normal text-slate-400 sm:inline">del cliente</span>
+                    {facturasFiltradas.length !== facturas.length ? (
+                      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-200/80">
+                        {facturasFiltradas.length}/{facturas.length} con filtros
                       </span>
-                    )}
-                  </ColHeader>
+                    ) : null}
+                    <span className="hidden h-3 w-px bg-slate-200 sm:inline" />
+                    <span className="rounded-md bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-700 ring-1 ring-slate-200/80">
+                      {facturasOrdenadas.length} docs
+                    </span>
+                    <span className="rounded-md bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-700 ring-1 ring-slate-200/80">
+                      Saldo Gs. {formatGs(totalSaldo)}
+                    </span>
+                    {cntVencidas > 0 ? (
+                      <span className="rounded-md bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 ring-1 ring-red-100">
+                        {cntVencidas} venc.
+                      </span>
+                    ) : null}
+                  </div>
+                  <span className="shrink-0 text-[10px] font-semibold text-sky-700">
+                    {facturasDetalleAbierto ? "Ocultar detalle" : "Ver detalle"}
+                  </span>
+                </button>
 
-                  {facturasOrdenadas.length > 0 && (
-                    <div className="grid grid-cols-3 gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/40">
-                      <div className="bg-white rounded-lg border border-gray-100 px-3 py-2">
-                        <p className="text-xs text-gray-400">Facturas</p>
-                        <p className="text-lg font-bold text-gray-800 leading-tight">{facturasOrdenadas.length}</p>
-                      </div>
-                      <div className="bg-white rounded-lg border border-gray-100 px-3 py-2">
-                        <p className="text-xs text-gray-400">Monto total</p>
-                        <p className="text-xs font-bold text-gray-800 tabular-nums leading-tight mt-0.5">
-                          Gs. {formatGs(totalMonto)}
-                        </p>
-                      </div>
-                      <div className="bg-white rounded-lg border border-gray-100 px-3 py-2">
-                        <p className="text-xs text-gray-400">Saldo pendiente</p>
-                        <p className={`text-xs font-bold tabular-nums leading-tight mt-0.5 ${totalSaldo > 0 ? "text-red-600" : "text-green-600"}`}>
-                          Gs. {formatGs(totalSaldo)}
-                        </p>
-                      </div>
-                      <div className="bg-white rounded-lg border border-red-100 px-3 py-2">
-                        <p className="text-xs text-red-400">Vencidas</p>
-                        <p className="text-lg font-bold text-red-600 leading-tight">{cntVencidas}</p>
-                      </div>
-                      <div className="bg-white rounded-lg border border-amber-100 px-3 py-2">
-                        <p className="text-xs text-amber-500">Pendientes</p>
-                        <p className="text-lg font-bold text-amber-600 leading-tight">{cntPendientes}</p>
-                      </div>
-                      <div className="bg-white rounded-lg border border-green-100 px-3 py-2">
-                        <p className="text-xs text-green-500">Pagadas</p>
-                        <p className="text-lg font-bold text-green-600 leading-tight">{cntPagadas}</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {facturasOrdenadas.length === 0 ? (
-                    <div className="py-12 text-center text-sm text-gray-400 space-y-2 px-4">
-                      <p>No hay facturas para los filtros seleccionados.</p>
-                      {facturas.length > 0 && (
-                        <p className="text-xs text-amber-700">
-                          Hay {facturas.length} factura(s) cargadas; revisá período de emisión/vencimiento, moneda o «Incluir factura contado».
-                        </p>
-                      )}
-                    </div>
-                  ) : (
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0 z-[1] bg-slate-50 border-b border-slate-200 shadow-sm">
-                        <tr>
-                          {["Tipo", "Nro. Factura", "Fecha emisión", "Fecha vencimiento", "Monto", "Saldo", "Días mora", "Estado", "SIFEN", "Operación"].map((h) => (
-                            <th key={h} className="text-left text-sm font-semibold text-slate-600 px-3 py-2.5 uppercase tracking-wide whitespace-nowrap">
-                              {h}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-50">
-                        {facturasOrdenadas.map((f) => (
-                          <tr
-                            key={f.id}
-                            className={`transition-colors ${
-                              f._estadoEfectivo === "Vencido"
-                                ? "bg-red-50/40 hover:bg-red-50/70"
-                                : "hover:bg-gray-50/60"
+                {facturasDetalleAbierto ? (
+                  <div>
+                    {facturasOrdenadas.length > 0 ? (
+                      <div className="grid grid-cols-2 gap-1.5 border-b border-slate-100 bg-slate-50/50 p-2 sm:grid-cols-3 lg:grid-cols-6">
+                        <div className="rounded-lg border border-slate-100 bg-white px-2 py-1.5">
+                          <p className="text-[10px] text-slate-400">Facturas</p>
+                          <p className="text-sm font-bold tabular-nums text-slate-800">{facturasOrdenadas.length}</p>
+                        </div>
+                        <div className="rounded-lg border border-slate-100 bg-white px-2 py-1.5">
+                          <p className="text-[10px] text-slate-400">Monto total</p>
+                          <p className="text-[11px] font-bold tabular-nums leading-snug text-slate-800">Gs. {formatGs(totalMonto)}</p>
+                        </div>
+                        <div className="rounded-lg border border-slate-100 bg-white px-2 py-1.5">
+                          <p className="text-[10px] text-slate-400">Saldo pend.</p>
+                          <p
+                            className={`text-[11px] font-bold tabular-nums leading-snug ${
+                              totalSaldo > 0 ? "text-red-600" : "text-emerald-600"
                             }`}
                           >
-                            <td className="px-3 py-2.5">
-                              <BadgeTipo tipo={f.tipo} />
-                            </td>
-                            <td className="px-3 py-2.5">
-                              <Link
-                                href={`/facturas/${f.id}`}
-                                className="font-mono text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline"
+                            Gs. {formatGs(totalSaldo)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-red-100 bg-white px-2 py-1.5">
+                          <p className="text-[10px] text-red-500">Vencidas</p>
+                          <p className="text-sm font-bold text-red-600">{cntVencidas}</p>
+                        </div>
+                        <div className="rounded-lg border border-amber-100 bg-white px-2 py-1.5">
+                          <p className="text-[10px] text-amber-600">Pendientes</p>
+                          <p className="text-sm font-bold text-amber-700">{cntPendientes}</p>
+                        </div>
+                        <div className="rounded-lg border border-emerald-100 bg-white px-2 py-1.5">
+                          <p className="text-[10px] text-emerald-600">Pagadas</p>
+                          <p className="text-sm font-bold text-emerald-700">{cntPagadas}</p>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {facturasOrdenadas.length === 0 ? (
+                      <div className="space-y-2 px-4 py-10 text-center text-sm text-slate-400">
+                        <p>No hay facturas para los filtros seleccionados.</p>
+                        {facturas.length > 0 ? (
+                          <p className="text-xs text-amber-700">
+                            Hay {facturas.length} factura(s) cargadas; revisá período, moneda o «Incluir factura contado».
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-[960px] text-sm">
+                          <thead className="sticky top-0 z-[1] border-b border-slate-200 bg-slate-50 shadow-sm">
+                            <tr>
+                              {["Tipo", "Nro. Factura", "Fecha emisión", "Fecha vencimiento", "Monto", "Saldo", "Días mora", "Estado", "SIFEN", "Operación"].map((h) => (
+                                <th
+                                  key={h}
+                                  className="whitespace-nowrap px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-600 sm:px-3 sm:text-xs"
+                                >
+                                  {h}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {facturasOrdenadas.map((f) => (
+                              <tr
+                                key={f.id}
+                                className={`transition-colors ${
+                                  f._estadoEfectivo === "Vencido" ? "bg-red-50/50 hover:bg-red-50/80" : "hover:bg-slate-50/80"
+                                }`}
                               >
-                                {f.numero_factura}
-                              </Link>
-                            </td>
-                            <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">
-                              {formatFecha(f.fecha)}
-                            </td>
-                            <td className={`px-3 py-2.5 text-xs font-medium whitespace-nowrap ${
-                              f._estadoEfectivo === "Vencido" ? "text-red-600" : "text-gray-600"
-                            }`}>
-                              {formatFecha(f.fecha_vencimiento)}
-                            </td>
-                            <td className="px-3 py-2.5 text-xs text-gray-800 tabular-nums whitespace-nowrap">
-                              {f.moneda === "GS"
-                                ? `Gs. ${formatGs(f.monto)}`
-                                : `USD ${f.monto.toLocaleString("en-US")}`}
-                            </td>
-                            <td className={`px-3 py-2.5 text-xs tabular-nums font-semibold whitespace-nowrap ${
-                              f.saldo > 0 ? "text-red-600" : "text-gray-400"
-                            }`}>
-                              {f.moneda === "GS"
-                                ? `Gs. ${formatGs(f.saldo)}`
-                                : `USD ${f.saldo.toLocaleString("en-US")}`}
-                            </td>
-                            <td className="px-3 py-2.5 text-xs text-center">
-                              {f._diasMora > 0 ? (
-                                <span className="font-bold text-red-600 tabular-nums">{f._diasMora}</span>
-                              ) : (
-                                <span className="text-gray-300">—</span>
-                              )}
-                            </td>
-                            <td className="px-3 py-2.5">
-                              <BadgeFactura estado={f._estadoEfectivo} />
-                            </td>
-                            <td className="px-3 py-2.5 align-top">
-                              <SifenEstadoBadge
-                                estadoSifen={sifenPorFactura[f.id]?.estado_sifen ?? null}
-                              />
-                            </td>
-                            <td className="px-3 py-2.5 align-top">
-                              <FacturaRowAccionesSifen
-                                facturaId={f.id}
-                                clienteId={selected.id}
-                                sifenAprobado={sifenPorFactura[f.id]?.estado_sifen === "aprobado"}
-                              />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
+                                <td className="px-2 py-2 sm:px-3">
+                                  <BadgeTipo tipo={f.tipo} />
+                                </td>
+                                <td className="px-2 py-2 sm:px-3">
+                                  <Link
+                                    href={`/facturas/${f.id}`}
+                                    className="font-mono text-xs font-semibold text-sky-600 hover:text-sky-800 hover:underline"
+                                  >
+                                    {f.numero_factura}
+                                  </Link>
+                                </td>
+                                <td className="whitespace-nowrap px-2 py-2 text-xs text-slate-500 sm:px-3">{formatFecha(f.fecha)}</td>
+                                <td
+                                  className={`whitespace-nowrap px-2 py-2 text-xs font-medium sm:px-3 ${
+                                    f._estadoEfectivo === "Vencido" ? "text-red-600" : "text-slate-600"
+                                  }`}
+                                >
+                                  {formatFecha(f.fecha_vencimiento)}
+                                </td>
+                                <td className="whitespace-nowrap px-2 py-2 text-xs tabular-nums text-slate-800 sm:px-3">
+                                  {f.moneda === "GS" ? `Gs. ${formatGs(f.monto)}` : `USD ${f.monto.toLocaleString("en-US")}`}
+                                </td>
+                                <td
+                                  className={`whitespace-nowrap px-2 py-2 text-xs tabular-nums font-semibold sm:px-3 ${
+                                    f.saldo > 0 ? "text-red-600" : "text-slate-400"
+                                  }`}
+                                >
+                                  {f.moneda === "GS" ? `Gs. ${formatGs(f.saldo)}` : `USD ${f.saldo.toLocaleString("en-US")}`}
+                                </td>
+                                <td className="px-2 py-2 text-center text-xs sm:px-3">
+                                  {f._diasMora > 0 ? (
+                                    <span className="font-bold tabular-nums text-red-600">{f._diasMora}</span>
+                                  ) : (
+                                    <span className="text-slate-300">—</span>
+                                  )}
+                                </td>
+                                <td className="px-2 py-2 sm:px-3">
+                                  <BadgeFactura estado={f._estadoEfectivo} />
+                                </td>
+                                <td className="align-top px-2 py-2 sm:px-3">
+                                  <SifenEstadoBadge estadoSifen={sifenPorFactura[f.id]?.estado_sifen ?? null} />
+                                </td>
+                                <td className="align-top px-2 py-2 sm:px-3">
+                                  <FacturaRowAccionesSifen
+                                    facturaId={f.id}
+                                    clienteId={selected.id}
+                                    sifenAprobado={sifenPorFactura[f.id]?.estado_sifen === "aprobado"}
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
 
-                  {facturasOrdenadas.length > 0 && (
-                    <div className="border-t border-gray-100 bg-gray-50/50 px-4 py-2 flex items-center gap-4 flex-wrap">
-                      <span className="text-xs text-gray-500 tabular-nums">
-                        <span className="font-semibold text-gray-700">{facturasOrdenadas.length}</span> facturas
-                        {facturasFiltradas.length !== facturas.length && (
-                          <span className="text-gray-400"> (filtradas)</span>
-                        )}
-                      </span>
-                      <span className="text-xs text-gray-500 tabular-nums">
-                        Total: <span className="font-semibold text-gray-700">Gs. {formatGs(totalMonto)}</span>
-                      </span>
-                      <span className="text-xs text-gray-500 tabular-nums">
-                        Saldo: <span className={`font-semibold ${totalSaldo > 0 ? "text-red-600" : "text-green-700"}`}>
-                          Gs. {formatGs(totalSaldo)}
+                    {facturasOrdenadas.length > 0 ? (
+                      <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 bg-slate-50/60 px-3 py-2 text-[11px] text-slate-500 sm:px-4">
+                        <span className="tabular-nums">
+                          <span className="font-semibold text-slate-700">{facturasOrdenadas.length}</span> facturas
+                          {facturasFiltradas.length !== facturas.length ? <span className="text-slate-400"> (filtradas)</span> : null}
                         </span>
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
+                        <span className="tabular-nums">
+                          Total: <span className="font-semibold text-slate-700">Gs. {formatGs(totalMonto)}</span>
+                        </span>
+                        <span className="tabular-nums">
+                          Saldo:{" "}
+                          <span className={`font-semibold ${totalSaldo > 0 ? "text-red-600" : "text-emerald-700"}`}>Gs. {formatGs(totalSaldo)}</span>
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </section>
             </div>
-          )}
-
-        </div>
+          </div>
+        )}
       </div>
-
       {/* Modal Estado de Facturación */}
       {modalFacturacion && selected && (
         <ModalFacturacion
