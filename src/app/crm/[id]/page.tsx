@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { addNota, deleteProspecto, getProspecto, moveProspecto, updateProspecto } from "@/lib/crm/storage";
 import { getEtapas, getEtapaClasses } from "@/lib/crm/etapas";
 import { getPlanes } from "@/lib/planes/storage";
@@ -67,7 +67,8 @@ export default function EditProspectoPage() {
   const id = params.id as string;
 
   const [prospecto, setProspecto] = useState<Prospecto | null>(null);
-  const [notFound,  setNotFound]  = useState(false);
+  const [notFound, setNotFound] = useState(false);
+  const [cargando, setCargando] = useState(true);
 
   const [form, setForm] = useState({
     empresa:               "",
@@ -79,6 +80,7 @@ export default function EditProspectoPage() {
     fecha_proxima_accion:  "",
     creado_por:            "",
     responsable:           "",
+    observaciones:         "",
   });
 
   const [nuevaNota,        setNuevaNota]        = useState("");
@@ -157,27 +159,41 @@ export default function EditProspectoPage() {
     void loadConversationId();
   }, [prospecto?.id]);
 
-  async function cargar() {
-    const p = await getProspecto(id);
-    if (!p) { setNotFound(true); return; }
-    setProspecto(p);
-    setForm((prev) => ({
-      ...prev,
-      empresa:              p.empresa,
-      contacto:             p.contacto,
-      email:                p.email                 ?? "",
-      telefono:             p.telefono              ?? "",
-      proxima_accion:       p.proxima_accion        ?? "",
-      fecha_proxima_accion: p.fecha_proxima_accion  ?? "",
-      creado_por:           p.creado_por            ?? "",
-      responsable:          p.responsable           ?? "",
-    }));
-  }
+  const cargar = useCallback(async () => {
+    setCargando(true);
+    setNotFound(false);
+    try {
+      const p = await getProspecto(id);
+      if (!p) {
+        setProspecto(null);
+        setNotFound(true);
+        return;
+      }
+      setProspecto(p);
+      setForm((prev) => ({
+        ...prev,
+        empresa:              p.empresa,
+        contacto:             p.contacto,
+        email:                p.email                 ?? "",
+        telefono:             p.telefono              ?? "",
+        proxima_accion:       p.proxima_accion        ?? "",
+        fecha_proxima_accion: p.fecha_proxima_accion  ?? "",
+        creado_por:           p.creado_por            ?? "",
+        responsable:          p.responsable           ?? "",
+        observaciones:        p.observaciones ?? "",
+      }));
+    } finally {
+      setCargando(false);
+    }
+  }, [id]);
 
   useEffect(() => {
-    if (id) cargar();
-    else setNotFound(true);
-  }, [id]);
+    if (id) void cargar();
+    else {
+      setNotFound(true);
+      setCargando(false);
+    }
+  }, [id, cargar]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
@@ -235,6 +251,7 @@ export default function EditProspectoPage() {
       proxima_accion:       form.proxima_accion.trim()       || undefined,
       fecha_proxima_accion: form.fecha_proxima_accion        || undefined,
       responsable:          form.responsable.trim().toUpperCase() || undefined,
+      observaciones:        form.observaciones.trim() ? form.observaciones.trim() : null,
     });
 
     if (actualizado) router.push("/crm");
@@ -261,7 +278,18 @@ export default function EditProspectoPage() {
     router.push("/crm");
   }
 
-  // ── Not found ─────────────────────────────────────────────────────────────
+  // ── Carga / not found ───────────────────────────────────────────────────────
+
+  if (cargando) {
+    return (
+      <div className="space-y-4 max-w-3xl animate-pulse">
+        <div className="h-6 w-40 bg-slate-200 rounded" />
+        <div className="h-10 w-2/3 bg-slate-200 rounded" />
+        <div className="h-48 bg-slate-100 rounded-xl border border-slate-200" />
+        <div className="h-64 bg-slate-100 rounded-xl border border-slate-200" />
+      </div>
+    );
+  }
 
   if (notFound) {
     return (
@@ -442,6 +470,22 @@ export default function EditProspectoPage() {
               onChange={handleChange}
               className={inputClass}
             />
+          </div>
+
+          {/* Comentarios / observaciones internas */}
+          <div>
+            <label className={labelClass}>Comentarios / observaciones internas</label>
+            <textarea
+              name="observaciones"
+              value={form.observaciones}
+              onChange={handleChange}
+              rows={4}
+              placeholder="Contexto comercial, objeciones, acuerdos, próximos pasos… (visible solo en el equipo)"
+              className={`${inputClass} resize-y min-h-[100px]`}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Distinto de las notas con fecha abajo: este bloque es un campo único editable del prospecto.
+            </p>
           </div>
 
           {/* Servicio */}

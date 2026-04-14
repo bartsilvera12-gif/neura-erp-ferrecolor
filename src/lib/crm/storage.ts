@@ -28,6 +28,7 @@ interface ProspectoRow {
   creado_por: string | null;
   origen_creacion?: string | null;
   responsable: string | null;
+  observaciones?: string | null;
   cliente_creado: boolean;
   fecha_creacion: string;
   fecha_actualizacion: string;
@@ -68,6 +69,7 @@ function rowToProspecto(row: ProspectoRow, notas: Nota[]): Prospecto {
     origen_creacion: (row.origen_creacion ?? "manual") as Prospecto["origen_creacion"],
     origen_detalle: (row as { origen_detalle?: string | null }).origen_detalle ?? null,
     responsable: row.responsable ?? undefined,
+    observaciones: row.observaciones != null && String(row.observaciones).trim() !== "" ? String(row.observaciones) : null,
     notas,
     fecha_creacion: row.fecha_creacion,
     fecha_actualizacion: row.fecha_actualizacion,
@@ -141,28 +143,63 @@ export async function listProspectosForEmpresa(
   return prospectos.map((p) => rowToProspecto(p, notasPorProspecto[p.id] ?? []));
 }
 
-/** Obtiene un prospecto por ID con sus notas. */
-export async function getProspecto(id: string): Promise<Prospecto | null> {
-  const supabase = await browserDataClient();
+/**
+ * Obtiene un prospecto por ID en el tenant (service role / API).
+ * Debe usarse en rutas server; filtra por empresa.
+ */
+export async function getProspectoForEmpresa(
+  supabase: AppSupabaseClient,
+  empresaId: string,
+  prospectoId: string
+): Promise<Prospecto | null> {
   const { data: pData, error: errP } = await supabase
     .from("crm_prospectos")
     .select("*")
-    .eq("id", id)
-    .single();
+    .eq("id", prospectoId)
+    .eq("empresa_id", empresaId)
+    .maybeSingle();
 
-  if (errP || !pData) {
-    console.error("[crm] getProspecto:", errP?.message);
+  if (errP) {
+    console.error("[crm] getProspectoForEmpresa:", errP.message);
     return null;
   }
+  if (!pData) return null;
 
-  const { data: notasData } = await supabase
+  const { data: notasData, error: errN } = await supabase
     .from("crm_notas")
     .select("*")
-    .eq("prospecto_id", id)
+    .eq("empresa_id", empresaId)
+    .eq("prospecto_id", prospectoId)
     .order("fecha", { ascending: false });
+
+  if (errN) {
+    console.error("[crm] getProspectoForEmpresa (notas):", errN.message);
+  }
 
   const notas = ((notasData as NotaRow[]) ?? []).map(rowToNota);
   return rowToProspecto(pData as ProspectoRow, notas);
+}
+
+/** Obtiene un prospecto por ID con sus notas (vía API tenant; mismo origen que el listado del funnel). */
+export async function getProspecto(id: string): Promise<Prospecto | null> {
+  if (typeof window === "undefined") return null;
+  try {
+    const res = await fetchWithSupabaseSession(`/api/crm/prospectos/${encodeURIComponent(id)}`, {
+      cache: "no-store",
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.error("[crm] getProspecto API:", res.status, t);
+      return null;
+    }
+    const json = (await res.json()) as { success?: boolean; data?: Prospecto };
+    if (!json.success || !json.data) return null;
+    return json.data;
+  } catch (e) {
+    console.error("[crm] getProspecto:", e);
+    return null;
+  }
 }
 
 export type NuevoProspectoData = Omit<
@@ -170,49 +207,43 @@ export type NuevoProspectoData = Omit<
   "id" | "numero_control" | "notas" | "fecha_creacion" | "fecha_actualizacion"
 >;
 
-/** Crea prospecto. empresa_id desde getCurrentUser(). */
+/** Crea prospecto vía API tenant (mismo mecanismo que el listado; evita RLS del browser en `erp_*`). */
 export async function saveProspecto(
   datos: NuevoProspectoData
 ): Promise<Prospecto | null> {
+  if (typeof window === "undefined") return null;
   const usuario = await getCurrentUser();
   if (!usuario?.empresa_id) throw new Error("Usuario no autenticado o sin empresa");
 
-  const supabase = await browserDataClient();
-  const numeroControl = await generarNumeroControlFromSupabase(supabase);
-  const creadoPor = (usuario as { nombre?: string; email?: string }).nombre?.trim()
-    || (usuario as { email?: string }).email
-    || null;
-
-  const insert = {
-    empresa_id: usuario.empresa_id,
-    numero_control: numeroControl,
-    empresa: datos.empresa,
-    contacto: datos.contacto,
-    email: datos.email ?? null,
-    telefono: datos.telefono ?? null,
-    servicio: datos.servicio,
-    valor_estimado: datos.valor_estimado ?? 0,
-    etapa: datos.etapa ?? "LEAD",
-    proxima_accion: datos.proxima_accion ?? null,
-    fecha_proxima_accion: datos.fecha_proxima_accion ?? null,
-    creado_por: creadoPor,
-    origen_creacion: "manual",
-    origen_detalle: null,
-    responsable: datos.responsable ?? null,
-  };
-
-  const { data, error } = await supabase
-    .from("crm_prospectos")
-    .insert([insert])
-    .select()
-    .single();
-
-  if (error) {
-    console.error("[crm] saveProspecto:", error.message);
+  try {
+    const res = await fetchWithSupabaseSession("/api/crm/prospectos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        empresa: datos.empresa,
+        contacto: datos.contacto,
+        email: datos.email ?? null,
+        telefono: datos.telefono ?? null,
+        servicio: datos.servicio,
+        valor_estimado: datos.valor_estimado ?? 0,
+        etapa: datos.etapa ?? "LEAD",
+        proxima_accion: datos.proxima_accion ?? null,
+        fecha_proxima_accion: datos.fecha_proxima_accion ?? null,
+        responsable: datos.responsable ?? null,
+        observaciones: datos.observaciones?.trim() || null,
+      }),
+    });
+    const json = (await res.json()) as { success?: boolean; data?: Prospecto; error?: string };
+    if (!res.ok) {
+      console.error("[crm] saveProspecto API:", res.status, json.error);
+      return null;
+    }
+    if (!json.success || !json.data) return null;
+    return json.data;
+  } catch (e) {
+    console.error("[crm] saveProspecto:", e);
     return null;
   }
-
-  return rowToProspecto(data as ProspectoRow, []);
 }
 
 /** Crea prospecto desde webhook (WhatsApp, n8n, etc.). Usa service role para bypass RLS. */
@@ -250,6 +281,7 @@ export async function saveProspectoFromWebhook(datos: {
     origen_creacion: (datos.origen_creacion ?? "whatsapp") as string,
     origen_detalle: datos.origen_detalle ?? null,
     responsable: null,
+    observaciones: null,
   };
 
   const { data: prospectoData, error: errP } = await sb
@@ -323,38 +355,49 @@ export async function moveProspecto(
 
 // ─── Notas ─────────────────────────────────────────────────────────────────────
 
-/** Agrega una nota al prospecto. */
+/** Agrega una nota al prospecto (API tenant). */
 export async function addNota(
   prospectoId: string,
   texto: string
 ): Promise<Nota | null> {
+  if (typeof window === "undefined") return null;
   const usuario = await getCurrentUser();
   if (!usuario?.empresa_id) throw new Error("Usuario no autenticado o sin empresa");
 
-  const insert = {
-    empresa_id: usuario.empresa_id,
-    prospecto_id: prospectoId,
-    texto: texto.trim(),
-  };
-
-  const supabase = await browserDataClient();
-  const { data, error } = await supabase
-    .from("crm_notas")
-    .insert([insert])
-    .select()
-    .single();
-
-  if (error) {
-    console.error("[crm] addNota:", error.message);
+  try {
+    const res = await fetchWithSupabaseSession(
+      `/api/crm/prospectos/${encodeURIComponent(prospectoId)}/notas`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ texto: texto.trim() }),
+      }
+    );
+    const json = (await res.json()) as { success?: boolean; data?: Nota; error?: string };
+    if (!res.ok) {
+      console.error("[crm] addNota API:", res.status, json.error);
+      return null;
+    }
+    if (!json.success || !json.data) return null;
+    return json.data;
+  } catch (e) {
+    console.error("[crm] addNota:", e);
     return null;
   }
-
-  return rowToNota(data as NotaRow);
 }
 
-/** Elimina un prospecto (y sus notas por CASCADE). */
+/** Elimina un prospecto (y sus notas por CASCADE), vía API tenant. */
 export async function deleteProspecto(id: string): Promise<void> {
-  const supabase = await browserDataClient();
-  const { error } = await supabase.from("crm_prospectos").delete().eq("id", id);
-  if (error) console.error("[crm] deleteProspecto:", error.message);
+  if (typeof window === "undefined") return;
+  try {
+    const res = await fetchWithSupabaseSession(`/api/crm/prospectos/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.error("[crm] deleteProspecto API:", res.status, t);
+    }
+  } catch (e) {
+    console.error("[crm] deleteProspecto:", e);
+  }
 }

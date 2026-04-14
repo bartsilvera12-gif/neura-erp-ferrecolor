@@ -41,6 +41,7 @@ export default function NuevoProspectoPage() {
     proxima_accion:        "",
     fecha_proxima_accion:  "",
     responsable:           "",
+    observaciones:         "",
   });
 
   const [error, setError] = useState<string | null>(null);
@@ -144,6 +145,7 @@ export default function NuevoProspectoPage() {
       proxima_accion:       form.proxima_accion.trim()       || undefined,
       fecha_proxima_accion: form.fecha_proxima_accion        || undefined,
       responsable:          form.responsable.trim().toUpperCase() || undefined,
+      observaciones:        form.observaciones.trim() || null,
     });
 
     if (guardado) router.push("/crm");
@@ -225,6 +227,18 @@ export default function NuevoProspectoPage() {
                 onChange={handleChange}
                 placeholder="contacto@empresa.com"
                 className={inputClass}
+              />
+            </div>
+
+            <div>
+              <label className={labelClass}>Comentarios / observaciones internas</label>
+              <textarea
+                name="observaciones"
+                value={form.observaciones}
+                onChange={handleChange}
+                rows={4}
+                placeholder="Contexto, objeciones, próximos pasos… (solo equipo)"
+                className={`${inputClass} resize-y min-h-[96px]`}
               />
             </div>
           </section>

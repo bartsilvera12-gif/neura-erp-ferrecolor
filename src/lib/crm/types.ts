@@ -35,6 +35,8 @@ export interface Prospecto {
     | "otro";
   origen_detalle?:      string | null;
   responsable?:          string;       // nombre del responsable de seguimiento
+  /** Texto libre interno (no es el timeline de crm_notas). */
+  observaciones?:       string | null;
   notas:                 Nota[];
   fecha_creacion:        string;       // ISO string, automático
   fecha_actualizacion:   string;       // ISO string, actualizado en cada cambio
