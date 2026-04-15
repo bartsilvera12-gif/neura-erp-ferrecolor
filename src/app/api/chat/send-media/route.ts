@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getChatServiceClientForEmpresa } from "@/app/api/chat/_chat-service-client";
+import { markFirstHumanOperatorReply } from "@/lib/chat/conversation-sla-markers";
 import { getAuthWithRol } from "@/lib/middleware/auth";
 import { normalizeWaPhone } from "@/lib/chat/wa-phone";
 import { sendWhatsAppDocument, sendWhatsAppImage } from "@/lib/chat/whatsapp-send-service";
@@ -198,6 +199,11 @@ export async function POST(request: NextRequest) {
         updated_at: ts,
       })
       .eq("id", conversationId);
+
+    await markFirstHumanOperatorReply(supabase, empresaId, conversationId, {
+      from_me: true,
+      sender_type: "human",
+    });
 
     return NextResponse.json({ ok: true, wa_message_id: sendResult.waMessageId, public_url: publicUrl });
   } catch (e) {

@@ -6,6 +6,7 @@ import {
   fetchMonitoringDashboard,
   fetchSupervisorAgentLoads,
   type MonitoringDashboard,
+  type MonitoringReassignmentRow,
   type MonitoringUnassignedRow,
   type SupervisorAgentLoadRow,
 } from "@/lib/chat/chat-ops-actions";
@@ -78,10 +79,11 @@ export default function MonitoreoPage() {
         {loading || !dash ? (
           <p className="text-sm text-slate-400">Cargando métricas…</p>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <MetricTile label="Colas activas" value={dash.active_queues} tone="slate" />
             <MetricTile label="Agentes asignados" value={dash.agents_assigned} tone="slate" />
             <MetricTile label="Chats sin asignar" value={dash.unassigned_chats} tone="amber" />
+            <MetricTile label="Pend. 1ª respuesta" value={dash.awaiting_first_response} tone="amber" />
             <MetricTile label="Chats pendientes" value={dash.pending_chats} tone="sky" />
             <MetricTile label="Canales activos" value={dash.active_channels} tone="emerald" />
           </div>
@@ -143,6 +145,54 @@ export default function MonitoreoPage() {
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+            Reasignaciones por SLA (primera respuesta)
+          </h2>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="text-xs font-semibold text-[#0EA5E9] hover:underline"
+          >
+            Actualizar
+          </button>
+        </div>
+        {loading || !dash ? (
+          <p className="text-sm text-slate-400">Cargando…</p>
+        ) : dash.recent_initial_reassignments.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            No hay reasignaciones recientes registradas por falta de primera respuesta humana.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-slate-500 border-b border-slate-100">
+                  <th className="pb-2 pr-3">Cuándo</th>
+                  <th className="pb-2 pr-3">Conversación</th>
+                  <th className="pb-2">Detalle</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dash.recent_initial_reassignments.map((r: MonitoringReassignmentRow) => (
+                  <tr key={r.id} className="border-b border-slate-50">
+                    <td className="py-2 pr-3 text-slate-600 whitespace-nowrap">
+                      {new Date(r.created_at).toLocaleString("es")}
+                    </td>
+                    <td className="py-2 pr-3 font-mono text-xs text-slate-700">{r.conversation_id.slice(0, 8)}…</td>
+                    <td className="py-2 text-xs text-slate-600">
+                      {(r.payload.from_agent_id as string | undefined)?.slice(0, 8) ?? "—"} →{" "}
+                      {(r.payload.to_agent_id as string | undefined)?.slice(0, 8) ?? "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide mb-3">Agentes y carga</h2>
         {loading ? (
           <p className="text-sm text-slate-400">Cargando…</p>
@@ -160,7 +210,8 @@ export default function MonitoreoPage() {
                   <th className="pb-2 pr-3">Agente</th>
                   <th className="pb-2 pr-3">En línea</th>
                   <th className="pb-2 pr-3">Máx.</th>
-                  <th className="pb-2">Chats activos</th>
+                  <th className="pb-2 pr-3">Chats activos</th>
+                  <th className="pb-2">Sin 1ª resp.</th>
                 </tr>
               </thead>
               <tbody>
@@ -179,7 +230,7 @@ export default function MonitoreoPage() {
                       )}
                     </td>
                     <td className="py-2 pr-3">{a.max_conversations}</td>
-                    <td className="py-2">
+                    <td className="py-2 pr-3">
                       <span
                         className={
                           a.active_conversations >= a.max_conversations
@@ -188,6 +239,11 @@ export default function MonitoreoPage() {
                         }
                       >
                         {a.active_conversations}
+                      </span>
+                    </td>
+                    <td className="py-2">
+                      <span className={a.pending_first_reply > 0 ? "text-amber-800 font-semibold" : "text-slate-500"}>
+                        {a.pending_first_reply}
                       </span>
                     </td>
                   </tr>

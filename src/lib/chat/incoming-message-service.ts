@@ -4,6 +4,8 @@
  * este módulo concentra la escritura en BD reutilizable y el route genérico `/api/webhooks/[channel]`.
  */
 import { assignConversation } from "@/lib/chat/assign-conversation-service";
+import { markFirstHumanOperatorReply } from "@/lib/chat/conversation-sla-markers";
+import { maybeRedistributeInitialAssignment } from "@/lib/chat/initial-assignment-redistribution";
 import { createWhatsappConversationWithActiveFlow } from "@/lib/chat/whatsapp-conversation-bootstrap";
 import type { SupabaseAdmin } from "@/lib/chat/types";
 import { normalizeWaPhone } from "@/lib/chat/wa-phone";
@@ -191,6 +193,11 @@ export async function persistInboundChatMessageAndBump(
     .eq("id", conversationId)
     .eq("empresa_id", empresaId);
 
+  await markFirstHumanOperatorReply(supabase, empresaId, conversationId, {
+    from_me: fromMe,
+    sender_type: senderType,
+  });
+
   return { ok: true, message_id: messageId };
 }
 
@@ -319,6 +326,19 @@ export async function saveIncomingMessage(params: SaveIncomingMessageParams): Pr
   }
 
   const conversationId = existingConv.id as string;
+
+  const isContactInbound =
+    message_data.from_me !== true && (message_data.sender_type ?? "contact") === "contact";
+  if (isContactInbound) {
+    const rd = await maybeRedistributeInitialAssignment(supabase, conversationId);
+    if (rd.changed) {
+      /* conversación posiblemente reasignada; el assign siguiente es idempotente si ya hay agente */
+    }
+    const ar = await assignConversation(supabase, conversationId);
+    if (!ar.ok) {
+      console.warn("[saveIncomingMessage] assignConversation (inbound)", ar.error);
+    }
+  }
 
   await adjustConversationBeforePersist?.({
     supabase,

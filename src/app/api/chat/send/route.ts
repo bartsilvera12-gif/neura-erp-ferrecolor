@@ -3,6 +3,7 @@ import { getAuthWithRol } from "@/lib/middleware/auth";
 import { sendWhatsAppText } from "@/lib/chat/whatsapp-send-service";
 import { normalizeWaPhone } from "@/lib/chat/whatsapp-webhook-service";
 import { getChatServiceClientForEmpresa } from "@/app/api/chat/_chat-service-client";
+import { markFirstHumanOperatorReply } from "@/lib/chat/conversation-sla-markers";
 
 /**
  * POST /api/chat/send
@@ -152,6 +153,11 @@ export async function POST(request: NextRequest) {
         updated_at: ts,
       })
       .eq("id", conversationId);
+
+    await markFirstHumanOperatorReply(supabase, empresaId, conversationId, {
+      from_me: true,
+      sender_type: senderType,
+    });
 
     return NextResponse.json({
       ok: true,

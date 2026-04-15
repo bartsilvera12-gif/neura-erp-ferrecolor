@@ -1,6 +1,7 @@
 "use server";
 
 import { requireEmpresaTenantServiceRole } from "@/lib/chat/empresa-tenant-service-role";
+import { insertChatRoutingEvent, updateContactLastRouted } from "@/lib/chat/routing-audit";
 import type { AppSupabaseClient } from "@/lib/supabase/schema";
 
 const STATUSES = new Set(["open", "pending", "closed"]);
@@ -13,7 +14,7 @@ async function loadConversationForEmpresa(
 ) {
   const { data, error } = await supabase
     .from("chat_conversations")
-    .select("id, empresa_id, queue_id, assigned_agent_id, status")
+    .select("id, empresa_id, queue_id, assigned_agent_id, status, contact_id, channel_id")
     .eq("id", conversationId.trim())
     .eq("empresa_id", empresaId)
     .maybeSingle();
@@ -24,6 +25,8 @@ async function loadConversationForEmpresa(
     queue_id: string | null;
     assigned_agent_id: string | null;
     status: string;
+    contact_id: string | null;
+    channel_id: string | null;
   } | null;
 }
 
@@ -75,17 +78,40 @@ export async function assignConversationToAgent(
   const agent = await loadAgentForEmpresa(supabase, empresa_id, agentId);
   if (!agent) throw new Error("Agente no encontrado");
 
+  const ts = new Date().toISOString();
   const { error } = await supabase
     .from("chat_conversations")
     .update({
       assigned_agent_id: agent.id,
       queue_id: agent.queue_id,
-      updated_at: new Date().toISOString(),
+      initial_assignment_at: ts,
+      first_human_response_at: null,
+      initial_reassign_count: 0,
+      updated_at: ts,
     })
     .eq("id", conv.id)
     .eq("empresa_id", empresa_id);
 
   if (error) throw new Error(error.message);
+
+  const cid = (conv.contact_id as string | null)?.trim();
+  const chid = (conv.channel_id as string | null)?.trim();
+  if (cid && chid) {
+    await updateContactLastRouted(supabase, {
+      empresa_id: empresa_id,
+      contact_id: cid,
+      channel_id: chid,
+      chat_agent_id: agent.id,
+      at_iso: ts,
+    });
+  }
+  await insertChatRoutingEvent(supabase, {
+    empresa_id: empresa_id,
+    conversation_id: conv.id,
+    queue_id: agent.queue_id,
+    event_type: "supervisor_assigned",
+    payload: { to_agent_id: agent.id, source: "assignConversationToAgent" },
+  });
 }
 
 /**
@@ -184,17 +210,40 @@ export async function assignConversationToMe(conversationId: string): Promise<vo
     );
   }
 
+  const ts = new Date().toISOString();
   const { error } = await supabase
     .from("chat_conversations")
     .update({
       assigned_agent_id: agent.id,
       queue_id: agent.queue_id,
-      updated_at: new Date().toISOString(),
+      initial_assignment_at: ts,
+      first_human_response_at: null,
+      initial_reassign_count: 0,
+      updated_at: ts,
     })
     .eq("id", conv.id)
     .eq("empresa_id", empresa_id);
 
   if (error) throw new Error(error.message);
+
+  const cid = (conv.contact_id as string | null)?.trim();
+  const chid = (conv.channel_id as string | null)?.trim();
+  if (cid && chid) {
+    await updateContactLastRouted(supabase, {
+      empresa_id: empresa_id,
+      contact_id: cid,
+      channel_id: chid,
+      chat_agent_id: agent.id as string,
+      at_iso: ts,
+    });
+  }
+  await insertChatRoutingEvent(supabase, {
+    empresa_id: empresa_id,
+    conversation_id: conv.id,
+    queue_id: agent.queue_id as string,
+    event_type: "supervisor_assigned",
+    payload: { to_agent_id: agent.id, source: "assignConversationToMe" },
+  });
 }
 
 export type ChatQueueListRow = {
@@ -219,12 +268,24 @@ export async function listChatQueues(): Promise<ChatQueueListRow[]> {
   return (data ?? []) as ChatQueueListRow[];
 }
 
+export type MonitoringReassignmentRow = {
+  id: string;
+  created_at: string;
+  conversation_id: string;
+  queue_id: string | null;
+  payload: Record<string, unknown>;
+};
+
 export type MonitoringDashboard = {
   active_queues: number;
   agents_assigned: number;
   unassigned_chats: number;
   pending_chats: number;
   active_channels: number;
+  /** Asignados a humano pero sin primera respuesta saliente humana registrada. */
+  awaiting_first_response: number;
+  /** Últimas reasignaciones por SLA de primera respuesta. */
+  recent_initial_reassignments: MonitoringReassignmentRow[];
   /** Chats abiertos/pendientes sin agente (orden por última actividad). */
   unassigned_recent: MonitoringUnassignedRow[];
 };
@@ -255,6 +316,8 @@ export async function fetchMonitoringDashboard(): Promise<MonitoringDashboard> {
     pendingRes,
     channelsRes,
     recentRes,
+    awaitingFirstRes,
+    reassignRes,
   ] = await Promise.all([
     supabase.from("chat_queues").select("id", { count: "exact", head: true }).eq("empresa_id", empresa_id).eq("is_active", true),
     supabase
@@ -289,6 +352,20 @@ export async function fetchMonitoringDashboard(): Promise<MonitoringDashboard> {
       .in("status", ["open", "pending"])
       .order("last_message_at", { ascending: false, nullsFirst: false })
       .limit(30),
+    supabase
+      .from("chat_conversations")
+      .select("*", { count: "exact", head: true })
+      .eq("empresa_id", empresa_id)
+      .not("assigned_agent_id", "is", null)
+      .is("first_human_response_at", null)
+      .in("status", ["open", "pending"]),
+    supabase
+      .from("chat_routing_events")
+      .select("id, created_at, conversation_id, queue_id, payload")
+      .eq("empresa_id", empresa_id)
+      .eq("event_type", "reassigned_initial_timeout")
+      .order("created_at", { ascending: false })
+      .limit(12),
   ]);
 
   if (queuesRes.error) throw new Error(queuesRes.error.message);
@@ -297,6 +374,7 @@ export async function fetchMonitoringDashboard(): Promise<MonitoringDashboard> {
   if (pendingRes.error) throw new Error(pendingRes.error.message);
   if (channelsRes.error) throw new Error(channelsRes.error.message);
   if (recentRes.error) throw new Error(recentRes.error.message);
+  if (awaitingFirstRes.error) throw new Error(awaitingFirstRes.error.message);
 
   const agentRows = agentsRes.data ?? [];
   const distinctUsers = new Set(agentRows.map((r) => r.usuario_id as string).filter(Boolean));
@@ -357,6 +435,17 @@ export async function fetchMonitoringDashboard(): Promise<MonitoringDashboard> {
     );
   }
 
+  let recent_initial_reassignments: MonitoringReassignmentRow[] = [];
+  if (!reassignRes.error && reassignRes.data) {
+    recent_initial_reassignments = (reassignRes.data as Record<string, unknown>[]).map((r) => ({
+      id: r.id as string,
+      created_at: (r.created_at as string) ?? "",
+      conversation_id: r.conversation_id as string,
+      queue_id: (r.queue_id as string | null) ?? null,
+      payload: (typeof r.payload === "object" && r.payload !== null ? r.payload : {}) as Record<string, unknown>,
+    }));
+  }
+
   const unassigned_recent: MonitoringUnassignedRow[] = convList.map((row) => {
     const qid = (row.queue_id as string | null)?.trim() || null;
     const cid = (row.channel_id as string | null)?.trim() || null;
@@ -388,6 +477,8 @@ export async function fetchMonitoringDashboard(): Promise<MonitoringDashboard> {
     unassigned_chats: unassignedRes.count ?? 0,
     pending_chats: pendingRes.count ?? 0,
     active_channels: channelsRes.count ?? 0,
+    awaiting_first_response: awaitingFirstRes.count ?? 0,
+    recent_initial_reassignments,
     unassigned_recent,
   };
 }
@@ -471,7 +562,11 @@ export async function listChatAgentsDirectory(): Promise<ChatAgentDirectoryRow[]
   });
 }
 
-export type SupervisorAgentLoadRow = ChatAgentDirectoryRow & { active_conversations: number };
+export type SupervisorAgentLoadRow = ChatAgentDirectoryRow & {
+  active_conversations: number;
+  /** Chats asignados sin primera respuesta humana saliente aún. */
+  pending_first_reply: number;
+};
 
 export async function fetchSupervisorAgentLoads(): Promise<SupervisorAgentLoadRow[]> {
   const { supabase, empresa_id } = await requireEmpresaTenantServiceRole();
@@ -481,7 +576,7 @@ export async function fetchSupervisorAgentLoads(): Promise<SupervisorAgentLoadRo
   const agentIds = agents.map((a) => a.id);
   const { data: counts, error } = await supabase
     .from("chat_conversations")
-    .select("assigned_agent_id")
+    .select("assigned_agent_id, first_human_response_at, status")
     .eq("empresa_id", empresa_id)
     .in("assigned_agent_id", agentIds)
     .neq("status", "closed");
@@ -489,15 +584,22 @@ export async function fetchSupervisorAgentLoads(): Promise<SupervisorAgentLoadRo
   if (error) throw new Error(error.message);
 
   const tally = new Map<string, number>();
+  const pendingFirst = new Map<string, number>();
   for (const row of counts ?? []) {
     const aid = row.assigned_agent_id as string | null;
     if (!aid) continue;
     tally.set(aid, (tally.get(aid) ?? 0) + 1);
+    const st = (row as { status?: string }).status;
+    const fh = (row as { first_human_response_at?: string | null }).first_human_response_at;
+    if ((st === "open" || st === "pending") && (fh == null || fh === "")) {
+      pendingFirst.set(aid, (pendingFirst.get(aid) ?? 0) + 1);
+    }
   }
 
   return agents.map((a) => ({
     ...a,
     active_conversations: tally.get(a.id) ?? 0,
+    pending_first_reply: pendingFirst.get(a.id) ?? 0,
   }));
 }
 

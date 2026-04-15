@@ -1,7 +1,15 @@
 /**
- * Asignación automática de conversaciones a agentes según cola y carga.
+ * Motor de asignación: cola por canal (vínculos + legado), estrategias circular / menor carga / manual,
+ * ventana “mismo asesor” (ancla: última asignación registrada en el contacto por canal) y auditoría.
  */
 import type { SupabaseAdmin } from "@/lib/chat/types";
+import { parseQueueRoutingConfig } from "@/lib/chat/queue-routing-config";
+import {
+  countActiveConversationsByAgent,
+  filterAgentsUnderCap,
+  loadEligibleAgentsForQueue,
+} from "@/lib/chat/routing-eligible-agents";
+import { insertChatRoutingEvent, updateContactLastRouted } from "@/lib/chat/routing-audit";
 
 export type AssignConversationResult =
   | { ok: true; assigned: false; reason: "already_assigned" | "no_queue" | "no_agent" | "manual_pull" }
@@ -14,10 +22,13 @@ type QueueRow = {
   nombre: string;
   distribution_strategy: string;
   priority: number;
-  /** Reservado para reglas de primera respuesta / misma asesor (config en UI). */
   routing_config?: unknown;
+  assignment_state?: unknown;
 };
-type AgentRow = { id: string; max_conversations: number; priority_in_queue: number };
+
+type EligibleAgent = { id: string; max_conversations: number; priority_in_queue: number };
+
+type QueueAssignmentState = { rr_last_agent_id?: string | null };
 
 function pickQueueForChannel(queues: QueueRow[], channelType: string): QueueRow | null {
   const t = channelType.trim().toLowerCase();
@@ -43,6 +54,50 @@ function pickFromLinkedQueues(linked: QueueRow[]): QueueRow | null {
   return copy[0] ?? null;
 }
 
+function sameAdvisorWindowMs(value: number, unit: "hours" | "days"): number {
+  const v = Math.max(1, value);
+  return unit === "days" ? v * 86_400_000 : v * 3_600_000;
+}
+
+function parseAssignmentState(raw: unknown): QueueAssignmentState {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const o = raw as Record<string, unknown>;
+  const id = o.rr_last_agent_id;
+  return { rr_last_agent_id: typeof id === "string" && id.trim() ? id.trim() : null };
+}
+
+function pickRoundRobin(
+  eligible: EligibleAgent[],
+  assignmentState: QueueAssignmentState
+): EligibleAgent {
+  const sorted = [...eligible].sort((a, b) => {
+    if (b.priority_in_queue !== a.priority_in_queue) return b.priority_in_queue - a.priority_in_queue;
+    return a.id.localeCompare(b.id);
+  });
+  const ids = sorted.map((a) => a.id);
+  const last = assignmentState.rr_last_agent_id?.trim() || "";
+  let idx = 0;
+  if (last) {
+    const pos = ids.indexOf(last);
+    if (pos >= 0) idx = (pos + 1) % ids.length;
+  }
+  return sorted[idx]!;
+}
+
+function pickLeastLoad(
+  eligible: EligibleAgent[],
+  loadById: Map<string, number>
+): EligibleAgent {
+  const sorted = [...eligible].sort((a, b) => {
+    const la = loadById.get(a.id) ?? 0;
+    const lb = loadById.get(b.id) ?? 0;
+    if (la !== lb) return la - lb;
+    if (b.priority_in_queue !== a.priority_in_queue) return b.priority_in_queue - a.priority_in_queue;
+    return a.id.localeCompare(b.id);
+  });
+  return sorted[0]!;
+}
+
 /**
  * Resuelve cola por empresa + canal, elige agente elegible y actualiza `queue_id` / `assigned_agent_id`.
  * Idempotente si ya hay agente asignado.
@@ -56,7 +111,9 @@ export async function assignConversation(
 
   const { data: conv, error: convErr } = await supabase
     .from("chat_conversations")
-    .select("id, empresa_id, channel_id, assigned_agent_id, created_at")
+    .select(
+      "id, empresa_id, channel_id, contact_id, assigned_agent_id, created_at, initial_reassign_count"
+    )
     .eq("id", cid)
     .maybeSingle();
 
@@ -68,7 +125,9 @@ export async function assignConversation(
   }
 
   const empresaId = conv.empresa_id as string;
-  const channelId = (conv.channel_id as string | null | undefined)?.trim() ?? "";
+  const contactId = ((conv.contact_id as string | null | undefined) ?? "").trim();
+  const channelId = ((conv.channel_id as string | null | undefined) ?? "").trim();
+
   let channelType = "whatsapp";
   if (channelId) {
     const { data: chRow, error: chErr } = await supabase
@@ -83,7 +142,9 @@ export async function assignConversation(
 
   const { data: queues, error: qErr } = await supabase
     .from("chat_queues")
-    .select("id, channel_type, nombre, distribution_strategy, priority, routing_config")
+    .select(
+      "id, channel_type, nombre, distribution_strategy, priority, routing_config, assignment_state"
+    )
     .eq("empresa_id", empresaId)
     .eq("is_active", true);
 
@@ -111,107 +172,175 @@ export async function assignConversation(
   }
 
   if (!queue) {
+    await insertChatRoutingEvent(supabase, {
+      empresa_id: empresaId,
+      conversation_id: cid,
+      queue_id: null,
+      event_type: "no_queue",
+      payload: { channel_id: channelId || null, channel_type: channelType },
+    });
     return { ok: true, assigned: false, reason: "no_queue" };
   }
 
+  const routing = parseQueueRoutingConfig(queue.routing_config);
+  const assignState = parseAssignmentState(queue.assignment_state);
+
   if (queue.distribution_strategy === "manual_pull") {
+    const ts = new Date().toISOString();
     const { error: upQ } = await supabase
       .from("chat_conversations")
       .update({
         queue_id: queue.id,
-        updated_at: new Date().toISOString(),
+        initial_assignment_at: null,
+        first_human_response_at: null,
+        updated_at: ts,
       })
       .eq("id", cid)
       .eq("empresa_id", empresaId);
     if (upQ) return { ok: false, error: upQ.message };
+    await insertChatRoutingEvent(supabase, {
+      empresa_id: empresaId,
+      conversation_id: cid,
+      queue_id: queue.id,
+      event_type: "manual_queue_only",
+      payload: { strategy: "manual_pull" },
+    });
     return { ok: true, assigned: false, reason: "manual_pull" };
   }
 
-  const { data: agents, error: aErr } = await supabase
-    .from("chat_agents")
-    .select("id, max_conversations, priority_in_queue")
-    .eq("empresa_id", empresaId)
-    .eq("queue_id", queue.id)
-    .eq("is_online", true)
-    .eq("is_active", true)
-    .eq("receives_new_chats", true);
-
-  if (aErr) return { ok: false, error: aErr.message };
-  const list = (agents ?? []) as AgentRow[];
-  if (list.length === 0) {
-    const { error: upQ } = await supabase
-      .from("chat_conversations")
-      .update({
-        queue_id: queue.id,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", cid)
-      .eq("empresa_id", empresaId);
-    if (upQ) return { ok: false, error: upQ.message };
-    return { ok: true, assigned: false, reason: "no_agent" };
+  let agents: EligibleAgent[] = [];
+  try {
+    agents = await loadEligibleAgentsForQueue(supabase, empresaId, queue.id);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Error agentes" };
   }
 
-  const loads = await Promise.all(
-    list.map(async (agent) => {
-      const { count, error } = await supabase
-        .from("chat_conversations")
-        .select("*", { count: "exact", head: true })
-        .eq("assigned_agent_id", agent.id)
-        .neq("status", "closed");
-      if (error) return { agent, load: Number.MAX_SAFE_INTEGER };
-      return { agent, load: count ?? 0 };
-    })
-  );
+  let loadById = new Map<string, number>();
+  try {
+    loadById = await countActiveConversationsByAgent(
+      supabase,
+      empresaId,
+      agents.map((a) => a.id)
+    );
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Error carga" };
+  }
 
-  const candidates = loads.filter(({ agent, load }) => load < (agent.max_conversations ?? 5));
-  if (candidates.length === 0) {
+  let eligible = filterAgentsUnderCap(agents, loadById);
+
+  /** Misma asesor: ancla = última asignación persistida en el contacto para este canal (last_routed_at). */
+  let sameAdvisorPick: EligibleAgent | null = null;
+  const sa = routing.same_advisor_window;
+  if (sa?.enabled && contactId && channelId) {
+    const { data: cRow, error: ctErr } = await supabase
+      .from("chat_contacts")
+      .select("last_routed_chat_agent_id, last_routed_at, last_routed_channel_id")
+      .eq("id", contactId)
+      .eq("empresa_id", empresaId)
+      .maybeSingle();
+    if (!ctErr && cRow) {
+      const lastAgent = (cRow as { last_routed_chat_agent_id?: string | null }).last_routed_chat_agent_id?.trim() ?? "";
+      const lastAt = (cRow as { last_routed_at?: string | null }).last_routed_at;
+      const lastCh = (cRow as { last_routed_channel_id?: string | null }).last_routed_channel_id?.trim() ?? "";
+      const channelOk = !lastCh || lastCh === channelId;
+      if (lastAgent && lastAt && channelOk) {
+        const t0 = new Date(lastAt).getTime();
+        if (!Number.isNaN(t0) && Date.now() - t0 <= sameAdvisorWindowMs(sa.value, sa.unit)) {
+          const hit = eligible.find((a) => a.id === lastAgent);
+          if (hit) sameAdvisorPick = hit;
+        }
+      }
+    }
+  }
+
+  if (eligible.length === 0) {
+    const ts = new Date().toISOString();
     const { error: upQ } = await supabase
       .from("chat_conversations")
       .update({
         queue_id: queue.id,
-        updated_at: new Date().toISOString(),
+        initial_assignment_at: null,
+        updated_at: ts,
       })
       .eq("id", cid)
       .eq("empresa_id", empresaId);
     if (upQ) return { ok: false, error: upQ.message };
+    await insertChatRoutingEvent(supabase, {
+      empresa_id: empresaId,
+      conversation_id: cid,
+      queue_id: queue.id,
+      event_type: "no_eligible_agent",
+      payload: { strategy: queue.distribution_strategy },
+    });
     return { ok: true, assigned: false, reason: "no_agent" };
   }
 
   const strategy = queue.distribution_strategy;
-  let best: AgentRow;
+  let best: EligibleAgent;
 
-  if (strategy === "round_robin") {
-    const created = new Date((conv.created_at as string) || Date.now()).getTime();
-    const sorted = [...candidates].sort((a, b) => {
-      if (b.agent.priority_in_queue !== a.agent.priority_in_queue) {
-        return b.agent.priority_in_queue - a.agent.priority_in_queue;
-      }
-      return a.agent.id.localeCompare(b.agent.id);
-    });
-    const idx = sorted.length > 0 ? Math.abs(Math.floor(created / 1000)) % sorted.length : 0;
-    best = sorted[idx]!.agent;
+  if (sameAdvisorPick) {
+    best = sameAdvisorPick;
+  } else if (strategy === "round_robin") {
+    best = pickRoundRobin(eligible, assignState);
   } else {
-    candidates.sort((a, b) => {
-      if (a.load !== b.load) return a.load - b.load;
-      if (b.agent.priority_in_queue !== a.agent.priority_in_queue) {
-        return b.agent.priority_in_queue - a.agent.priority_in_queue;
-      }
-      return a.agent.id.localeCompare(b.agent.id);
-    });
-    best = candidates[0]!.agent;
+    best = pickLeastLoad(eligible, loadById);
   }
 
+  const ts = new Date().toISOString();
   const { error: upErr } = await supabase
     .from("chat_conversations")
     .update({
       queue_id: queue.id,
       assigned_agent_id: best.id,
-      updated_at: new Date().toISOString(),
+      initial_assignment_at: ts,
+      first_human_response_at: null,
+      initial_reassign_count: 0,
+      updated_at: ts,
     })
     .eq("id", cid)
     .eq("empresa_id", empresaId);
 
   if (upErr) return { ok: false, error: upErr.message };
+
+  if (strategy === "round_robin") {
+    const rawSt = queue.assignment_state;
+    const merged: Record<string, unknown> =
+      rawSt != null && typeof rawSt === "object" && !Array.isArray(rawSt)
+        ? { ...(rawSt as Record<string, unknown>) }
+        : {};
+    merged.rr_last_agent_id = best.id;
+    const { error: stErr } = await supabase
+      .from("chat_queues")
+      .update({
+        assignment_state: merged,
+        updated_at: ts,
+      })
+      .eq("id", queue.id)
+      .eq("empresa_id", empresaId);
+    if (stErr) console.warn("[assignConversation] assignment_state", stErr.message);
+  }
+
+  if (contactId && channelId) {
+    await updateContactLastRouted(supabase, {
+      empresa_id: empresaId,
+      contact_id: contactId,
+      channel_id: channelId,
+      chat_agent_id: best.id,
+      at_iso: ts,
+    });
+  }
+
+  await insertChatRoutingEvent(supabase, {
+    empresa_id: empresaId,
+    conversation_id: cid,
+    queue_id: queue.id,
+    event_type: sameAdvisorPick ? "same_advisor_route" : "assigned_auto",
+    payload: {
+      strategy,
+      to_agent_id: best.id,
+      same_advisor: Boolean(sameAdvisorPick),
+    },
+  });
 
   return { ok: true, assigned: true, agent_id: best.id, queue_id: queue.id };
 }
