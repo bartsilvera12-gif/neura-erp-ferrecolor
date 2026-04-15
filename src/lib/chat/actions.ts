@@ -83,7 +83,12 @@ export async function fetchChatConversations(
   if (vista === "inbox") {
     q = q.in("status", ["open", "pending"]);
   } else if (vista === "bot") {
-    q = q.eq("flow_status", "bot").eq("human_taken_over", false);
+    q = q
+      .eq("flow_status", "bot")
+      .eq("human_taken_over", false)
+      .in("status", ["open", "pending"]);
+  } else if (vista === "historial") {
+    q = q.eq("status", "closed");
   }
 
   const assignment = filters?.assignment ?? "all";
@@ -132,7 +137,16 @@ export async function fetchChatConversations(
   });
 
   if (error) throw new Error(error.message);
-  const list = convs ?? [];
+  let list = convs ?? [];
+  if (vista === "inbox") {
+    list = list.filter(
+      (row) =>
+        !(
+          String((row as { flow_status?: string }).flow_status ?? "bot") === "bot" &&
+          !(row as { human_taken_over?: boolean }).human_taken_over
+        )
+    );
+  }
   if (list.length === 0) return [];
 
   const channelIds = [

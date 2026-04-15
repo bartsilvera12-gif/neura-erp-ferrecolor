@@ -4,7 +4,12 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import type { ChatChannelRow } from "@/lib/chat/actions";
-import type { ChatQueueAdminRow, QueueAgentRow, UsuarioPickRow } from "@/lib/chat/queue-admin-repo";
+import type {
+  ChatQueueAdminRow,
+  QueueAgentRow,
+  QueueClosureTaxonomyInput,
+  UsuarioPickRow,
+} from "@/lib/chat/queue-admin-repo";
 import {
   DEFAULT_QUEUE_ROUTING_CONFIG,
   parseQueueRoutingConfig,
@@ -16,6 +21,7 @@ import {
   apiDeleteQueue,
   apiQueueEditorBootstrap,
   apiRemoveQueueAgent,
+  apiSaveClosureTaxonomy,
   apiSaveQueue,
   apiSetQueueChannelLinks,
   apiUpdateQueueAgent,
@@ -69,6 +75,9 @@ export default function EditarColaPage() {
   const [strategy, setStrategy] = useState("least_load");
   const [priority, setPriority] = useState(0);
   const [routing, setRouting] = useState<QueueRoutingConfig>(DEFAULT_QUEUE_ROUTING_CONFIG);
+  /** Estados y subestados de cierre (modal «Finalizar» del asesor); se guardan aparte de la cola. */
+  const [closureDraft, setClosureDraft] = useState<{ label: string; substates: { label: string }[] }[]>([]);
+  const [closureSaving, setClosureSaving] = useState(false);
 
   const load = useCallback(async () => {
     if (!queueId) return;
@@ -93,6 +102,12 @@ export default function EditarColaPage() {
         setPriority(q.priority ?? 0);
         setRouting(parseQueueRoutingConfig(q.routing_config));
       }
+      setClosureDraft(
+        (boot.closure_taxonomy ?? []).map((s) => ({
+          label: s.label,
+          substates: (s.substates ?? []).map((sub) => ({ label: sub.label })),
+        }))
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cargar");
     } finally {
@@ -130,6 +145,29 @@ export default function EditarColaPage() {
       setError(e instanceof Error ? e.message : "Error al guardar");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSaveClosureTaxonomy() {
+    if (!queueId) return;
+    setClosureSaving(true);
+    setError(null);
+    try {
+      const states: QueueClosureTaxonomyInput[] = closureDraft
+        .map((s, i) => ({
+          label: s.label.trim(),
+          sort_order: i,
+          substates: s.substates
+            .map((sub, j) => ({ label: sub.label.trim(), sort_order: j }))
+            .filter((sub) => sub.label.length > 0),
+        }))
+        .filter((s) => s.label.length > 0);
+      await apiSaveClosureTaxonomy(queueId, states);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al guardar estados de cierre");
+    } finally {
+      setClosureSaving(false);
     }
   }
 
@@ -517,6 +555,117 @@ export default function EditarColaPage() {
               <option value="days">Días</option>
             </select>
           </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wide">Cierre de conversaciones</h2>
+            <p className="text-sm text-slate-600 mt-1 max-w-2xl">
+              Definí los motivos de cierre que verá el asesor al pulsar «Finalizar». Cada estado puede tener subestados
+              opcionales. Si no configurás nada, el sistema ofrece una lista por defecto hasta que cargues estados acá.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={closureSaving || !queueId}
+            onClick={() => void handleSaveClosureTaxonomy()}
+            className="shrink-0 rounded-lg bg-slate-900 text-white px-4 py-2 text-sm font-semibold hover:bg-slate-800 disabled:opacity-50"
+          >
+            {closureSaving ? "Guardando…" : "Guardar cierre"}
+          </button>
+        </div>
+        <div className="space-y-4">
+          {closureDraft.map((row, si) => (
+            <div key={si} className="rounded-xl border border-slate-100 bg-slate-50/80 p-4 space-y-3">
+              <div className="flex flex-wrap gap-2 items-start">
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Estado</label>
+                  <input
+                    type="text"
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
+                    value={row.label}
+                    onChange={(e) =>
+                      setClosureDraft((d) =>
+                        d.map((x, i) => (i === si ? { ...x, label: e.target.value } : x))
+                      )
+                    }
+                    placeholder="Ej. Venta cerrada"
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="mt-5 text-xs font-medium text-red-700 hover:underline"
+                  onClick={() => setClosureDraft((d) => d.filter((_, i) => i !== si))}
+                >
+                  Quitar estado
+                </button>
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-slate-500 uppercase">Subestados</p>
+                {row.substates.map((sub, sj) => (
+                  <div key={sj} className="flex gap-2 items-center">
+                    <input
+                      type="text"
+                      className="flex-1 border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-white"
+                      value={sub.label}
+                      onChange={(e) =>
+                        setClosureDraft((d) =>
+                          d.map((x, i) =>
+                            i !== si
+                              ? x
+                              : {
+                                  ...x,
+                                  substates: x.substates.map((y, j) =>
+                                    j === sj ? { ...y, label: e.target.value } : y
+                                  ),
+                                }
+                          )
+                        )
+                      }
+                      placeholder="Ej. Pago confirmado"
+                    />
+                    <button
+                      type="button"
+                      className="text-xs text-slate-500 hover:text-red-700"
+                      onClick={() =>
+                        setClosureDraft((d) =>
+                          d.map((x, i) =>
+                            i !== si
+                              ? x
+                              : { ...x, substates: x.substates.filter((_, j) => j !== sj) }
+                          )
+                        )
+                      }
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="text-xs font-medium text-[#0EA5E9] hover:underline"
+                  onClick={() =>
+                    setClosureDraft((d) =>
+                      d.map((x, i) =>
+                        i !== si ? x : { ...x, substates: [...x.substates, { label: "" }] }
+                      )
+                    )
+                  }
+                >
+                  + Agregar subestado
+                </button>
+              </div>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="text-sm font-medium text-[#0EA5E9] hover:underline"
+            onClick={() => setClosureDraft((d) => [...d, { label: "", substates: [] }])}
+          >
+            + Agregar estado
+          </button>
         </div>
       </section>
 

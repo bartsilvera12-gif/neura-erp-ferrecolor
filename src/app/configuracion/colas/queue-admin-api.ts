@@ -2,6 +2,8 @@ import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session"
 import type {
   ChatQueueAdminRow,
   QueueAgentRow,
+  QueueClosureStateRow,
+  QueueClosureTaxonomyInput,
   QueueEditorChatChannelRow,
   UsuarioPickRow,
 } from "@/lib/chat/queue-admin-repo";
@@ -40,6 +42,7 @@ export type QueueEditorBootstrap = {
   linked: { channel_id: string; channel_nombre: string | null; channel_type: string }[];
   agents: QueueAgentRow[];
   usuarios: UsuarioPickRow[];
+  closure_taxonomy: QueueClosureStateRow[];
   bootstrapWarnings?: string[];
 };
 
@@ -156,5 +159,19 @@ export async function apiDeleteQueue(queueId: string): Promise<void> {
   const json = parseJson<ApiOk<boolean> | ApiErr>(await res.json());
   if (!res.ok || !json.success) {
     throw new Error(!json.success ? json.error : "Error al eliminar cola");
+  }
+}
+
+export async function apiSaveClosureTaxonomy(queueId: string, states: QueueClosureTaxonomyInput[]): Promise<void> {
+  const q = encodeURIComponent(queueId.trim());
+  const res = await fetchWithSupabaseSession(`/api/configuracion/colas-queues/${q}/closure-config`, {
+    method: "PUT",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ states }),
+  });
+  const json = parseJson<ApiOk<boolean> | ApiErr>(await res.json());
+  if (!res.ok || !json.success) {
+    throw new Error(!json.success ? json.error : "Error al guardar estados de cierre");
   }
 }

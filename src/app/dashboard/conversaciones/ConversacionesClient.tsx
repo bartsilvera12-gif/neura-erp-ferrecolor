@@ -28,6 +28,11 @@ import {
   type ChatQueueListRow,
 } from "@/lib/chat/chat-ops-actions";
 import {
+  finalizeConversationWithClosure,
+  loadFinalizeOptionsForConversation,
+  type FinalizeOptionsResult,
+} from "@/lib/chat/conversation-finalize-actions";
+import {
   getErpAttachmentCaption,
   getErpAttachmentFilename,
   getErpAttachmentPublicUrl,
@@ -191,6 +196,14 @@ export function ConversacionesClient({
   const [listColumnHidden, setListColumnHidden] = useState(false);
   /** Filtro local del listado (nombre o teléfono); no altera la carga desde servidor. */
   const [listSearch, setListSearch] = useState("");
+  const [finalizeOpen, setFinalizeOpen] = useState(false);
+  const [finalizeLoading, setFinalizeLoading] = useState(false);
+  const [finalizeSaving, setFinalizeSaving] = useState(false);
+  const [finalizeOptions, setFinalizeOptions] = useState<FinalizeOptionsResult | null>(null);
+  const [finalizeStateId, setFinalizeStateId] = useState("");
+  const [finalizeSubstateId, setFinalizeSubstateId] = useState("");
+  const [finalizeComment, setFinalizeComment] = useState("");
+  const [finalizeModalError, setFinalizeModalError] = useState<string | null>(null);
 
   const inboxFilterKey = searchParams?.toString() ?? "";
 
@@ -529,6 +542,80 @@ export function ConversacionesClient({
     }
   }
 
+  async function openFinalizeModal() {
+    const sel = selectedId ? conversations.find((c) => c.id === selectedId) : null;
+    if (!selectedId || !sel || sel.status === "closed") return;
+    setFinalizeModalError(null);
+    setFinalizeOpen(true);
+    setFinalizeLoading(true);
+    setFinalizeOptions(null);
+    setFinalizeStateId("");
+    setFinalizeSubstateId("");
+    setFinalizeComment("");
+    try {
+      const opts = await loadFinalizeOptionsForConversation(selectedId);
+      setFinalizeOptions(opts);
+      const first = opts.states[0];
+      if (first) {
+        setFinalizeStateId(first.id);
+        setFinalizeSubstateId(first.substates[0]?.id ?? "");
+      }
+    } catch (e) {
+      setFinalizeModalError(e instanceof Error ? e.message : "No se pudieron cargar las opciones de cierre");
+      setFinalizeOpen(false);
+    } finally {
+      setFinalizeLoading(false);
+    }
+  }
+
+  function closeFinalizeModal() {
+    if (finalizeSaving) return;
+    setFinalizeOpen(false);
+    setFinalizeModalError(null);
+  }
+
+  async function confirmFinalize() {
+    if (!selectedId || !finalizeOptions) return;
+    setFinalizeModalError(null);
+    const st = finalizeOptions.states.find((x) => x.id === finalizeStateId);
+    if (!st) {
+      setFinalizeModalError("Elegí un estado.");
+      return;
+    }
+    if (st.substates.length > 0 && !finalizeSubstateId) {
+      setFinalizeModalError("Elegí un subestado.");
+      return;
+    }
+    const comment = finalizeComment.trim();
+    if (comment.length < 3) {
+      setFinalizeModalError("El comentario es obligatorio (al menos 3 caracteres).");
+      return;
+    }
+    const sub = st.substates.find((x) => x.id === finalizeSubstateId);
+    setFinalizeSaving(true);
+    try {
+      await finalizeConversationWithClosure({
+        conversationId: selectedId,
+        closureStateId: st.id,
+        closureSubstateId: st.substates.length > 0 ? finalizeSubstateId : null,
+        closureStateLabel: st.label,
+        closureSubstateLabel: sub?.label ?? (st.substates.length > 0 ? "" : "—"),
+        comment,
+      });
+      setFinalizeOpen(false);
+      setFinalizeOptions(null);
+      if (mode === "inbox") {
+        setSelectedId(null);
+        setMessages([]);
+      }
+      await loadConversations({ silent: true });
+    } catch (e) {
+      setFinalizeModalError(e instanceof Error ? e.message : "No se pudo finalizar la conversación");
+    } finally {
+      setFinalizeSaving(false);
+    }
+  }
+
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedId || !input.trim() || sending) return;
@@ -605,6 +692,15 @@ export function ConversacionesClient({
     setCompValidacionesOpen(false);
   }, [selectedId]);
 
+  useEffect(() => {
+    if (!finalizeOptions || !finalizeStateId) return;
+    const st = finalizeOptions.states.find((s) => s.id === finalizeStateId);
+    if (!st) return;
+    setFinalizeSubstateId((prev) =>
+      st.substates.some((sub) => sub.id === prev) ? prev : st.substates[0]?.id ?? ""
+    );
+  }, [finalizeStateId, finalizeOptions]);
+
   return (
     <div className="flex flex-col flex-1 min-h-0 h-[calc(100dvh-5.25rem)] max-h-[calc(100dvh-5.25rem)] gap-2 overflow-hidden">
       {lightboxUrl ? (
@@ -622,6 +718,110 @@ export function ConversacionesClient({
             onClick={(ev) => ev.stopPropagation()}
           />
         </button>
+      ) : null}
+
+      {finalizeOpen ? (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-4"
+          role="presentation"
+          onClick={() => closeFinalizeModal()}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="finalize-chat-title"
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            <h2 id="finalize-chat-title" className="text-lg font-semibold text-slate-900">
+              Finalizar conversación
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Completá el cierre para guardar el resultado en el historial. Todos los campos son obligatorios.
+            </p>
+            {finalizeLoading ? (
+              <p className="mt-4 text-sm text-slate-500">Cargando opciones…</p>
+            ) : finalizeOptions && finalizeOptions.states.length > 0 ? (
+              <div className="mt-4 space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Estado</label>
+                  <select
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                    value={finalizeStateId}
+                    onChange={(e) => setFinalizeStateId(e.target.value)}
+                  >
+                    {finalizeOptions.states.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {(() => {
+                  const st = finalizeOptions.states.find((s) => s.id === finalizeStateId);
+                  if (!st || st.substates.length === 0) return null;
+                  return (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Subestado</label>
+                      <select
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                        value={finalizeSubstateId}
+                        onChange={(e) => setFinalizeSubstateId(e.target.value)}
+                      >
+                        <option value="">Elegir…</option>
+                        {st.substates.map((sub) => (
+                          <option key={sub.id} value={sub.id}>
+                            {sub.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })()}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Comentario</label>
+                  <textarea
+                    className="w-full min-h-[88px] border border-slate-200 rounded-lg px-3 py-2 text-sm resize-y"
+                    value={finalizeComment}
+                    onChange={(e) => setFinalizeComment(e.target.value)}
+                    placeholder="Resumí el resultado o próximos pasos para el equipo."
+                  />
+                </div>
+                {finalizeOptions.source === "fallback" ? (
+                  <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-2 py-1.5">
+                    Esta cola no tiene estados propios configurados. Se muestran opciones por defecto hasta que un
+                    administrador los defina en la configuración de la cola.
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              <p className="mt-4 text-sm text-red-700">No hay estados de cierre disponibles.</p>
+            )}
+            {finalizeModalError ? (
+              <p className="mt-3 text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-2 py-1.5">
+                {finalizeModalError}
+              </p>
+            ) : null}
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                disabled={finalizeSaving}
+                onClick={() => closeFinalizeModal()}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={finalizeSaving || finalizeLoading || !finalizeOptions || finalizeOptions.states.length === 0}
+                onClick={() => void confirmFinalize()}
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+              >
+                {finalizeSaving ? "Guardando…" : "Confirmar finalización"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       <div className="flex flex-wrap items-center justify-between gap-2 shrink-0">
@@ -720,34 +920,37 @@ export function ConversacionesClient({
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <span className="min-w-0 flex-1">
-                      <span className="font-medium text-slate-800 truncate block">
-                        {c.contact.name || c.contact.phone_number}
-                      </span>
-                      <span className="mt-1 block">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-slate-800 truncate">
+                        {c.contact.name?.trim() ? c.contact.name.trim() : "Sin nombre"}
+                      </div>
+                      <div className="text-xs text-slate-500 font-mono truncate">
+                        {c.contact.phone_number || "—"}
+                      </div>
+                      <div className="mt-1">
                         <ChannelBadge type={c.channel.type} nombre={c.channel.nombre} />
-                      </span>
-                    </span>
-                    <span className="flex shrink-0 items-center gap-1">
-                      {c.human_taken_over || c.flow_status === "human" ? (
-                        <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
-                          Humano
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-semibold uppercase tracking-wide text-violet-700 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded">
-                          Bot
-                        </span>
-                      )}
-                      {c.unread_count > 0 && (
-                        <span className="bg-[#0EA5E9] text-white text-xs font-bold px-2 py-0.5 rounded-full">
-                          {c.unread_count}
-                        </span>
-                      )}
-                    </span>
+                      </div>
+                      <p className="text-xs text-slate-500 truncate mt-1">{c.last_message_preview || "—"}</p>
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <div className="flex items-center gap-1">
+                        {vista === "bot" ? (
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-violet-700 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded">
+                            Bot
+                          </span>
+                        ) : c.human_taken_over || c.flow_status === "human" ? (
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                            Humano
+                          </span>
+                        ) : null}
+                        {c.unread_count > 0 && (
+                          <span className="bg-[#0EA5E9] text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                            {c.unread_count}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <p className="text-xs text-slate-500 truncate mt-0.5">
-                    {c.last_message_preview || "—"}
-                  </p>
                   <div className="flex flex-wrap gap-1 mt-1.5">
                     <span
                       className={`text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded border ${badgeEstadoClass(c.status)}`}
@@ -795,40 +998,46 @@ export function ConversacionesClient({
             <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
               <div className="px-2 py-2 border-b border-slate-200 bg-white shrink-0">
                 {selected ? (
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 min-w-0">
-                    <span className="font-semibold text-slate-800 text-sm truncate min-w-0 max-w-[min(100%,14rem)]">
-                      {selected.contact.name || selected.contact.phone_number}
-                    </span>
-                    <ChannelBadge type={selected.channel.type} nombre={selected.channel.nombre} />
-                    {isHumanActive ? (
-                      <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded shrink-0">
-                        Humano
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-semibold text-violet-800 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded shrink-0">
-                        Bot
-                      </span>
-                    )}
-                    <span className="text-[10px] text-slate-500 font-mono truncate min-w-0 max-w-[11rem]">
-                      {selected.contact.phone_number}
-                    </span>
-                    <span
-                      className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded border shrink-0 ${badgeEstadoClass(selected.status)}`}
-                    >
-                      {labelEstado(selected.status)}
-                    </span>
-                    {listColumnHidden ? (
-                      <button
-                        type="button"
-                        onClick={() => setListColumnHidden(false)}
-                        className="shrink-0 text-[10px] font-medium text-slate-600 hover:text-slate-900 border border-slate-200 rounded px-1.5 py-0.5 bg-white"
-                        title="Mostrar lista de chats"
-                      >
-                        Chats
-                      </button>
-                    ) : null}
+                  <div className="flex flex-col gap-2 min-w-0 w-full">
+                    <div className="flex flex-wrap items-start gap-x-2 gap-y-1.5 min-w-0">
+                      <div className="min-w-0 flex-1 basis-[min(100%,14rem)]">
+                        <div className="font-semibold text-slate-800 text-sm truncate">
+                          {selected.contact.name?.trim() ? selected.contact.name.trim() : "Sin nombre"}
+                        </div>
+                        <div className="text-xs text-slate-500 font-mono truncate">
+                          {selected.contact.phone_number || "—"}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1 shrink-0 justify-end">
+                        <ChannelBadge type={selected.channel.type} nombre={selected.channel.nombre} />
+                        {vista === "bot" ? (
+                          <span className="text-[10px] font-semibold text-violet-800 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded shrink-0">
+                            Bot
+                          </span>
+                        ) : isHumanActive ? (
+                          <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded shrink-0">
+                            Humano
+                          </span>
+                        ) : null}
+                        <span
+                          className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded border shrink-0 ${badgeEstadoClass(selected.status)}`}
+                        >
+                          {labelEstado(selected.status)}
+                        </span>
+                        {listColumnHidden ? (
+                          <button
+                            type="button"
+                            onClick={() => setListColumnHidden(false)}
+                            className="shrink-0 text-[10px] font-medium text-slate-600 hover:text-slate-900 border border-slate-200 rounded px-1.5 py-0.5 bg-white"
+                            title="Mostrar lista de chats"
+                          >
+                            Chats
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
 
-                    <div className="flex flex-wrap items-center gap-1 sm:ml-auto w-full sm:w-auto">
+                    <div className="flex flex-wrap items-center gap-1 w-full sm:justify-end">
                       <span className="text-[10px] font-semibold text-slate-600 shrink-0">Transferir a</span>
                       <select
                         disabled={opsBusy}
@@ -884,20 +1093,16 @@ export function ConversacionesClient({
                           {releasingBot ? "…" : "Modo bot"}
                         </button>
                       ) : null}
-                      {selected.status !== "closed" ? (
+                      {selected.status !== "closed" && mode === "inbox" ? (
                         <button
                           type="button"
-                          disabled={opsBusy}
-                          onClick={() =>
-                            void runConversationOp(() =>
-                              changeConversationStatus(selected.id, "closed")
-                            )
-                          }
+                          disabled={opsBusy || finalizeSaving}
+                          onClick={() => void openFinalizeModal()}
                           className="text-[10px] font-medium text-slate-700 border border-slate-300 rounded px-1.5 py-0.5 hover:bg-slate-50 disabled:opacity-50"
                         >
                           Finalizar
                         </button>
-                      ) : (
+                      ) : selected.status === "closed" ? (
                         <button
                           type="button"
                           disabled={opsBusy}
@@ -910,7 +1115,7 @@ export function ConversacionesClient({
                         >
                           Reabrir
                         </button>
-                      )}
+                      ) : null}
                       {selected.contact.cliente_id ? (
                         <Link
                           href={`/clientes/${selected.contact.cliente_id}`}

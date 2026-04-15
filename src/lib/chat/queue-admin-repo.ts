@@ -57,6 +57,21 @@ export type QueueAgentRow = {
 
 export type UsuarioPickRow = { id: string; nombre: string; email: string };
 
+export type QueueClosureSubstateRow = {
+  id: string;
+  label: string;
+  sort_order: number;
+  is_active: boolean;
+};
+
+export type QueueClosureStateRow = {
+  id: string;
+  label: string;
+  sort_order: number;
+  is_active: boolean;
+  substates: QueueClosureSubstateRow[];
+};
+
 function mapChatChannelRow(r: Record<string, unknown>): QueueEditorChatChannelRow {
   const mp = r.meta_phone_number_id;
   return {
@@ -365,23 +380,175 @@ export async function repoListUsuariosForQueuePick(ctx: QueueAdminTenantContext)
   }));
 }
 
+export async function repoListQueueClosureTaxonomy(
+  ctx: QueueAdminTenantContext,
+  queueId: string
+): Promise<QueueClosureStateRow[]> {
+  const qid = queueId.trim();
+  if (!qid) return [];
+  const { data: states, error: sErr } = await ctx.supabase
+    .from("chat_queue_closure_states")
+    .select("id, label, sort_order, is_active")
+    .eq("empresa_id", ctx.empresa_id)
+    .eq("queue_id", qid)
+    .order("sort_order", { ascending: true });
+  if (sErr) {
+    if (sErr.message.includes("chat_queue_closure_states") && sErr.message.includes("does not exist")) {
+      return [];
+    }
+    throw new Error(sErr.message);
+  }
+  const st = (states ?? []) as {
+    id: string;
+    label: string;
+    sort_order: number;
+    is_active: boolean;
+  }[];
+  if (st.length === 0) return [];
+  const ids = st.map((x) => x.id);
+  const { data: subs, error: subErr } = await ctx.supabase
+    .from("chat_queue_closure_substates")
+    .select("id, closure_state_id, label, sort_order, is_active")
+    .eq("empresa_id", ctx.empresa_id)
+    .in("closure_state_id", ids)
+    .order("sort_order", { ascending: true });
+  if (subErr) throw new Error(subErr.message);
+  const byState = new Map<string, QueueClosureSubstateRow[]>();
+  for (const row of subs ?? []) {
+    const sid = (row as { closure_state_id: string }).closure_state_id;
+    const list = byState.get(sid) ?? [];
+    list.push({
+      id: (row as { id: string }).id,
+      label: String((row as { label?: string }).label ?? ""),
+      sort_order: Number((row as { sort_order?: number }).sort_order ?? 0),
+      is_active: (row as { is_active?: boolean }).is_active !== false,
+    });
+    byState.set(sid, list);
+  }
+  return st.map((s) => ({
+    id: s.id,
+    label: s.label,
+    sort_order: s.sort_order,
+    is_active: s.is_active !== false,
+    substates: byState.get(s.id) ?? [],
+  }));
+}
+
+export type QueueClosureTaxonomyInput = {
+  label: string;
+  sort_order: number;
+  substates: { label: string; sort_order: number }[];
+};
+
+export async function repoReplaceQueueClosureTaxonomy(
+  ctx: QueueAdminTenantContext,
+  queueId: string,
+  states: QueueClosureTaxonomyInput[]
+): Promise<void> {
+  const qid = queueId.trim();
+  if (!qid) throw new Error("Cola inválida");
+  const { data: queue, error: qe } = await ctx.supabase
+    .from("chat_queues")
+    .select("id, empresa_id")
+    .eq("id", qid)
+    .eq("empresa_id", ctx.empresa_id)
+    .maybeSingle();
+  if (qe) throw new Error(qe.message);
+  if (!queue) throw new Error("Cola no encontrada");
+
+  const empresaId = (queue as { empresa_id: string }).empresa_id;
+
+  const { data: existing, error: eList } = await ctx.supabase
+    .from("chat_queue_closure_states")
+    .select("id")
+    .eq("empresa_id", empresaId)
+    .eq("queue_id", qid);
+  if (eList) throw new Error(eList.message);
+  const oldIds = (existing ?? []).map((r) => r.id as string);
+  if (oldIds.length > 0) {
+    const { error: dSub } = await ctx.supabase
+      .from("chat_queue_closure_substates")
+      .delete()
+      .eq("empresa_id", empresaId)
+      .in("closure_state_id", oldIds);
+    if (dSub) throw new Error(dSub.message);
+    const { error: dSt } = await ctx.supabase
+      .from("chat_queue_closure_states")
+      .delete()
+      .eq("empresa_id", empresaId)
+      .eq("queue_id", qid);
+    if (dSt) throw new Error(dSt.message);
+  }
+
+  let o = 0;
+  for (const st of states) {
+    const label = st.label.trim();
+    if (!label) continue;
+    const sort = st.sort_order ?? o++;
+    const { data: inserted, error: insErr } = await ctx.supabase
+      .from("chat_queue_closure_states")
+      .insert({
+        empresa_id: empresaId,
+        queue_id: qid,
+        label,
+        sort_order: sort,
+        is_active: true,
+      })
+      .select("id")
+      .maybeSingle();
+    if (insErr) throw new Error(insErr.message);
+    const sid = inserted?.id as string | undefined;
+    if (!sid) continue;
+    let so = 0;
+    for (const sub of st.substates ?? []) {
+      const sl = sub.label.trim();
+      if (!sl) continue;
+      const { error: sErr } = await ctx.supabase.from("chat_queue_closure_substates").insert({
+        empresa_id: empresaId,
+        closure_state_id: sid,
+        label: sl,
+        sort_order: sub.sort_order ?? so++,
+        is_active: true,
+      });
+      if (sErr) throw new Error(sErr.message);
+    }
+  }
+}
+
 export async function repoLoadQueueEditorBootstrap(ctx: QueueAdminTenantContext, queueId: string): Promise<{
   queue: ChatQueueAdminRow | null;
   channels: QueueEditorChatChannelRow[];
   linked: QueueChannelLink[];
   agents: QueueAgentRow[];
   usuarios: UsuarioPickRow[];
+  closure_taxonomy: QueueClosureStateRow[];
   /** Errores parciales (p. ej. tabla chat_queue_channels ausente); la cola igual puede cargarse. */
   bootstrapWarnings: string[];
 }> {
   const qid = queueId.trim();
   if (!qid) {
-    return { queue: null, channels: [], linked: [], agents: [], usuarios: [], bootstrapWarnings: [] };
+    return {
+      queue: null,
+      channels: [],
+      linked: [],
+      agents: [],
+      usuarios: [],
+      closure_taxonomy: [],
+      bootstrapWarnings: [],
+    };
   }
 
   const queue = await repoFetchQueue(ctx, qid);
   if (!queue) {
-    return { queue: null, channels: [], linked: [], agents: [], usuarios: [], bootstrapWarnings: [] };
+    return {
+      queue: null,
+      channels: [],
+      linked: [],
+      agents: [],
+      usuarios: [],
+      closure_taxonomy: [],
+      bootstrapWarnings: [],
+    };
   }
 
   const settled = await Promise.allSettled([
@@ -389,19 +556,26 @@ export async function repoLoadQueueEditorBootstrap(ctx: QueueAdminTenantContext,
     repoListQueueChannelLinks(ctx, qid),
     repoListAgentsForQueue(ctx, qid),
     repoListUsuariosForQueuePick(ctx),
+    repoListQueueClosureTaxonomy(ctx, qid),
   ]);
 
   const channels = settled[0].status === "fulfilled" ? settled[0].value : [];
   const linked = settled[1].status === "fulfilled" ? settled[1].value : [];
   const agents = settled[2].status === "fulfilled" ? settled[2].value : [];
   const usuarios = settled[3].status === "fulfilled" ? settled[3].value : [];
+  const closure_taxonomy = settled[4].status === "fulfilled" ? settled[4].value : [];
 
-  const anyRejected = settled.some((r) => r.status === "rejected");
-  const bootstrapWarnings: string[] = anyRejected
-    ? [
-        "No se cargó toda la información auxiliar (canales, vínculos o agentes). Reintentá la página; si continúa, contactá soporte.",
-      ]
-    : [];
+  const bootstrapWarnings: string[] = [];
+  if (settled.some((r) => r.status === "rejected")) {
+    bootstrapWarnings.push(
+      "No se cargó toda la información auxiliar (canales, vínculos o agentes). Reintentá la página; si continúa, contactá soporte."
+    );
+  }
+  if (settled[4].status === "rejected") {
+    bootstrapWarnings.push(
+      "No se pudieron cargar los estados de cierre de la cola (¿migración pendiente?). Podés seguir usando la cola con la taxonomía por defecto al finalizar."
+    );
+  }
 
-  return { queue, channels, linked, agents, usuarios, bootstrapWarnings };
+  return { queue, channels, linked, agents, usuarios, closure_taxonomy, bootstrapWarnings };
 }
