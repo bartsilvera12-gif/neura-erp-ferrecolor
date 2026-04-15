@@ -27,7 +27,7 @@ import {
   Ticket,
   MessageCircle,
   History,
-  Headphones,
+  Activity,
   ScrollText,
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
@@ -95,11 +95,11 @@ const MENU_STRUCTURE: MenuItem[] = [
     icon: History,
   },
   {
-    key: "colas-agentes",
-    slug: "colas-agentes",
-    label: "Colas y agentes",
-    href: "/dashboard/colas-agentes",
-    icon: Headphones,
+    key: "monitoreo",
+    slug: "monitoreo",
+    label: "Monitoreo",
+    href: "/dashboard/monitoreo",
+    icon: Activity,
   },
   { key: "ventas", slug: "ventas", label: "Ventas", href: "/ventas", icon: ShoppingCart },
   { key: "inventario", slug: "inventario", label: "Inventario", href: "/inventario", icon: Package, children: [

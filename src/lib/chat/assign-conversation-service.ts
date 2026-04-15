@@ -4,18 +4,25 @@
 import type { SupabaseAdmin } from "@/lib/chat/types";
 
 export type AssignConversationResult =
-  | { ok: true; assigned: false; reason: "already_assigned" | "no_queue" | "no_agent" }
+  | { ok: true; assigned: false; reason: "already_assigned" | "no_queue" | "no_agent" | "manual_pull" }
   | { ok: true; assigned: true; agent_id: string; queue_id: string }
   | { ok: false; error: string };
 
-type QueueRow = { id: string; channel_type: string | null; nombre: string };
-type AgentRow = { id: string; max_conversations: number };
+type QueueRow = {
+  id: string;
+  channel_type: string | null;
+  nombre: string;
+  distribution_strategy: string;
+  priority: number;
+};
+type AgentRow = { id: string; max_conversations: number; priority_in_queue: number };
 
 function pickQueueForChannel(queues: QueueRow[], channelType: string): QueueRow | null {
   const t = channelType.trim().toLowerCase();
   const matching = queues.filter((q) => !q.channel_type || q.channel_type === t);
   if (matching.length === 0) return null;
   matching.sort((a, b) => {
+    if (a.priority !== b.priority) return b.priority - a.priority;
     const aSpec = a.channel_type ? 0 : 1;
     const bSpec = b.channel_type ? 0 : 1;
     if (aSpec !== bSpec) return aSpec - bSpec;
@@ -24,9 +31,19 @@ function pickQueueForChannel(queues: QueueRow[], channelType: string): QueueRow 
   return matching[0] ?? null;
 }
 
+function pickFromLinkedQueues(linked: QueueRow[]): QueueRow | null {
+  if (linked.length === 0) return null;
+  const copy = [...linked];
+  copy.sort((a, b) => {
+    if (a.priority !== b.priority) return b.priority - a.priority;
+    return a.nombre.localeCompare(b.nombre, "es");
+  });
+  return copy[0] ?? null;
+}
+
 /**
- * Resuelve cola por empresa + tipo de canal, elige agente en línea con menor carga (< max_conversations)
- * y actualiza `queue_id` / `assigned_agent_id`. Idempotente si ya hay agente asignado.
+ * Resuelve cola por empresa + canal, elige agente elegible y actualiza `queue_id` / `assigned_agent_id`.
+ * Idempotente si ya hay agente asignado.
  */
 export async function assignConversation(
   supabase: SupabaseAdmin,
@@ -37,7 +54,7 @@ export async function assignConversation(
 
   const { data: conv, error: convErr } = await supabase
     .from("chat_conversations")
-    .select("id, empresa_id, channel_id, assigned_agent_id")
+    .select("id, empresa_id, channel_id, assigned_agent_id, created_at")
     .eq("id", cid)
     .maybeSingle();
 
@@ -64,26 +81,71 @@ export async function assignConversation(
 
   const { data: queues, error: qErr } = await supabase
     .from("chat_queues")
-    .select("id, channel_type, nombre")
+    .select("id, channel_type, nombre, distribution_strategy, priority")
     .eq("empresa_id", empresaId)
     .eq("is_active", true);
 
   if (qErr) return { ok: false, error: qErr.message };
-  const queue = pickQueueForChannel((queues ?? []) as QueueRow[], channelType);
+  const allQueues = (queues ?? []) as QueueRow[];
+
+  let queue: QueueRow | null = null;
+
+  if (channelId) {
+    const { data: linkRows, error: lErr } = await supabase
+      .from("chat_queue_channels")
+      .select("queue_id")
+      .eq("empresa_id", empresaId)
+      .eq("channel_id", channelId);
+    if (lErr) return { ok: false, error: lErr.message };
+    const qids = [...new Set((linkRows ?? []).map((r) => r.queue_id as string).filter(Boolean))];
+    if (qids.length > 0) {
+      const linked = allQueues.filter((q) => qids.includes(q.id));
+      queue = pickFromLinkedQueues(linked);
+    }
+  }
+
+  if (!queue) {
+    queue = pickQueueForChannel(allQueues, channelType);
+  }
+
   if (!queue) {
     return { ok: true, assigned: false, reason: "no_queue" };
   }
 
+  if (queue.distribution_strategy === "manual_pull") {
+    const { error: upQ } = await supabase
+      .from("chat_conversations")
+      .update({
+        queue_id: queue.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", cid)
+      .eq("empresa_id", empresaId);
+    if (upQ) return { ok: false, error: upQ.message };
+    return { ok: true, assigned: false, reason: "manual_pull" };
+  }
+
   const { data: agents, error: aErr } = await supabase
     .from("chat_agents")
-    .select("id, max_conversations")
+    .select("id, max_conversations, priority_in_queue")
     .eq("empresa_id", empresaId)
     .eq("queue_id", queue.id)
-    .eq("is_online", true);
+    .eq("is_online", true)
+    .eq("is_active", true)
+    .eq("receives_new_chats", true);
 
   if (aErr) return { ok: false, error: aErr.message };
   const list = (agents ?? []) as AgentRow[];
   if (list.length === 0) {
+    const { error: upQ } = await supabase
+      .from("chat_conversations")
+      .update({
+        queue_id: queue.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", cid)
+      .eq("empresa_id", empresaId);
+    if (upQ) return { ok: false, error: upQ.message };
     return { ok: true, assigned: false, reason: "no_agent" };
   }
 
@@ -99,18 +161,43 @@ export async function assignConversation(
     })
   );
 
-  const candidates = loads.filter(
-    ({ agent, load }) => load < (agent.max_conversations ?? 5)
-  );
+  const candidates = loads.filter(({ agent, load }) => load < (agent.max_conversations ?? 5));
   if (candidates.length === 0) {
+    const { error: upQ } = await supabase
+      .from("chat_conversations")
+      .update({
+        queue_id: queue.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", cid)
+      .eq("empresa_id", empresaId);
+    if (upQ) return { ok: false, error: upQ.message };
     return { ok: true, assigned: false, reason: "no_agent" };
   }
 
-  candidates.sort((a, b) => {
-    if (a.load !== b.load) return a.load - b.load;
-    return a.agent.id.localeCompare(b.agent.id);
-  });
-  const best = candidates[0]!.agent;
+  const strategy = queue.distribution_strategy;
+  let best: AgentRow;
+
+  if (strategy === "round_robin") {
+    const created = new Date((conv.created_at as string) || Date.now()).getTime();
+    const sorted = [...candidates].sort((a, b) => {
+      if (b.agent.priority_in_queue !== a.agent.priority_in_queue) {
+        return b.agent.priority_in_queue - a.agent.priority_in_queue;
+      }
+      return a.agent.id.localeCompare(b.agent.id);
+    });
+    const idx = sorted.length > 0 ? Math.abs(Math.floor(created / 1000)) % sorted.length : 0;
+    best = sorted[idx]!.agent;
+  } else {
+    candidates.sort((a, b) => {
+      if (a.load !== b.load) return a.load - b.load;
+      if (b.agent.priority_in_queue !== a.agent.priority_in_queue) {
+        return b.agent.priority_in_queue - a.agent.priority_in_queue;
+      }
+      return a.agent.id.localeCompare(b.agent.id);
+    });
+    best = candidates[0]!.agent;
+  }
 
   const { error: upErr } = await supabase
     .from("chat_conversations")

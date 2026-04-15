@@ -8,7 +8,7 @@ import { createWhatsappConversationWithActiveFlow } from "@/lib/chat/whatsapp-co
 import type { SupabaseAdmin } from "@/lib/chat/types";
 import { normalizeWaPhone } from "@/lib/chat/wa-phone";
 
-export const CHAT_CHANNEL_TYPES = ["whatsapp", "instagram", "facebook", "email"] as const;
+export const CHAT_CHANNEL_TYPES = ["whatsapp", "instagram", "facebook", "email", "linkedin"] as const;
 export type ChatChannelType = (typeof CHAT_CHANNEL_TYPES)[number];
 
 export function isChatChannelType(s: string): s is ChatChannelType {

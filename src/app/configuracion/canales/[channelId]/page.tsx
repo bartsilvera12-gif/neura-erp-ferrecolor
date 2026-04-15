@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { ChannelBadge, channelTypeLabel } from "@/components/chat/ChannelBadge";
+import { GenericOmnichannelChannelForm } from "@/components/chat/GenericOmnichannelChannelForm";
 import { WhatsAppChannelForm } from "@/components/chat/WhatsAppChannelForm";
+import { YCloudWhatsAppChannelForm } from "@/components/chat/YCloudWhatsAppChannelForm";
+import { OMNICHANNEL_CARD_DEFINITIONS } from "@/lib/chat/omnichannel-catalog";
 import {
   deleteChatChannel,
   fetchChatChannelById,
@@ -104,7 +107,10 @@ export default function EditarCanalPage() {
     );
   }
 
-  const isWhatsapp = row.type.trim().toLowerCase() === "whatsapp";
+  const type = row.type.trim().toLowerCase();
+  const isWhatsapp = type === "whatsapp";
+  const isYcloud = isWhatsapp && row.provider.trim().toLowerCase() === "ycloud";
+  const cardDef = OMNICHANNEL_CARD_DEFINITIONS.find((d) => d.type === type);
 
   return (
     <div className="w-full max-w-none space-y-6 px-4 sm:px-6 lg:px-8 xl:px-10 pb-10">
@@ -125,9 +131,17 @@ export default function EditarCanalPage() {
           <h1 className="text-2xl font-bold text-slate-900">{row.nombre ?? channelTypeLabel(row.type)}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <ChannelBadge type={row.type} nombre={null} />
-            {row.activo ? (
+            <span className="text-[11px] font-semibold uppercase text-slate-400">
+              {row.provider}
+              {row.connection_mode ? ` · ${row.connection_mode}` : ""}
+            </span>
+            {row.config_status === "active" && row.activo ? (
               <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-bold uppercase text-emerald-800 border border-emerald-200">
                 Activo
+              </span>
+            ) : row.config_status === "incomplete" && row.activo ? (
+              <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-bold uppercase text-amber-900 border border-amber-200">
+                Config. incompleta
               </span>
             ) : (
               <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-bold uppercase text-slate-600 border border-slate-200">
@@ -146,11 +160,19 @@ export default function EditarCanalPage() {
         </button>
       </div>
 
-      {isWhatsapp ? (
-        <section className="w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
-          <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 lg:mb-6">
-            Credenciales y opciones
-          </h2>
+      <section className="w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
+        <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 lg:mb-6">
+          Credenciales y opciones
+        </h2>
+        {isWhatsapp && isYcloud ? (
+          <YCloudWhatsAppChannelForm
+            mode="edit"
+            channelId={row.id}
+            initialRow={row}
+            cancelHref="/configuracion/canales"
+            onSaved={() => void load()}
+          />
+        ) : isWhatsapp ? (
           <WhatsAppChannelForm
             mode="edit"
             channelId={row.id}
@@ -158,21 +180,18 @@ export default function EditarCanalPage() {
             cancelHref="/configuracion/canales"
             onSaved={() => void load()}
           />
-        </section>
-      ) : (
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-8 text-center">
-          <p className="text-slate-700 font-medium">Edición para {channelTypeLabel(row.type)}</p>
-          <p className="text-sm text-slate-500 mt-2">
-            La configuración detallada de este tipo de canal estará disponible en una próxima versión.
-          </p>
-          <Link
-            href="/configuracion/canales"
-            className="mt-6 inline-flex text-sm font-semibold text-[#0EA5E9] hover:underline"
-          >
-            Volver al listado
-          </Link>
-        </div>
-      )}
+        ) : (
+          <GenericOmnichannelChannelForm
+            mode="edit"
+            channelId={row.id}
+            channelType={type as "instagram" | "facebook" | "linkedin" | "email"}
+            defaultProvider={cardDef?.defaultProvider ?? "meta"}
+            initialRow={row}
+            cancelHref="/configuracion/canales"
+            onSaved={() => void load()}
+          />
+        )}
+      </section>
     </div>
   );
 }

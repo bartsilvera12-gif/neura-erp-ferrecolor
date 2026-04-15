@@ -92,7 +92,8 @@ export async function fetchChatConversations(
       .from("chat_agents")
       .select("id")
       .eq("empresa_id", empresa_id)
-      .eq("usuario_id", usuario_id);
+      .eq("usuario_id", usuario_id)
+      .eq("is_active", true);
     if (maErr) {
       console.warn(
         "[fetchChatConversations] no se pudo cargar chat_agents para filtro «mios»; se listan todas:",
@@ -378,26 +379,31 @@ export type ChatChannelRow = {
   id: string;
   empresa_id: string;
   type: string;
-  meta_phone_number_id: string;
+  meta_phone_number_id: string | null;
   nombre: string | null;
   provider: string;
   provider_channel_id: string | null;
   activo: boolean;
+  connection_mode: string | null;
+  config_status: string;
   config: Record<string, unknown>;
   created_at: string;
   updated_at?: string;
 };
 
 function mapChatChannelRow(r: Record<string, unknown>): ChatChannelRow {
+  const mp = r.meta_phone_number_id;
   return {
     id: r.id as string,
     empresa_id: r.empresa_id as string,
     type: (r.type as string) ?? "whatsapp",
-    meta_phone_number_id: (r.meta_phone_number_id as string) ?? "",
+    meta_phone_number_id: typeof mp === "string" ? mp : mp != null ? String(mp) : null,
     nombre: (r.nombre as string) ?? null,
     provider: (r.provider as string) ?? "meta",
     provider_channel_id: (r.provider_channel_id as string) ?? null,
     activo: r.activo !== false,
+    connection_mode: (r.connection_mode as string | null) ?? null,
+    config_status: (r.config_status as string) ?? "incomplete",
     config: (typeof r.config === "object" && r.config !== null ? r.config : {}) as Record<string, unknown>,
     created_at: (r.created_at as string) ?? "",
     updated_at: r.updated_at as string | undefined,
@@ -409,7 +415,7 @@ export async function fetchChatChannels(): Promise<ChatChannelRow[]> {
   const { data, error } = await supabase
     .from("chat_channels")
     .select(
-      "id, empresa_id, type, meta_phone_number_id, nombre, provider, provider_channel_id, activo, config, created_at, updated_at"
+      "id, empresa_id, type, meta_phone_number_id, nombre, provider, provider_channel_id, activo, connection_mode, config_status, config, created_at, updated_at"
     )
     .eq("empresa_id", empresa_id)
     .order("created_at", { ascending: true });
@@ -425,7 +431,7 @@ export async function fetchChatChannelById(channelId: string): Promise<ChatChann
   const { data, error } = await supabase
     .from("chat_channels")
     .select(
-      "id, empresa_id, type, meta_phone_number_id, nombre, provider, provider_channel_id, activo, config, created_at, updated_at"
+      "id, empresa_id, type, meta_phone_number_id, nombre, provider, provider_channel_id, activo, connection_mode, config_status, config, created_at, updated_at"
     )
     .eq("id", id)
     .eq("empresa_id", empresa_id)
@@ -445,6 +451,10 @@ export type ChatChannelFormInput = {
   display_phone_number?: string;
   /** Token Meta para enviar desde el ERP; en edición, vacío = no cambiar el guardado */
   whatsapp_access_token?: string;
+  /** Opcionales Cloud API (se persisten en `config`). */
+  meta_waba_id?: string;
+  meta_app_id?: string;
+  meta_verify_token?: string;
   /** Se guarda en `config.comprobante_validation` (validación de comprobantes WhatsApp). */
   comprobante_validation?: Record<string, unknown>;
   /** Mensajes automáticos livianos en `config.business_automation` (no es chat_flows). */
@@ -453,7 +463,190 @@ export type ChatChannelFormInput = {
   form_section_state?: Record<string, { active: boolean; expanded: boolean }>;
 };
 
-/** Crea o actualiza canal WhatsApp (Meta). Devuelve el id del canal. */
+function metaChannelConfigStatus(params: {
+  activo: boolean;
+  phoneId: string;
+  hasAccessToken: boolean;
+}): "inactive" | "incomplete" | "active" {
+  if (!params.activo) return "inactive";
+  if (!params.phoneId) return "incomplete";
+  if (!params.hasAccessToken) return "incomplete";
+  return "active";
+}
+
+export type YCloudWhatsappChannelInput = {
+  id?: string;
+  nombre: string;
+  activo: boolean;
+  ycloud_api_key?: string;
+  ycloud_webhook_secret?: string;
+  ycloud_sender_id?: string;
+  ycloud_channel_id?: string;
+};
+
+/** WhatsApp vía YCloud (coexistencia). Sin ruta omnicanal Meta. */
+export async function saveYCloudWhatsappChannel(input: YCloudWhatsappChannelInput): Promise<string> {
+  const { supabase, empresa_id } = await requireEmpresaTenantServiceRole();
+  const existingId = typeof input.id === "string" && input.id.trim().length > 0 ? input.id.trim() : undefined;
+  let config: Record<string, unknown> = {};
+  if (existingId) {
+    const { data: prevRow } = await supabase
+      .from("chat_channels")
+      .select("config")
+      .eq("id", existingId)
+      .eq("empresa_id", empresa_id)
+      .maybeSingle();
+    const prev =
+      prevRow?.config &&
+      typeof prevRow.config === "object" &&
+      prevRow.config !== null &&
+      !Array.isArray(prevRow.config)
+        ? ({ ...(prevRow.config as Record<string, unknown>) } as Record<string, unknown>)
+        : {};
+    config = { ...prev };
+  }
+  const keyPatch = input.ycloud_api_key?.trim();
+  if (keyPatch) config.ycloud_api_key = keyPatch;
+  if (input.ycloud_webhook_secret !== undefined) {
+    const s = input.ycloud_webhook_secret.trim();
+    if (s) config.ycloud_webhook_secret = s;
+  }
+  if (input.ycloud_sender_id !== undefined) {
+    const s = input.ycloud_sender_id.trim();
+    if (s) config.ycloud_sender_id = s;
+  }
+  if (input.ycloud_channel_id !== undefined) {
+    const s = input.ycloud_channel_id.trim();
+    if (s) config.ycloud_channel_id = s;
+  }
+
+  const hasKey =
+    Boolean(keyPatch) ||
+    Boolean(
+      typeof config.ycloud_api_key === "string" && (config.ycloud_api_key as string).trim().length > 0
+    );
+  const config_status: "inactive" | "incomplete" | "active" = !input.activo
+    ? "inactive"
+    : hasKey
+      ? "active"
+      : "incomplete";
+
+  const base = {
+    nombre: input.nombre.trim() || "WhatsApp (YCloud)",
+    type: "whatsapp" as const,
+    meta_phone_number_id: null as string | null,
+    provider: "ycloud",
+    provider_channel_id: (input.ycloud_channel_id?.trim() || input.ycloud_sender_id?.trim() || null) as
+      | string
+      | null,
+    activo: input.activo,
+    connection_mode: "coexistence",
+    config_status,
+    config,
+  };
+
+  if (existingId) {
+    const { data: updated, error } = await supabase
+      .from("chat_channels")
+      .update({ ...base, updated_at: new Date().toISOString() })
+      .eq("id", existingId)
+      .eq("empresa_id", empresa_id)
+      .select("id")
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!updated) throw new Error("No se pudo actualizar el canal.");
+    return existingId;
+  }
+
+  const { data: inserted, error } = await supabase
+    .from("chat_channels")
+    .insert({
+      empresa_id,
+      ...base,
+    })
+    .select("id")
+    .single();
+  if (error) throw new Error(error.message);
+  const newId = inserted?.id as string | undefined;
+  if (!newId) throw new Error("No se pudo crear el canal.");
+  return newId;
+}
+
+export type GenericOmnichannelChannelInput = {
+  id?: string;
+  type: "instagram" | "facebook" | "linkedin" | "email";
+  nombre: string;
+  provider: string;
+  activo: boolean;
+  config?: Record<string, unknown>;
+};
+
+/** Canal no WhatsApp: registro base para Etapa 2 (sin phone Meta). */
+export async function saveGenericOmnichannelChannel(input: GenericOmnichannelChannelInput): Promise<string> {
+  const { supabase, empresa_id } = await requireEmpresaTenantServiceRole();
+  const existingId = typeof input.id === "string" && input.id.trim().length > 0 ? input.id.trim() : undefined;
+  let config: Record<string, unknown> = input.config ? { ...input.config } : {};
+  if (existingId) {
+    const { data: prevRow } = await supabase
+      .from("chat_channels")
+      .select("config")
+      .eq("id", existingId)
+      .eq("empresa_id", empresa_id)
+      .maybeSingle();
+    const prev =
+      prevRow?.config &&
+      typeof prevRow.config === "object" &&
+      prevRow.config !== null &&
+      !Array.isArray(prevRow.config)
+        ? ({ ...(prevRow.config as Record<string, unknown>) } as Record<string, unknown>)
+        : {};
+    config = { ...prev, ...config };
+  }
+
+  const config_status: "inactive" | "incomplete" | "active" = !input.activo
+    ? "inactive"
+    : "incomplete";
+
+  const base = {
+    nombre: input.nombre.trim() || input.type,
+    type: input.type,
+    meta_phone_number_id: null as string | null,
+    provider: (input.provider || "meta").trim() || "meta",
+    provider_channel_id: null as string | null,
+    activo: input.activo,
+    connection_mode: "standard" as const,
+    config_status,
+    config,
+  };
+
+  if (existingId) {
+    const { data: updated, error } = await supabase
+      .from("chat_channels")
+      .update({ ...base, updated_at: new Date().toISOString() })
+      .eq("id", existingId)
+      .eq("empresa_id", empresa_id)
+      .select("id")
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!updated) throw new Error("No se pudo actualizar el canal.");
+    return existingId;
+  }
+
+  const { data: inserted, error } = await supabase
+    .from("chat_channels")
+    .insert({
+      empresa_id,
+      ...base,
+    })
+    .select("id")
+    .single();
+  if (error) throw new Error(error.message);
+  const newId = inserted?.id as string | undefined;
+  if (!newId) throw new Error("No se pudo crear el canal.");
+  return newId;
+}
+
+/** Crea o actualiza canal WhatsApp Cloud API (Meta). Devuelve el id del canal. */
 export async function saveChatChannel(input: ChatChannelFormInput): Promise<string> {
   const { supabase, empresa_id, dataSchema } = await requireEmpresaTenantServiceRole();
   const pid = input.meta_phone_number_id.trim();
@@ -466,15 +659,18 @@ export async function saveChatChannel(input: ChatChannelFormInput): Promise<stri
 
   let config: Record<string, unknown> = { phone_number_id: pid };
   let previousMetaPhone: string | null = null;
+  let existingToken: string | null = null;
   if (existingId) {
     const { data: prevRow } = await supabase
       .from("chat_channels")
-      .select("config, meta_phone_number_id")
+      .select("config, meta_phone_number_id, whatsapp_access_token")
       .eq("id", existingId)
       .eq("empresa_id", empresa_id)
       .maybeSingle();
     previousMetaPhone =
-      (prevRow as { meta_phone_number_id?: string } | null)?.meta_phone_number_id?.trim() || null;
+      (prevRow as { meta_phone_number_id?: string | null } | null)?.meta_phone_number_id?.trim() || null;
+    existingToken =
+      (prevRow as { whatsapp_access_token?: string | null } | null)?.whatsapp_access_token?.trim() || null;
     const prev =
       prevRow?.config &&
       typeof prevRow.config === "object" &&
@@ -488,6 +684,13 @@ export async function saveChatChannel(input: ChatChannelFormInput): Promise<stri
     config.display_phone_number = disp;
   }
 
+  const waba = input.meta_waba_id?.trim();
+  if (waba) config.meta_waba_id = waba;
+  const appId = input.meta_app_id?.trim();
+  if (appId) config.meta_app_id = appId;
+  const verify = input.meta_verify_token?.trim();
+  if (verify) config.meta_verify_token = verify;
+
   if (input.comprobante_validation !== undefined) {
     config.comprobante_validation = input.comprobante_validation;
   }
@@ -498,6 +701,15 @@ export async function saveChatChannel(input: ChatChannelFormInput): Promise<stri
     config.form_section_state = input.form_section_state;
   }
 
+  const tokenPatch = input.whatsapp_access_token?.trim();
+  const hasAccessToken = Boolean(tokenPatch) || Boolean(existingToken);
+
+  const config_status = metaChannelConfigStatus({
+    activo: input.activo,
+    phoneId: pid,
+    hasAccessToken,
+  });
+
   const base = {
     nombre: input.nombre.trim() || "WhatsApp",
     type: "whatsapp" as const,
@@ -505,10 +717,10 @@ export async function saveChatChannel(input: ChatChannelFormInput): Promise<stri
     provider: "meta",
     provider_channel_id: input.provider_channel_id.trim() || pid,
     activo: input.activo,
+    connection_mode: "official",
+    config_status,
     config,
   };
-
-  const tokenPatch = input.whatsapp_access_token?.trim();
 
   if (existingId) {
     const updatePayload: Record<string, unknown> = {
@@ -683,12 +895,13 @@ export async function deleteChatChannel(id: string): Promise<void> {
   const { supabase, empresa_id } = await requireEmpresaTenantServiceRole();
   const { data: prev } = await supabase
     .from("chat_channels")
-    .select("meta_phone_number_id")
+    .select("meta_phone_number_id, provider")
     .eq("id", id)
     .eq("empresa_id", empresa_id)
     .maybeSingle();
   const { error } = await supabase.from("chat_channels").delete().eq("id", id).eq("empresa_id", empresa_id);
   if (error) throw new Error(error.message);
-  const mp = (prev as { meta_phone_number_id?: string } | null)?.meta_phone_number_id?.trim();
-  if (mp) await deleteOmnichannelRouteByMetaPhone(mp);
+  const prov = String((prev as { provider?: string | null } | null)?.provider ?? "meta").toLowerCase();
+  const mp = (prev as { meta_phone_number_id?: string | null } | null)?.meta_phone_number_id?.trim();
+  if (mp && prov === "meta") await deleteOmnichannelRouteByMetaPhone(mp);
 }

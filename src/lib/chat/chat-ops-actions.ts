@@ -167,7 +167,8 @@ export async function assignConversationToMe(conversationId: string): Promise<vo
     .from("chat_agents")
     .select("id, queue_id")
     .eq("empresa_id", empresa_id)
-    .eq("usuario_id", usuario_id);
+    .eq("usuario_id", usuario_id)
+    .eq("is_active", true);
 
   if (conv.queue_id) {
     q = q.eq("queue_id", conv.queue_id);
@@ -201,17 +202,194 @@ export type ChatQueueListRow = {
   nombre: string;
   is_active: boolean;
   channel_type: string | null;
+  descripcion?: string | null;
+  distribution_strategy?: string;
+  priority?: number;
 };
 
 export async function listChatQueues(): Promise<ChatQueueListRow[]> {
   const { supabase, empresa_id } = await requireEmpresaTenantServiceRole();
   const { data, error } = await supabase
     .from("chat_queues")
-    .select("id, nombre, is_active, channel_type")
+    .select("id, nombre, is_active, channel_type, descripcion, distribution_strategy, priority")
     .eq("empresa_id", empresa_id)
+    .order("priority", { ascending: false })
     .order("nombre", { ascending: true });
   if (error) throw new Error(error.message);
   return (data ?? []) as ChatQueueListRow[];
+}
+
+export type MonitoringDashboard = {
+  active_queues: number;
+  agents_assigned: number;
+  unassigned_chats: number;
+  pending_chats: number;
+  active_channels: number;
+  /** Chats abiertos/pendientes sin agente (orden por última actividad). */
+  unassigned_recent: MonitoringUnassignedRow[];
+};
+
+export type MonitoringUnassignedRow = {
+  id: string;
+  status: string;
+  last_message_at: string | null;
+  created_at: string;
+  queue_id: string | null;
+  queue_name: string | null;
+  channel_id: string | null;
+  channel_type: string | null;
+  channel_nombre: string | null;
+  contact_phone: string | null;
+  contact_name: string | null;
+  /** ISO8601 del primer mensaje o creación para SLA en Etapa 2. */
+  waiting_since: string;
+};
+
+export async function fetchMonitoringDashboard(): Promise<MonitoringDashboard> {
+  const { supabase, empresa_id } = await requireEmpresaTenantServiceRole();
+
+  const [
+    queuesRes,
+    agentsRes,
+    unassignedRes,
+    pendingRes,
+    channelsRes,
+    recentRes,
+  ] = await Promise.all([
+    supabase.from("chat_queues").select("id", { count: "exact", head: true }).eq("empresa_id", empresa_id).eq("is_active", true),
+    supabase
+      .from("chat_agents")
+      .select("usuario_id")
+      .eq("empresa_id", empresa_id)
+      .eq("is_active", true),
+    supabase
+      .from("chat_conversations")
+      .select("*", { count: "exact", head: true })
+      .eq("empresa_id", empresa_id)
+      .is("assigned_agent_id", null)
+      .in("status", ["open", "pending"]),
+    supabase
+      .from("chat_conversations")
+      .select("*", { count: "exact", head: true })
+      .eq("empresa_id", empresa_id)
+      .eq("status", "pending"),
+    supabase
+      .from("chat_channels")
+      .select("*", { count: "exact", head: true })
+      .eq("empresa_id", empresa_id)
+      .eq("activo", true)
+      .eq("config_status", "active"),
+    supabase
+      .from("chat_conversations")
+      .select(
+        "id, status, last_message_at, created_at, queue_id, channel_id, contact_id, assigned_agent_id"
+      )
+      .eq("empresa_id", empresa_id)
+      .is("assigned_agent_id", null)
+      .in("status", ["open", "pending"])
+      .order("last_message_at", { ascending: false, nullsFirst: false })
+      .limit(30),
+  ]);
+
+  if (queuesRes.error) throw new Error(queuesRes.error.message);
+  if (agentsRes.error) throw new Error(agentsRes.error.message);
+  if (unassignedRes.error) throw new Error(unassignedRes.error.message);
+  if (pendingRes.error) throw new Error(pendingRes.error.message);
+  if (channelsRes.error) throw new Error(channelsRes.error.message);
+  if (recentRes.error) throw new Error(recentRes.error.message);
+
+  const agentRows = agentsRes.data ?? [];
+  const distinctUsers = new Set(agentRows.map((r) => r.usuario_id as string).filter(Boolean));
+
+  const convList = recentRes.data ?? [];
+  const queueIds = [...new Set(convList.map((c) => (c.queue_id as string | null)?.trim()).filter(Boolean))] as string[];
+  const channelIds = [...new Set(convList.map((c) => (c.channel_id as string | null)?.trim()).filter(Boolean))] as string[];
+  const contactIds = [...new Set(convList.map((c) => (c.contact_id as string | null)?.trim()).filter(Boolean))] as string[];
+
+  let queueNombreById: Record<string, string> = {};
+  if (queueIds.length > 0) {
+    const { data: qrows, error: qErr } = await supabase
+      .from("chat_queues")
+      .select("id, nombre")
+      .eq("empresa_id", empresa_id)
+      .in("id", queueIds);
+    if (qErr) throw new Error(qErr.message);
+    queueNombreById = Object.fromEntries(
+      (qrows ?? []).map((r) => [r.id as string, String((r as { nombre?: string }).nombre ?? "").trim() || "Cola"])
+    );
+  }
+
+  let channelMetaById: Record<string, { type: string; nombre: string | null }> = {};
+  if (channelIds.length > 0) {
+    const { data: chrows, error: chErr } = await supabase
+      .from("chat_channels")
+      .select("id, type, nombre")
+      .eq("empresa_id", empresa_id)
+      .in("id", channelIds);
+    if (chErr) throw new Error(chErr.message);
+    channelMetaById = Object.fromEntries(
+      (chrows ?? []).map((r) => [
+        r.id as string,
+        {
+          type: ((r as { type?: string }).type as string) ?? "whatsapp",
+          nombre: (r as { nombre?: string | null }).nombre ?? null,
+        },
+      ])
+    );
+  }
+
+  let contactById: Record<string, { phone_number: string | null; name: string | null }> = {};
+  if (contactIds.length > 0) {
+    const { data: crows, error: cErr } = await supabase
+      .from("chat_contacts")
+      .select("id, phone_number, name")
+      .eq("empresa_id", empresa_id)
+      .in("id", contactIds);
+    if (cErr) throw new Error(cErr.message);
+    contactById = Object.fromEntries(
+      (crows ?? []).map((r) => [
+        r.id as string,
+        {
+          phone_number: (r as { phone_number?: string | null }).phone_number ?? null,
+          name: (r as { name?: string | null }).name ?? null,
+        },
+      ])
+    );
+  }
+
+  const unassigned_recent: MonitoringUnassignedRow[] = convList.map((row) => {
+    const qid = (row.queue_id as string | null)?.trim() || null;
+    const cid = (row.channel_id as string | null)?.trim() || null;
+    const ctid = (row.contact_id as string | null)?.trim() || null;
+    const ch = cid ? channelMetaById[cid] : undefined;
+    const contact = ctid ? contactById[ctid] : undefined;
+    const created = (row.created_at as string) ?? new Date().toISOString();
+    const last = (row.last_message_at as string | null) ?? null;
+    const waiting_since = last ?? created;
+    return {
+      id: row.id as string,
+      status: (row.status as string) ?? "open",
+      last_message_at: last,
+      created_at: created,
+      queue_id: qid,
+      queue_name: qid ? queueNombreById[qid] ?? null : null,
+      channel_id: cid,
+      channel_type: ch?.type ?? null,
+      channel_nombre: ch?.nombre ?? null,
+      contact_phone: contact?.phone_number ?? null,
+      contact_name: contact?.name ?? null,
+      waiting_since,
+    };
+  });
+
+  return {
+    active_queues: queuesRes.count ?? 0,
+    agents_assigned: distinctUsers.size,
+    unassigned_chats: unassignedRes.count ?? 0,
+    pending_chats: pendingRes.count ?? 0,
+    active_channels: channelsRes.count ?? 0,
+    unassigned_recent,
+  };
 }
 
 export type ChatAgentDirectoryRow = {
@@ -232,6 +410,7 @@ export async function listChatAgentsDirectory(): Promise<ChatAgentDirectoryRow[]
     .from("chat_agents")
     .select("id, queue_id, is_online, max_conversations, usuario_id")
     .eq("empresa_id", empresa_id)
+    .eq("is_active", true)
     .order("queue_id", { ascending: true });
 
   if (error) throw new Error(error.message);

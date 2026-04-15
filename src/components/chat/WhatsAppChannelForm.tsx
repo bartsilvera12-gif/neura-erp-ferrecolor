@@ -42,18 +42,25 @@ export function emptyWhatsAppChannelForm(): ChatChannelFormInput {
     activo: true,
     display_phone_number: "",
     whatsapp_access_token: "",
+    meta_waba_id: "",
+    meta_app_id: "",
+    meta_verify_token: "",
   };
 }
 
 function rowToForm(row: ChatChannelRow): ChatChannelFormInput {
+  const mp = row.meta_phone_number_id?.trim() ?? "";
   return {
     nombre: row.nombre ?? "WhatsApp",
-    meta_phone_number_id: row.meta_phone_number_id,
-    provider_channel_id: row.provider_channel_id ?? row.meta_phone_number_id,
+    meta_phone_number_id: mp,
+    provider_channel_id: row.provider_channel_id?.trim() || mp,
     activo: row.activo,
     display_phone_number:
       typeof row.config?.display_phone_number === "string" ? row.config.display_phone_number : "",
     whatsapp_access_token: "",
+    meta_waba_id: typeof row.config?.meta_waba_id === "string" ? row.config.meta_waba_id : "",
+    meta_app_id: typeof row.config?.meta_app_id === "string" ? row.config.meta_app_id : "",
+    meta_verify_token: typeof row.config?.meta_verify_token === "string" ? row.config.meta_verify_token : "",
   };
 }
 
@@ -243,6 +250,43 @@ export function WhatsAppChannelForm({
                 />
                 <p className="text-xs text-slate-400 mt-1">
                   Se guarda en config para referencia; no afecta el webhook.
+                </p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">
+                  WhatsApp Business Account ID (WABA) — opcional
+                </label>
+                <input
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono bg-white"
+                  value={form.meta_waba_id ?? ""}
+                  onChange={(e) => setForm((p) => ({ ...p, meta_waba_id: e.target.value }))}
+                  placeholder="ID de la cuenta de negocio en Meta"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">
+                  App ID Meta — opcional
+                </label>
+                <input
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono bg-white"
+                  value={form.meta_app_id ?? ""}
+                  onChange={(e) => setForm((p) => ({ ...p, meta_app_id: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">
+                  Verify token (referencia en ERP) — opcional
+                </label>
+                <input
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono bg-white"
+                  value={form.meta_verify_token ?? ""}
+                  onChange={(e) => setForm((p) => ({ ...p, meta_verify_token: e.target.value }))}
+                  placeholder="Si usás verificación por token distinto al global del servidor"
+                />
+                <p className="text-xs text-slate-400 mt-1">
+                  El webhook público sigue validando contra{" "}
+                  <code className="text-[10px] bg-slate-100 px-1 rounded">WHATSAPP_VERIFY_TOKEN</code> en el
+                  servidor; este campo queda documentado en la fila del canal.
                 </p>
               </div>
               <div>

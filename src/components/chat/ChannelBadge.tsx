@@ -1,13 +1,14 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Facebook, Instagram, Mail, MessageCircle } from "lucide-react";
+import { Facebook, Instagram, Linkedin, Mail, MessageCircle } from "lucide-react";
 
 const LABELS: Record<string, string> = {
   whatsapp: "WhatsApp",
   instagram: "Instagram",
   facebook: "Facebook",
   email: "Email",
+  linkedin: "LinkedIn",
 };
 
 export function channelTypeLabel(type: string): string {
@@ -37,6 +38,9 @@ export function ChannelBadge({
       break;
     case "email":
       icon = <Mail className={iconClass} aria-hidden />;
+      break;
+    case "linkedin":
+      icon = <Linkedin className={iconClass} aria-hidden />;
       break;
     default:
       icon = <MessageCircle className={iconClass} aria-hidden />;

@@ -245,6 +245,13 @@ export default function ConfiguracionPage() {
               Canales y comunicación
             </Link>
             <Link
+              href="/configuracion/colas"
+              className={tabLinkClass(pathname.startsWith("/configuracion/colas"))}
+            >
+              <span>📥</span>
+              Colas y enrutamiento
+            </Link>
+            <Link
               href="/configuracion/conversaciones/flujos"
               className={tabLinkClass(pathname.startsWith("/configuracion/conversaciones/flujos"))}
             >
