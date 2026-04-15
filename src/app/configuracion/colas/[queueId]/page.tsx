@@ -3,22 +3,17 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { fetchChatChannels, type ChatChannelRow } from "@/lib/chat/actions";
+import type { ChatChannelRow } from "@/lib/chat/actions";
+import type { ChatQueueAdminRow, QueueAgentRow, UsuarioPickRow } from "@/lib/chat/queue-admin-repo";
 import {
-  addAgentToQueue,
-  deleteQueueAdmin,
-  fetchQueueAdmin,
-  listAgentsForQueue,
-  listQueueChannelLinks,
-  listUsuariosForQueuePick,
-  removeQueueAgent,
-  saveQueueAdmin,
-  setQueueChannelLinks,
-  updateQueueAgent,
-  type ChatQueueAdminRow,
-  type QueueAgentRow,
-  type UsuarioPickRow,
-} from "@/lib/chat/queue-admin-actions";
+  apiAddQueueAgent,
+  apiDeleteQueue,
+  apiQueueEditorBootstrap,
+  apiRemoveQueueAgent,
+  apiSaveQueue,
+  apiSetQueueChannelLinks,
+  apiUpdateQueueAgent,
+} from "../queue-admin-api";
 import { getMisModulos } from "@/lib/empresas/actions";
 
 function hasOmnichannel(slugs: string[]) {
@@ -59,24 +54,19 @@ export default function EditarColaPage() {
     setLoading(true);
     setError(null);
     try {
-      const [q, chRows, links, ag, users] = await Promise.all([
-        fetchQueueAdmin(queueId),
-        fetchChatChannels(),
-        listQueueChannelLinks(queueId),
-        listAgentsForQueue(queueId),
-        listUsuariosForQueuePick(),
-      ]);
+      const boot = await apiQueueEditorBootstrap(queueId);
+      const q = boot.queue;
       setQueue(q);
-      setChannels(chRows);
-      setLinked(links.map((l) => l.channel_id));
-      setAgents(ag);
-      setUsuarios(users);
+      setChannels(boot.channels as ChatChannelRow[]);
+      setLinked(boot.linked.map((l) => l.channel_id));
+      setAgents(boot.agents);
+      setUsuarios(boot.usuarios);
       if (q) {
         setNombre(q.nombre);
         setDescripcion(q.descripcion ?? "");
         setIsActive(q.is_active);
         setChannelType(q.channel_type ?? "");
-        setStrategy(q.distribution_strategy);
+        setStrategy(q.distribution_strategy ?? "least_load");
         setPriority(q.priority ?? 0);
       }
     } catch (e) {
@@ -101,8 +91,7 @@ export default function EditarColaPage() {
     setSaving(true);
     setError(null);
     try {
-      await saveQueueAdmin({
-        id: queueId,
+      await apiSaveQueue(queueId, {
         nombre,
         descripcion: descripcion || null,
         is_active: isActive,
@@ -110,7 +99,7 @@ export default function EditarColaPage() {
         distribution_strategy: strategy,
         priority,
       });
-      await setQueueChannelLinks(queueId, linked);
+      await apiSetQueueChannelLinks(queueId, linked);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al guardar");
@@ -123,7 +112,7 @@ export default function EditarColaPage() {
     if (!pickUser) return;
     setError(null);
     try {
-      await addAgentToQueue({ queue_id: queueId, usuario_id: pickUser });
+      await apiAddQueueAgent(queueId, pickUser);
       setPickUser("");
       await load();
     } catch (e) {
@@ -134,10 +123,10 @@ export default function EditarColaPage() {
   async function handleDeleteQueue() {
     if (!confirm("¿Eliminar esta cola? Los agentes asociados se eliminarán.")) return;
     try {
-      await deleteQueueAdmin(queueId);
+      await apiDeleteQueue(queueId);
       router.push("/configuracion/colas");
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Error");
+      setError(e instanceof Error ? e.message : "Error al eliminar");
     }
   }
 
@@ -323,7 +312,7 @@ export default function EditarColaPage() {
             </thead>
             <tbody>
               {agents.map((a) => (
-                <AgentEditorRow key={a.id} agent={a} onChange={() => void load()} />
+                <AgentEditorRow key={a.id} queueId={queueId} agent={a} onChange={() => void load()} />
               ))}
             </tbody>
           </table>
@@ -351,15 +340,22 @@ export default function EditarColaPage() {
   );
 }
 
-function AgentEditorRow({ agent, onChange }: { agent: QueueAgentRow; onChange: () => void }) {
+function AgentEditorRow({
+  queueId,
+  agent,
+  onChange,
+}: {
+  queueId: string;
+  agent: QueueAgentRow;
+  onChange: () => void;
+}) {
   const [maxC, setMaxC] = useState(agent.max_conversations);
   const [prio, setPrio] = useState(agent.priority_in_queue);
   const [recv, setRecv] = useState(agent.receives_new_chats);
   const [active, setActive] = useState(agent.is_active);
 
   async function persist() {
-    await updateQueueAgent({
-      id: agent.id,
+    await apiUpdateQueueAgent(queueId, agent.id, {
       max_conversations: maxC,
       is_online: agent.is_online,
       is_active: active,
@@ -371,7 +367,7 @@ function AgentEditorRow({ agent, onChange }: { agent: QueueAgentRow; onChange: (
 
   async function remove() {
     if (!confirm("¿Quitar este agente de la cola?")) return;
-    await removeQueueAgent(agent.id);
+    await apiRemoveQueueAgent(queueId, agent.id);
     onChange();
   }
 
@@ -406,8 +402,7 @@ function AgentEditorRow({ agent, onChange }: { agent: QueueAgentRow; onChange: (
           checked={recv}
           onChange={(e) => {
             setRecv(e.target.checked);
-            void updateQueueAgent({
-              id: agent.id,
+            void apiUpdateQueueAgent(queueId, agent.id, {
               max_conversations: maxC,
               is_online: agent.is_online,
               is_active: active,
@@ -423,8 +418,7 @@ function AgentEditorRow({ agent, onChange }: { agent: QueueAgentRow; onChange: (
           checked={active}
           onChange={(e) => {
             setActive(e.target.checked);
-            void updateQueueAgent({
-              id: agent.id,
+            void apiUpdateQueueAgent(queueId, agent.id, {
               max_conversations: maxC,
               is_online: agent.is_online,
               is_active: e.target.checked,

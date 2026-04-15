@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
-import { createQueueDraft, listQueuesAdmin, type ChatQueueAdminRow } from "@/lib/chat/queue-admin-actions";
+import type { ChatQueueAdminRow } from "@/lib/chat/queue-admin-repo";
+import { apiCreateQueueDraft, apiListQueues } from "./queue-admin-api";
 
 function hasOmnichannelFromModuleAccess(body: {
   superAdmin?: boolean;
@@ -31,7 +32,7 @@ export default function ConfiguracionColasPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setRows(await listQueuesAdmin());
+      setRows(await apiListQueues());
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
@@ -58,11 +59,12 @@ export default function ConfiguracionColasPage() {
   }, [allowed, load]);
 
   async function handleNew() {
+    setError(null);
     try {
-      const id = await createQueueDraft();
+      const id = await apiCreateQueueDraft();
       router.push(`/configuracion/colas/${id}`);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "No se pudo crear");
+      setError(e instanceof Error ? e.message : "No se pudo crear la cola");
     }
   }
 
