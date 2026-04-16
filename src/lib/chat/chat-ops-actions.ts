@@ -304,12 +304,22 @@ export async function listChatQueues(): Promise<ChatQueueListRow[]> {
   return (data ?? []) as ChatQueueListRow[];
 }
 
-export type MonitoringReassignmentRow = {
-  id: string;
-  created_at: string;
+export type MonitoringPendingReplyItem = {
   conversation_id: string;
-  queue_id: string | null;
-  payload: Record<string, unknown>;
+  contact_name: string | null;
+  contact_phone: string | null;
+  channel_label: string | null;
+  waiting_since: string;
+  last_preview: string | null;
+};
+
+/** Chats con agente asignado y sin primera respuesta humana saliente, agrupados por agente. */
+export type MonitoringPendingReplyAgentGroup = {
+  assigned_agent_id: string;
+  agent_name: string;
+  agent_email: string;
+  pending_count: number;
+  items: MonitoringPendingReplyItem[];
 };
 
 export type MonitoringDashboard = {
@@ -320,8 +330,8 @@ export type MonitoringDashboard = {
   active_channels: number;
   /** Asignados a humano pero sin primera respuesta saliente humana registrada. */
   awaiting_first_response: number;
-  /** Últimas reasignaciones por SLA de primera respuesta. */
-  recent_initial_reassignments: MonitoringReassignmentRow[];
+  /** Detalle de chats pendientes de primera respuesta humana (por agente). */
+  pending_human_reply_groups: MonitoringPendingReplyAgentGroup[];
   /** Chats abiertos/pendientes sin agente (orden por última actividad). */
   unassigned_recent: MonitoringUnassignedRow[];
 };
@@ -396,7 +406,7 @@ export async function fetchMonitoringDashboard(): Promise<MonitoringDashboard> {
 
   const [queuesRes, agentsRes] = await Promise.all([queuesCountQ, agentsCountQ]);
 
-  const [unassignedRes, pendingRes, channelsRes, recentRes, awaitingFirstRes, reassignRes] = await Promise.all([
+  const [unassignedRes, pendingRes, channelsRes, recentRes, awaitingFirstRes, pendingHumanRes] = await Promise.all([
     (async () => {
       let q = supabase
         .from("chat_conversations")
@@ -462,13 +472,23 @@ export async function fetchMonitoringDashboard(): Promise<MonitoringDashboard> {
       q = await scopedConv(q);
       return await q;
     })(),
-    supabase
-      .from("chat_routing_events")
-      .select("id, created_at, conversation_id, queue_id, payload")
-      .eq("empresa_id", empresa_id)
-      .eq("event_type", "reassigned_initial_timeout")
-      .order("created_at", { ascending: false })
-      .limit(12),
+    (async () => {
+      let q = supabase
+        .from("chat_conversations")
+        .select(
+          "id, last_message_at, created_at, last_message_preview, assigned_agent_id, contact_id, channel_id, status, initial_assignment_at"
+        )
+        .eq("empresa_id", empresa_id)
+        .not("assigned_agent_id", "is", null)
+        .is("first_human_response_at", null)
+        .in("status", ["open", "pending"]);
+      q = await scopedConv(q);
+      const r = await q.order("last_message_at", { ascending: false, nullsFirst: false }).limit(150);
+      if (r.error && isMissingColumnError(r.error.message, "first_human_response_at")) {
+        return { data: [], error: null };
+      }
+      return r;
+    })(),
   ]);
 
   if (queuesRes.error) throw new Error(queuesRes.error.message);
@@ -544,27 +564,157 @@ export async function fetchMonitoringDashboard(): Promise<MonitoringDashboard> {
     );
   }
 
-  let recent_initial_reassignments: MonitoringReassignmentRow[] = [];
-  if (!reassignRes.error && reassignRes.data) {
-    const rawRows = reassignRes.data as Record<string, unknown>[];
-    const convIds = rawRows.map((r) => String(r.conversation_id ?? "").trim()).filter(Boolean);
-    const visible = await filterConversationIdsByOmnicanalScope(
-      supabase,
-      catalogSr,
-      empresa_id,
-      usuario_id,
-      convIds
-    );
-    recent_initial_reassignments = rawRows
-      .filter((r) => visible.has(String(r.conversation_id ?? "").trim()))
-      .map((r) => ({
-        id: r.id as string,
-        created_at: (r.created_at as string) ?? "",
-        conversation_id: r.conversation_id as string,
-        queue_id: (r.queue_id as string | null) ?? null,
-        payload: (typeof r.payload === "object" && r.payload !== null ? r.payload : {}) as Record<string, unknown>,
-      }));
+  if (pendingHumanRes.error) {
+    console.warn("[fetchMonitoringDashboard] pendientes primera respuesta:", pendingHumanRes.error.message);
   }
+  const pendingRows = (!pendingHumanRes.error && pendingHumanRes.data
+    ? (pendingHumanRes.data as Record<string, unknown>[])
+    : []) as Record<string, unknown>[];
+  const pendingConvIds = pendingRows.map((r) => String(r.id ?? "").trim()).filter(Boolean);
+  const pendingVisible = await filterConversationIdsByOmnicanalScope(
+    supabase,
+    catalogSr,
+    empresa_id,
+    usuario_id,
+    pendingConvIds
+  );
+  const pendingFiltered = pendingRows.filter((r) => pendingVisible.has(String(r.id ?? "").trim()));
+
+  const pendChannelIds = [
+    ...new Set(
+      pendingFiltered
+        .map((c) => (c.channel_id as string | null | undefined)?.trim())
+        .filter((x): x is string => Boolean(x && x.length > 0))
+    ),
+  ];
+  const pendContactIds = [
+    ...new Set(
+      pendingFiltered
+        .map((c) => (c.contact_id as string | null | undefined)?.trim())
+        .filter((x): x is string => Boolean(x && x.length > 0))
+    ),
+  ];
+  let pendChannelMeta: Record<string, { type: string; nombre: string | null }> = {};
+  if (pendChannelIds.length > 0) {
+    const { data: pch, error: peCh } = await supabase
+      .from("chat_channels")
+      .select("id, type, nombre")
+      .eq("empresa_id", empresa_id)
+      .in("id", pendChannelIds);
+    if (!peCh && pch) {
+      pendChannelMeta = Object.fromEntries(
+        (pch ?? []).map((row) => [
+          row.id as string,
+          {
+            type: ((row as { type?: string }).type as string) ?? "whatsapp",
+            nombre: (row as { nombre?: string | null }).nombre ?? null,
+          },
+        ])
+      );
+    }
+  }
+  let pendContactById: Record<string, { phone_number: string | null; name: string | null }> = {};
+  if (pendContactIds.length > 0) {
+    const { data: pco, error: peCo } = await supabase
+      .from("chat_contacts")
+      .select("id, phone_number, name")
+      .eq("empresa_id", empresa_id)
+      .in("id", pendContactIds);
+    if (!peCo && pco) {
+      pendContactById = Object.fromEntries(
+        (pco ?? []).map((row) => [
+          row.id as string,
+          {
+            phone_number: (row as { phone_number?: string | null }).phone_number ?? null,
+            name: (row as { name?: string | null }).name ?? null,
+          },
+        ])
+      );
+    }
+  }
+
+  const pendAgentIds = [
+    ...new Set(
+      pendingFiltered
+        .map((r) => (r.assigned_agent_id as string | null | undefined)?.trim())
+        .filter((x): x is string => Boolean(x && x.length > 0))
+    ),
+  ];
+  let pendAgentUsuario: Record<string, string> = {};
+  if (pendAgentIds.length > 0) {
+    const { data: par, error: peAg } = await supabase
+      .from("chat_agents")
+      .select("id, usuario_id")
+      .eq("empresa_id", empresa_id)
+      .in("id", pendAgentIds);
+    if (!peAg && par) {
+      pendAgentUsuario = Object.fromEntries(
+        (par ?? []).map((row) => [row.id as string, (row as { usuario_id: string }).usuario_id])
+      );
+    }
+  }
+  const pendUserIds = [...new Set(Object.values(pendAgentUsuario))];
+  let pendUsuarioNombre: Record<string, { nombre: string | null; email: string | null }> = {};
+  if (pendUserIds.length > 0) {
+    const { data: pur, error: peU } = await catalogSr
+      .from("usuarios")
+      .select("id, nombre, email")
+      .in("id", pendUserIds);
+    if (!peU && pur) {
+      pendUsuarioNombre = Object.fromEntries(
+        (pur ?? []).map((u) => [
+          u.id as string,
+          {
+            nombre: (u as { nombre?: string | null }).nombre ?? null,
+            email: (u as { email?: string | null }).email ?? null,
+          },
+        ])
+      );
+    }
+  }
+
+  const groupMap = new Map<string, MonitoringPendingReplyItem[]>();
+  for (const row of pendingFiltered) {
+    const aid = String((row.assigned_agent_id as string | null) ?? "").trim();
+    if (!aid) continue;
+    const ctid = String((row.contact_id as string | null) ?? "").trim();
+    const chid = String((row.channel_id as string | null) ?? "").trim();
+    const contact = ctid ? pendContactById[ctid] : undefined;
+    const ch = chid ? pendChannelMeta[chid] : undefined;
+    const channelLabel = ch?.nombre?.trim() || ch?.type || null;
+    const created = (row.created_at as string) ?? new Date().toISOString();
+    const last = (row.last_message_at as string | null) ?? null;
+    const init = (row as { initial_assignment_at?: string | null }).initial_assignment_at ?? null;
+    const waiting_since = last ?? init ?? created;
+    const item: MonitoringPendingReplyItem = {
+      conversation_id: row.id as string,
+      contact_name: contact?.name ?? null,
+      contact_phone: contact?.phone_number ?? null,
+      channel_label: channelLabel,
+      waiting_since,
+      last_preview: (row.last_message_preview as string | null) ?? null,
+    };
+    const arr = groupMap.get(aid) ?? [];
+    arr.push(item);
+    groupMap.set(aid, arr);
+  }
+
+  const pending_human_reply_groups: MonitoringPendingReplyAgentGroup[] = [...groupMap.entries()].map(
+    ([assigned_agent_id, items]) => {
+      const uid = pendAgentUsuario[assigned_agent_id];
+      const u = uid ? pendUsuarioNombre[uid] : undefined;
+      const agent_name = (u?.nombre?.trim() || u?.email?.trim() || "Agente") as string;
+      const agent_email = (u?.email as string) ?? "";
+      return {
+        assigned_agent_id,
+        agent_name,
+        agent_email,
+        pending_count: items.length,
+        items,
+      };
+    }
+  );
+  pending_human_reply_groups.sort((a, b) => b.pending_count - a.pending_count || a.agent_name.localeCompare(b.agent_name));
 
   const unassigned_recent: MonitoringUnassignedRow[] = convList.map((row: Record<string, unknown>) => {
     const qid = (row.queue_id as string | null)?.trim() || null;
@@ -602,7 +752,7 @@ export async function fetchMonitoringDashboard(): Promise<MonitoringDashboard> {
     pending_chats: pendingRes.count ?? 0,
     active_channels: channelsRes.count ?? 0,
     awaiting_first_response: awaitingFirstRes.count ?? 0,
-    recent_initial_reassignments,
+    pending_human_reply_groups,
     unassigned_recent,
   };
 }
@@ -618,6 +768,10 @@ export type ChatAgentDirectoryRow = {
   /** ready | offline — autoasignación solo en ready. */
   operational_status: string;
   max_conversations: number;
+  /** Último cambio de turno (ready/offline); requiere migración operational_status_changed_at. */
+  operational_status_changed_at?: string | null;
+  /** Último ping desde inbox; requiere migración last_heartbeat_at. */
+  last_heartbeat_at?: string | null;
 };
 
 /** Agentes con nombre para reasignación y vistas de supervisor. */
@@ -628,7 +782,9 @@ export async function listChatAgentsDirectory(): Promise<ChatAgentDirectoryRow[]
 
   let aq = supabase
     .from("chat_agents")
-    .select("id, queue_id, is_online, operational_status, max_conversations, usuario_id")
+    .select(
+      "id, queue_id, is_online, operational_status, operational_status_changed_at, last_heartbeat_at, max_conversations, usuario_id"
+    )
     .eq("empresa_id", empresa_id)
     .eq("is_active", true)
     .order("queue_id", { ascending: true });
@@ -642,6 +798,29 @@ export async function listChatAgentsDirectory(): Promise<ChatAgentDirectoryRow[]
   }
 
   let { data, error } = await aq;
+
+  if (
+    error &&
+    (isMissingColumnError(error.message, "operational_status_changed_at") ||
+      isMissingColumnError(error.message, "last_heartbeat_at"))
+  ) {
+    let aq0 = supabase
+      .from("chat_agents")
+      .select("id, queue_id, is_online, operational_status, max_conversations, usuario_id")
+      .eq("empresa_id", empresa_id)
+      .eq("is_active", true)
+      .order("queue_id", { ascending: true });
+    if (!bypass) {
+      if (scope.agentUsuarioIds.length > 0) {
+        aq0 = aq0.in("usuario_id", scope.agentUsuarioIds);
+      } else {
+        aq0 = aq0.eq("id", OMNICANAL_NO_MATCH_UUID);
+      }
+    }
+    const again = await aq0;
+    data = again.data as typeof data;
+    error = again.error;
+  }
 
   if (error && isMissingColumnError(error.message, "operational_status")) {
     let aq2 = supabase
@@ -718,6 +897,9 @@ export async function listChatAgentsDirectory(): Promise<ChatAgentDirectoryRow[]
       operational_status:
         (row.operational_status as string | undefined)?.trim() === "offline" ? "offline" : "ready",
       max_conversations: (row.max_conversations as number) ?? 5,
+      operational_status_changed_at:
+        (row.operational_status_changed_at as string | null | undefined) ?? null,
+      last_heartbeat_at: (row.last_heartbeat_at as string | null | undefined) ?? null,
     };
   });
 }
@@ -796,19 +978,30 @@ export async function countUnassignedOpenConversations(): Promise<number> {
 
 export type ChatAgentOperationalStatus = "ready" | "offline";
 
+export type MyAgentOperationalPresenceResult =
+  | { in_queues: false }
+  | { in_queues: true; status: ChatAgentOperationalStatus; status_changed_at: string | null };
+
 /**
  * Presencia omnicanal del usuario logueado en todas sus filas `chat_agents`.
  * Si no participa en ninguna cola, `in_queues: false`.
  */
-export async function getMyAgentOperationalPresence(): Promise<
-  { in_queues: false } | { in_queues: true; status: ChatAgentOperationalStatus }
-> {
+export async function getMyAgentOperationalPresence(): Promise<MyAgentOperationalPresenceResult> {
   const { supabase, empresa_id, usuario_id } = await requireEmpresaTenantServiceRole();
   let { data, error } = await supabase
     .from("chat_agents")
-    .select("operational_status")
+    .select("operational_status, operational_status_changed_at")
     .eq("empresa_id", empresa_id)
     .eq("usuario_id", usuario_id);
+  if (error && isMissingColumnError(error.message, "operational_status_changed_at")) {
+    const r2 = await supabase
+      .from("chat_agents")
+      .select("operational_status")
+      .eq("empresa_id", empresa_id)
+      .eq("usuario_id", usuario_id);
+    data = r2.data as typeof data;
+    error = r2.error;
+  }
   if (error && isMissingColumnError(error.message, "operational_status")) {
     const legacy = await supabase
       .from("chat_agents")
@@ -823,16 +1016,22 @@ export async function getMyAgentOperationalPresence(): Promise<
     }
     const rowsLegacy = data ?? [];
     if (rowsLegacy.length === 0) return { in_queues: false };
-    return { in_queues: true, status: "ready" };
+    return { in_queues: true, status: "ready", status_changed_at: null };
   }
   if (error) {
     console.warn("[getMyAgentOperationalPresence] error no fatal:", error.message);
     return { in_queues: false };
   }
-  const rows = (data ?? []) as { operational_status?: string | null }[];
+  const rows = (data ?? []) as { operational_status?: string | null; operational_status_changed_at?: string | null }[];
   if (rows.length === 0) return { in_queues: false };
   const anyOffline = rows.some((r) => r.operational_status === "offline");
-  return { in_queues: true, status: anyOffline ? "offline" : "ready" };
+  const status: ChatAgentOperationalStatus = anyOffline ? "offline" : "ready";
+  const changedAts = rows
+    .map((r) => r.operational_status_changed_at)
+    .filter((x): x is string => typeof x === "string" && x.length > 0);
+  const status_changed_at =
+    changedAts.length > 0 ? changedAts.reduce((a, b) => (a < b ? a : b)) : null;
+  return { in_queues: true, status, status_changed_at };
 }
 
 export type SetMyAgentOperationalPresenceResult = { applied: boolean; reason?: string };
@@ -845,11 +1044,37 @@ export async function setMyAgentOperationalPresence(
     return { applied: false, reason: "Estado operativo inválido" };
   }
   const { supabase, empresa_id, usuario_id } = await requireEmpresaTenantServiceRole();
-  const { error } = await supabase
+  const ts = new Date().toISOString();
+  let { error } = await supabase
     .from("chat_agents")
-    .update({ operational_status: status, updated_at: new Date().toISOString() })
+    .update({
+      operational_status: status,
+      updated_at: ts,
+      operational_status_changed_at: ts,
+      last_heartbeat_at: ts,
+    })
     .eq("empresa_id", empresa_id)
     .eq("usuario_id", usuario_id);
+  if (error && isMissingColumnError(error.message, "last_heartbeat_at")) {
+    const r1 = await supabase
+      .from("chat_agents")
+      .update({
+        operational_status: status,
+        updated_at: ts,
+        operational_status_changed_at: ts,
+      })
+      .eq("empresa_id", empresa_id)
+      .eq("usuario_id", usuario_id);
+    error = r1.error;
+  }
+  if (error && isMissingColumnError(error.message, "operational_status_changed_at")) {
+    const r2 = await supabase
+      .from("chat_agents")
+      .update({ operational_status: status, updated_at: ts })
+      .eq("empresa_id", empresa_id)
+      .eq("usuario_id", usuario_id);
+    error = r2.error;
+  }
   if (error && isMissingColumnError(error.message, "operational_status")) {
     console.warn(
       "[setMyAgentOperationalPresence] columna operational_status ausente en schema tenant; update omitido."
@@ -861,4 +1086,23 @@ export async function setMyAgentOperationalPresence(
     return { applied: false, reason: error.message };
   }
   return { applied: true };
+}
+
+/** Ping de sesión inbox (monitoreo: última actividad real del agente). */
+export async function touchChatAgentInboxHeartbeat(): Promise<{ ok: boolean; reason?: string }> {
+  const { supabase, empresa_id, usuario_id } = await requireEmpresaTenantServiceRole();
+  const ts = new Date().toISOString();
+  const { error } = await supabase
+    .from("chat_agents")
+    .update({ last_heartbeat_at: ts, updated_at: ts })
+    .eq("empresa_id", empresa_id)
+    .eq("usuario_id", usuario_id);
+  if (error && isMissingColumnError(error.message, "last_heartbeat_at")) {
+    return { ok: false, reason: "missing_last_heartbeat_at_column" };
+  }
+  if (error) {
+    console.warn("[touchChatAgentInboxHeartbeat]", error.message);
+    return { ok: false, reason: error.message };
+  }
+  return { ok: true };
 }

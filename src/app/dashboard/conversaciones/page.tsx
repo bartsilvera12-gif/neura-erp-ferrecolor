@@ -26,7 +26,7 @@ export default async function ConversacionesInboxPage() {
   let initialOperationalPresence: ConversacionesInitialOperationalPresence | undefined;
   if (presence) {
     initialOperationalPresence = presence.in_queues
-      ? { in_queues: true, status: presence.status }
+      ? { in_queues: true, status: presence.status, status_changed_at: presence.status_changed_at ?? null }
       : { in_queues: false, status: null };
   }
 

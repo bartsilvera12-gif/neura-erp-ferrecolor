@@ -26,10 +26,13 @@ import {
   listChatAgentsDirectory,
   listChatQueues,
   setMyAgentOperationalPresence,
+  touchChatAgentInboxHeartbeat,
   type ChatAgentDirectoryRow,
   type ChatAgentOperationalStatus,
   type ChatQueueListRow,
 } from "@/lib/chat/chat-ops-actions";
+import { formatWaitHuman } from "@/lib/chat/format-wait-human";
+import { Flame } from "lucide-react";
 import {
   finalizeConversationWithClosure,
   loadFinalizeOptionsForConversation,
@@ -138,14 +141,30 @@ function tabClass(active: boolean) {
 
 function opPresenceToggleClass(active: boolean, variant: "ready" | "offline") {
   const base =
-    "px-3 py-1.5 text-xs font-semibold rounded-md transition-all disabled:opacity-50 min-w-[6.75rem] text-center border-2";
+    "px-3 py-1.5 text-xs font-semibold rounded-md transition-all disabled:opacity-50 min-w-[6.75rem] text-center border";
   if (!active) {
-    return `${base} text-slate-600 bg-white border-transparent hover:bg-slate-50 hover:border-slate-200`;
+    return `${base} border-slate-300 bg-slate-200 text-slate-500 shadow-inner`;
   }
   if (variant === "ready") {
-    return `${base} bg-emerald-600 text-white border-emerald-700 shadow-md ring-2 ring-emerald-400/50 scale-[1.02]`;
+    return `${base} border-emerald-700 bg-emerald-600 text-white shadow-md ring-2 ring-emerald-400/45`;
   }
-  return `${base} bg-slate-700 text-white border-slate-900 shadow-md ring-2 ring-slate-500/40 scale-[1.02]`;
+  return `${base} border-slate-900 bg-slate-800 text-white shadow-md ring-2 ring-slate-500/35`;
+}
+
+function LiveElapsedLabel({ sinceIso }: { sinceIso: string | null }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((x) => x + 1), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  if (!sinceIso) return <span className="text-slate-400">—</span>;
+  return <span className="tabular-nums font-medium">{formatWaitHuman(sinceIso)}</span>;
+}
+
+function inboxAwaitingHumanBadge(c: InboxConversation): boolean {
+  return Boolean(
+    c.awaiting_agent_reply_since && (c.human_taken_over || String(c.flow_status).toLowerCase() === "human")
+  );
 }
 
 function parseInboxFilters(sp: URLSearchParams): ChatInboxFilters | undefined {
@@ -191,8 +210,8 @@ export type ConversacionesClientMode = "inbox" | "historial";
 
 /** Presencia operativa precargada en el servidor (evita parpadeo y fallos solo-cliente). */
 export type ConversacionesInitialOperationalPresence =
-  | { in_queues: false; status: null }
-  | { in_queues: true; status: ChatAgentOperationalStatus };
+  | { in_queues: false; status: null; status_changed_at?: null }
+  | { in_queues: true; status: ChatAgentOperationalStatus; status_changed_at: string | null };
 
 export function ConversacionesClient({
   mode,
@@ -264,6 +283,11 @@ export function ConversacionesClient({
   const [opPresenceBusy, setOpPresenceBusy] = useState(false);
   const [opPresenceErr, setOpPresenceErr] = useState<string | null>(null);
   const [opPresenceOkMsg, setOpPresenceOkMsg] = useState<string | null>(null);
+  const [opSince, setOpSince] = useState<string | null>(() =>
+    mode === "inbox" && initialOperationalPresence?.in_queues
+      ? initialOperationalPresence.status_changed_at ?? null
+      : null
+  );
   const [finalizeSaving, setFinalizeSaving] = useState(false);
   const [finalizeOptions, setFinalizeOptions] = useState<FinalizeOptionsResult | null>(null);
   const [finalizeStateId, setFinalizeStateId] = useState("");
@@ -507,9 +531,11 @@ export function ConversacionesClient({
         if (p.in_queues) {
           setOpInQueues(true);
           setOpStatus(p.status);
+          setOpSince(p.status_changed_at);
         } else {
           setOpInQueues(false);
           setOpStatus(null);
+          setOpSince(null);
         }
       })
       .catch((e) => {
@@ -517,6 +543,7 @@ export function ConversacionesClient({
         if (initialOperationalPresence === undefined) {
           setOpInQueues(false);
           setOpStatus(null);
+          setOpSince(null);
         }
         setOpPresenceErr(e instanceof Error ? e.message : "No se pudo cargar estado operativo");
       })
@@ -527,6 +554,20 @@ export function ConversacionesClient({
       cancelled = true;
     };
   }, [mode, initialOperationalPresence]);
+
+  useEffect(() => {
+    if (mode !== "inbox" || !opInQueues) return;
+    void touchChatAgentInboxHeartbeat();
+    const id = window.setInterval(() => void touchChatAgentInboxHeartbeat(), 90_000);
+    const onVis = () => {
+      if (document.visibilityState === "visible") void touchChatAgentInboxHeartbeat();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [mode, opInQueues]);
 
   const applyOperationalStatus = useCallback(async (next: ChatAgentOperationalStatus) => {
     setOpPresenceErr(null);
@@ -548,9 +589,11 @@ export function ConversacionesClient({
       if (refreshed.in_queues) {
         setOpInQueues(true);
         setOpStatus(refreshed.status);
+        setOpSince(refreshed.status_changed_at);
       } else {
         setOpInQueues(false);
         setOpStatus(null);
+        setOpSince(null);
       }
       setOpPresenceOkMsg(next === "ready" ? "Disponible · guardado" : "En pausa · guardado");
       window.setTimeout(() => setOpPresenceOkMsg(null), 3500);
@@ -1148,6 +1191,14 @@ export function ConversacionesClient({
             <span className="text-[10px] text-slate-500 max-w-[15rem] text-right leading-tight hidden sm:block">
               Disponible = entrás en la rotación de nuevos chats. En pausa = no recibís asignaciones automáticas.
             </span>
+            {opSince ? (
+              <div className="text-[10px] text-slate-700 text-right leading-tight w-full">
+                <span className="text-slate-500">
+                  {opStatus === "ready" ? "Tiempo en Disponible" : "Tiempo en pausa"}:{" "}
+                </span>
+                <LiveElapsedLabel sinceIso={opSince} />
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -1284,6 +1335,15 @@ export function ConversacionesClient({
                         Cola · {c.queue_name}
                       </span>
                     ) : null}
+                    {vista !== "bot" && inboxAwaitingHumanBadge(c) ? (
+                      <span
+                        className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-orange-950 bg-orange-50 border border-orange-200 px-1.5 py-0.5 rounded shrink-0"
+                        title="Cliente esperando respuesta humana"
+                      >
+                        <Flame className="w-3 h-3 shrink-0 text-orange-600" aria-hidden />
+                        <LiveElapsedLabel sinceIso={c.awaiting_agent_reply_since} />
+                      </span>
+                    ) : null}
                     {c.assigned_agent_name ? (
                       <span
                         className="text-[9px] font-semibold text-emerald-900 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded truncate max-w-full"
@@ -1357,6 +1417,15 @@ export function ConversacionesClient({
                         >
                           {labelEstado(selected.status)}
                         </span>
+                        {vista !== "bot" && inboxAwaitingHumanBadge(selected) ? (
+                          <span
+                            className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-orange-950 bg-orange-50 border border-orange-200 px-1.5 py-0.5 rounded shrink-0"
+                            title="Cliente esperando respuesta humana"
+                          >
+                            <Flame className="w-3 h-3 shrink-0 text-orange-600" aria-hidden />
+                            <LiveElapsedLabel sinceIso={selected.awaiting_agent_reply_since} />
+                          </span>
+                        ) : null}
                         {listColumnHidden ? (
                           <button
                             type="button"
@@ -1382,6 +1451,15 @@ export function ConversacionesClient({
                         ) : mode === "inbox" ? (
                           <span className="text-[10px] text-slate-600 bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5">
                             Sin cola
+                          </span>
+                        ) : null}
+                        {inboxAwaitingHumanBadge(selected) ? (
+                          <span
+                            className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-orange-950 bg-orange-50 border border-orange-200 rounded px-1.5 py-0.5 shrink-0"
+                            title="Cliente esperando respuesta humana"
+                          >
+                            <Flame className="w-3.5 h-3.5 shrink-0 text-orange-600" aria-hidden />
+                            <LiveElapsedLabel sinceIso={selected.awaiting_agent_reply_since} />
                           </span>
                         ) : null}
                         {selected.assigned_agent_name ? (

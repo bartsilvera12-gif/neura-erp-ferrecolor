@@ -48,6 +48,11 @@ export type InboxConversation = {
   unread_count: number;
   flow_status: string;
   human_taken_over: boolean;
+  /**
+   * Último mensaje del contacto sin respuesta humana posterior (RPC `neura_inbox_awaiting_reply_since_batch`).
+   * null si no aplica o si el RPC no está desplegado.
+   */
+  awaiting_agent_reply_since: string | null;
   channel: {
     id: string;
     type: string;
@@ -80,7 +85,7 @@ async function fetchChatConversationsUnsafe(
   vista: ConversacionesVista = "inbox",
   filters?: ChatInboxFilters
 ): Promise<InboxConversation[]> {
-  const { supabase, catalogSr, empresa_id, usuario_id } = await requireEmpresaTenantServiceRole();
+  const { supabase, catalogSr, empresa_id, usuario_id, dataSchema } = await requireEmpresaTenantServiceRole();
 
   const { data: activeFlowRows, error: activeFlowsErr } = await supabase
     .from("chat_flows")
@@ -327,6 +332,29 @@ async function fetchChatConversationsUnsafe(
 
   if (list.length === 0) return [];
 
+  const convIdList = list.map((row) => String((row as { id?: unknown }).id ?? "").trim()).filter(Boolean);
+  const awaitingById: Record<string, string | null> = {};
+  if (convIdList.length > 0) {
+    try {
+      const { data: rpcRows, error: rpcErr } = await catalogSr.rpc("neura_inbox_awaiting_reply_since_batch", {
+        p_schema: dataSchema,
+        p_empresa_id: empresa_id,
+        p_conversation_ids: convIdList,
+      });
+      if (rpcErr) {
+        console.warn("[fetchChatConversations] awaiting_reply RPC:", rpcErr.message);
+      } else if (Array.isArray(rpcRows)) {
+        for (const r of rpcRows as { conversation_id?: string; awaiting_since?: string | null }[]) {
+          const id = String(r.conversation_id ?? "").trim();
+          if (!id) continue;
+          awaitingById[id] = r.awaiting_since ?? null;
+        }
+      }
+    } catch (e) {
+      console.warn("[fetchChatConversations] awaiting_reply RPC:", e instanceof Error ? e.message : e);
+    }
+  }
+
   const channelIds = [
     ...new Set(
       list
@@ -523,6 +551,7 @@ async function fetchChatConversationsUnsafe(
         cliente_id: c?.cliente_id ?? null,
         crm_prospecto_id: c?.crm_prospecto_id ?? null,
       },
+      awaiting_agent_reply_since: awaitingById[row.id as string] ?? null,
     };
   });
 }

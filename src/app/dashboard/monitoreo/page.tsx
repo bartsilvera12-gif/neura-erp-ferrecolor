@@ -6,27 +6,20 @@ import {
   fetchMonitoringDashboard,
   fetchSupervisorAgentLoads,
   type MonitoringDashboard,
-  type MonitoringReassignmentRow,
+  type MonitoringPendingReplyAgentGroup,
   type MonitoringUnassignedRow,
   type SupervisorAgentLoadRow,
 } from "@/lib/chat/chat-ops-actions";
+import { formatWaitHuman } from "@/lib/chat/format-wait-human";
 import { assignmentWaitBadge, assignmentWaitBadgeClass } from "@/lib/chat/inbox-assignment-labels";
-
-function formatWait(iso: string): string {
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return "—";
-  const diff = Math.max(0, Date.now() - t);
-  const m = Math.floor(diff / 60000);
-  if (m < 60) return `${m} min`;
-  const h = Math.floor(m / 60);
-  return `${h} h ${m % 60} min`;
-}
+import { Flame } from "lucide-react";
 
 export default function MonitoreoPage() {
   const [dash, setDash] = useState<MonitoringDashboard | null>(null);
   const [agents, setAgents] = useState<SupervisorAgentLoadRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [expandedPendingAgentId, setExpandedPendingAgentId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -130,7 +123,7 @@ export default function MonitoreoPage() {
                   const w = assignmentWaitBadge(r.assignment_wait_code, Boolean(r.queue_id));
                   return (
                   <tr key={r.id} className="border-b border-slate-50">
-                    <td className="py-2 pr-3 text-slate-700 tabular-nums">{formatWait(r.waiting_since)}</td>
+                    <td className="py-2 pr-3 text-slate-700 tabular-nums">{formatWaitHuman(r.waiting_since)}</td>
                     <td className="py-2 pr-3">
                       <span className="font-medium text-slate-800">{r.contact_name ?? "—"}</span>
                       <span className="block text-xs text-slate-400 font-mono truncate max-w-[160px]">
@@ -163,49 +156,86 @@ export default function MonitoreoPage() {
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
-            Reasignaciones por SLA (primera respuesta)
-          </h2>
+        <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+              Chats sin primera respuesta humana
+            </h2>
+            <p className="text-xs text-slate-500 mt-1 max-w-3xl">
+              Por agente: fila compacta con cantidad; desplegá para ver contacto, canal y tiempo de espera.
+            </p>
+          </div>
           <button
             type="button"
             onClick={() => void load()}
-            className="text-xs font-semibold text-[#0EA5E9] hover:underline"
+            className="text-xs font-semibold text-[#0EA5E9] hover:underline shrink-0"
           >
             Actualizar
           </button>
         </div>
         {loading || !dash ? (
           <p className="text-sm text-slate-400">Cargando…</p>
-        ) : dash.recent_initial_reassignments.length === 0 ? (
-          <p className="text-sm text-slate-500">
-            No hay reasignaciones recientes registradas por falta de primera respuesta humana.
-          </p>
+        ) : dash.pending_human_reply_groups.length === 0 ? (
+          <p className="text-sm text-slate-500">No hay conversaciones esperando la primera respuesta humana.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-slate-500 border-b border-slate-100">
-                  <th className="pb-2 pr-3">Cuándo</th>
-                  <th className="pb-2 pr-3">Conversación</th>
-                  <th className="pb-2">Detalle</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dash.recent_initial_reassignments.map((r: MonitoringReassignmentRow) => (
-                  <tr key={r.id} className="border-b border-slate-50">
-                    <td className="py-2 pr-3 text-slate-600 whitespace-nowrap">
-                      {new Date(r.created_at).toLocaleString("es")}
-                    </td>
-                    <td className="py-2 pr-3 font-mono text-xs text-slate-700">{r.conversation_id.slice(0, 8)}…</td>
-                    <td className="py-2 text-xs text-slate-600">
-                      {(r.payload.from_agent_id as string | undefined)?.slice(0, 8) ?? "—"} →{" "}
-                      {(r.payload.to_agent_id as string | undefined)?.slice(0, 8) ?? "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="flex flex-col gap-1">
+            {dash.pending_human_reply_groups.map((g: MonitoringPendingReplyAgentGroup) => {
+              const open = expandedPendingAgentId === g.assigned_agent_id;
+              return (
+                <div key={g.assigned_agent_id} className="rounded-xl border border-slate-200 bg-slate-50/60 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedPendingAgentId((cur) => (cur === g.assigned_agent_id ? null : g.assigned_agent_id))
+                    }
+                    className="w-full flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-white/90 transition-colors"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <span className="font-semibold text-slate-800 text-sm">{g.agent_name}</span>
+                      <span className="block text-xs text-slate-500 truncate">{g.agent_email}</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-orange-100 text-orange-950 text-xs font-bold px-2.5 py-1 border border-orange-200">
+                        <Flame className="w-3.5 h-3.5" aria-hidden />
+                        {g.pending_count}
+                      </span>
+                      <span className="text-xs text-slate-500">{open ? "Ocultar" : "Ver"}</span>
+                    </div>
+                  </button>
+                  {open ? (
+                    <div className="border-t border-slate-200 bg-white px-3 py-2 space-y-1.5">
+                      {g.items.map((it) => (
+                        <div
+                          key={it.conversation_id}
+                          className="flex flex-wrap items-center justify-between gap-2 text-xs border-b border-slate-100 last:border-0 pb-1.5 last:pb-0"
+                        >
+                          <div className="min-w-0">
+                            <Link
+                              href={`/dashboard/conversaciones?conversationId=${encodeURIComponent(it.conversation_id)}`}
+                              className="font-medium text-[#0EA5E9] hover:underline truncate block"
+                            >
+                              {it.contact_name?.trim() || "Sin nombre"}
+                            </Link>
+                            <span className="text-slate-500 font-mono">{it.contact_phone ?? "—"}</span>
+                            {it.channel_label ? (
+                              <span className="block text-slate-500">{it.channel_label}</span>
+                            ) : null}
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="text-orange-900 font-semibold tabular-nums">
+                              {formatWaitHuman(it.waiting_since)}
+                            </span>
+                            {it.last_preview ? (
+                              <span className="block text-slate-400 truncate max-w-[14rem] mt-0.5">{it.last_preview}</span>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         )}
       </section>
@@ -228,6 +258,8 @@ export default function MonitoreoPage() {
                   <th className="pb-2 pr-3">Agente</th>
                   <th className="pb-2 pr-3">En línea</th>
                   <th className="pb-2 pr-3">Turno</th>
+                  <th className="pb-2 pr-3">En este modo</th>
+                  <th className="pb-2 pr-3">Último ping inbox</th>
                   <th className="pb-2 pr-3">Máx.</th>
                   <th className="pb-2 pr-3">Chats activos</th>
                   <th className="pb-2">Sin 1ª resp.</th>
@@ -254,6 +286,14 @@ export default function MonitoreoPage() {
                       ) : (
                         <span className="text-slate-500 text-xs font-medium">En pausa</span>
                       )}
+                    </td>
+                    <td className="py-2 pr-3 text-slate-700 tabular-nums text-xs">
+                      {a.operational_status_changed_at
+                        ? formatWaitHuman(a.operational_status_changed_at)
+                        : "—"}
+                    </td>
+                    <td className="py-2 pr-3 text-slate-700 tabular-nums text-xs">
+                      {a.last_heartbeat_at ? formatWaitHuman(a.last_heartbeat_at) : "—"}
                     </td>
                     <td className="py-2 pr-3">{a.max_conversations}</td>
                     <td className="py-2 pr-3">
