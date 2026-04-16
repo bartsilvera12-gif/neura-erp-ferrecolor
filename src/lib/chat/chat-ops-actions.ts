@@ -834,10 +834,14 @@ export async function getMyAgentOperationalPresence(): Promise<
   return { in_queues: true, status: anyOffline ? "offline" : "ready" };
 }
 
+export type SetMyAgentOperationalPresenceResult = { applied: boolean; reason?: string };
+
 /** Sincroniza el estado operativo en todas las colas donde el usuario es agente. */
-export async function setMyAgentOperationalPresence(status: ChatAgentOperationalStatus): Promise<void> {
+export async function setMyAgentOperationalPresence(
+  status: ChatAgentOperationalStatus
+): Promise<SetMyAgentOperationalPresenceResult> {
   if (status !== "ready" && status !== "offline") {
-    throw new Error("Estado operativo inválido");
+    return { applied: false, reason: "Estado operativo inválido" };
   }
   const { supabase, empresa_id, usuario_id } = await requireEmpresaTenantServiceRole();
   const { error } = await supabase
@@ -847,12 +851,13 @@ export async function setMyAgentOperationalPresence(status: ChatAgentOperational
     .eq("usuario_id", usuario_id);
   if (error && isMissingColumnError(error.message, "operational_status")) {
     console.warn(
-      "[setMyAgentOperationalPresence] columna operational_status ausente en schema tenant; update omitido (UI sin error)."
+      "[setMyAgentOperationalPresence] columna operational_status ausente en schema tenant; update omitido."
     );
-    return;
+    return { applied: false, reason: "missing_operational_status_column" };
   }
   if (error) {
     console.warn("[setMyAgentOperationalPresence] update no aplicado:", error.message);
-    return;
+    return { applied: false, reason: error.message };
   }
+  return { applied: true };
 }

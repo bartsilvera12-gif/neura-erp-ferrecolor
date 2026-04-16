@@ -122,6 +122,16 @@ export function isOmnicanalAdminScope(scope: OmnicanalScope): boolean {
  * Admin ERP (`admin`, `administrador`, `super_admin`) sin rol operativo omnicanal:
  * no se restringe por colas/agentes (compatibilidad con quien gestiona pero no está en `chat_empresa_operator_roles`).
  */
+const BYPASS_ROLES = new Set([
+  "admin",
+  "administrador",
+  "super_admin",
+  "owner",
+  "gerente",
+  "socio",
+  "superusuario",
+]);
+
 export async function shouldBypassOmnicanalConversationScope(
   catalogSr: AppSupabaseClient,
   usuarioId: string,
@@ -131,11 +141,15 @@ export async function shouldBypassOmnicanalConversationScope(
   const uid = normalizeId(usuarioId);
   if (!uid) return false;
   const { data, error } = await catalogSr.from("usuarios").select("rol").eq("id", uid).maybeSingle();
-  if (error || !data) return false;
+  if (error) {
+    console.warn("[shouldBypassOmnicanalConversationScope] no se pudo leer rol; sin filtrar inbox:", error.message);
+    return true;
+  }
+  if (!data) return false;
   const r = String((data as { rol?: string | null }).rol ?? "")
     .trim()
     .toLowerCase();
-  return r === "admin" || r === "administrador" || r === "super_admin";
+  return BYPASS_ROLES.has(r);
 }
 
 /** Resuelve `chat_agents.id` para los `usuario_id` indicados (misma empresa). */
@@ -215,6 +229,14 @@ export async function appendOmnicanalConversationScopeToQuery(
   const queueIds = scope.queueIds ?? [];
 
   if (queueIds.length === 0 && agentFkIds.length === 0) {
+    const hadIntent =
+      (scope.agentUsuarioIds?.length ?? 0) > 0 || (scope.queueIds?.length ?? 0) > 0;
+    if (hadIntent) {
+      console.warn(
+        "[appendOmnicanalConversationScopeToQuery] alcance con colas/agentes declarados pero sin ids resueltos; se omite filtro (evita inbox vacío)."
+      );
+      return q;
+    }
     return q.eq("id", NO_CONVERSATION_MATCH);
   }
   if (queueIds.length > 0 && agentFkIds.length > 0) {

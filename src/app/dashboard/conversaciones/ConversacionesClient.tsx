@@ -138,14 +138,14 @@ function tabClass(active: boolean) {
 
 function opPresenceToggleClass(active: boolean, variant: "ready" | "offline") {
   const base =
-    "px-3 py-1.5 text-xs font-semibold rounded-md transition-colors disabled:opacity-50 min-w-[6.75rem] text-center";
+    "px-3 py-1.5 text-xs font-semibold rounded-md transition-all disabled:opacity-50 min-w-[6.75rem] text-center border-2";
   if (!active) {
-    return `${base} text-slate-600 bg-white border border-slate-200 hover:bg-slate-50`;
+    return `${base} text-slate-600 bg-white border-transparent hover:bg-slate-50 hover:border-slate-200`;
   }
   if (variant === "ready") {
-    return `${base} bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-700/30`;
+    return `${base} bg-emerald-600 text-white border-emerald-700 shadow-md ring-2 ring-emerald-400/50 scale-[1.02]`;
   }
-  return `${base} bg-slate-700 text-white shadow-sm ring-1 ring-slate-900/25`;
+  return `${base} bg-slate-700 text-white border-slate-900 shadow-md ring-2 ring-slate-500/40 scale-[1.02]`;
 }
 
 function parseInboxFilters(sp: URLSearchParams): ChatInboxFilters | undefined {
@@ -261,6 +261,7 @@ export function ConversacionesClient({
   );
   const [opPresenceBusy, setOpPresenceBusy] = useState(false);
   const [opPresenceErr, setOpPresenceErr] = useState<string | null>(null);
+  const [opPresenceOkMsg, setOpPresenceOkMsg] = useState<string | null>(null);
   const [finalizeSaving, setFinalizeSaving] = useState(false);
   const [finalizeOptions, setFinalizeOptions] = useState<FinalizeOptionsResult | null>(null);
   const [finalizeStateId, setFinalizeStateId] = useState("");
@@ -433,10 +434,30 @@ export function ConversacionesClient({
 
   const applyOperationalStatus = useCallback(async (next: ChatAgentOperationalStatus) => {
     setOpPresenceErr(null);
+    setOpPresenceOkMsg(null);
     setOpPresenceBusy(true);
     try {
-      await setMyAgentOperationalPresence(next);
-      setOpStatus(next);
+      const res = await setMyAgentOperationalPresence(next);
+      if (!res.applied) {
+        if (res.reason === "missing_operational_status_column") {
+          setOpPresenceErr(
+            "Presencia no disponible en base de datos (falta columna). Ejecutá la migración operational_status en Supabase o contactá soporte."
+          );
+        } else {
+          setOpPresenceErr(res.reason?.trim() || "No se pudo guardar el estado.");
+        }
+        return;
+      }
+      const refreshed = await getMyAgentOperationalPresence();
+      if (refreshed.in_queues) {
+        setOpInQueues(true);
+        setOpStatus(refreshed.status);
+      } else {
+        setOpInQueues(false);
+        setOpStatus(null);
+      }
+      setOpPresenceOkMsg(next === "ready" ? "Disponible · guardado" : "En pausa · guardado");
+      window.setTimeout(() => setOpPresenceOkMsg(null), 3500);
     } catch (e) {
       setOpPresenceErr(e instanceof Error ? e.message : "No se pudo guardar el estado");
     } finally {
@@ -980,7 +1001,12 @@ export function ConversacionesClient({
             role="group"
             aria-label="Disponible u en pausa para recibir chats nuevos por autoasignación"
           >
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Tu turno</span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Tu turno</span>
+              {opPresenceBusy ? (
+                <span className="text-[10px] font-medium text-sky-600 animate-pulse">Guardando…</span>
+              ) : null}
+            </div>
             <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50/90 p-0.5">
               <button
                 type="button"
@@ -1012,6 +1038,11 @@ export function ConversacionesClient({
       {mode === "inbox" && opPresenceErr ? (
         <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-lg px-2 py-1.5 shrink-0">
           {opPresenceErr}
+        </div>
+      ) : null}
+      {mode === "inbox" && opPresenceOkMsg ? (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs rounded-lg px-2 py-1.5 shrink-0 font-medium">
+          {opPresenceOkMsg}
         </div>
       ) : null}
 
