@@ -128,7 +128,42 @@ export function esFacturaAnulada(estado: string | null | undefined): boolean {
 
 /** Liquidada por nota de crédito SET (sin saldo cobrable vía módulo Pagos). */
 export function esFacturaCorregidaNc(estado: string | null | undefined): boolean {
-  return String(estado ?? "").trim() === "Corregida NC";
+  return String(estado ?? "").trim().toLowerCase() === "corregida nc";
+}
+
+/** Notas de crédito aprobadas (SET) para netear facturas en métricas comerciales. */
+export interface NotaCreditoDashRow {
+  id: string;
+  factura_id: string;
+  monto: number;
+  estado_erp: string;
+}
+
+/** Suma de montos NC con `estado_erp = aprobada` por `factura_id`. */
+export function buildMontoNcAprobadaPorFacturaId(rows: NotaCreditoDashRow[]): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const r of rows) {
+    if (String(r.estado_erp ?? "").trim().toLowerCase() !== "aprobada") continue;
+    const fid = String(r.factura_id);
+    m.set(fid, (m.get(fid) ?? 0) + (Number(r.monto) || 0));
+  }
+  return m;
+}
+
+/**
+ * Monto que cuenta para valor comercial: excluye anuladas / corregidas por NC,
+ * y resta NC aprobadas vinculadas (factura cancelada por NC + nueva emisión).
+ */
+export function montoFacturaNetoValorComercial(
+  f: FacturaRaw,
+  ncPorFactura: Map<string, number>
+): number {
+  if (esFacturaAnulada(f.estado)) return 0;
+  if (esFacturaCorregidaNc(f.estado)) return 0;
+  const monto = Number(f.monto) || 0;
+  const ncTotal = ncPorFactura.get(String(f.id)) ?? 0;
+  const net = monto - ncTotal;
+  return net > 0.01 ? net : 0;
 }
 
 export interface DashboardData {
@@ -146,6 +181,8 @@ export interface DashboardData {
   clientes_baja_mes: number;
   /** Monto mensual perdido por bajas del mes (suma de precios de suscripciones canceladas) */
   monto_perdido_bajas_mes: number;
+  /** NC aprobadas por factura (para netear valor en cartera comercial). */
+  notas_credito: NotaCreditoDashRow[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -232,6 +269,7 @@ export async function getDashboardData(): Promise<DashboardData> {
   let suscripciones: SuscripcionDashRow[] = [];
   let clientesBajaMes = 0;
   let montoPerdidoBajasMes = 0;
+  let notasCredito: NotaCreditoDashRow[] = [];
 
   if (typeof window === "undefined") {
     return {
@@ -247,6 +285,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       suscripciones,
       clientes_baja_mes: clientesBajaMes,
       monto_perdido_bajas_mes: montoPerdidoBajasMes,
+      notas_credito: notasCredito,
     };
   }
 
@@ -268,6 +307,7 @@ export async function getDashboardData(): Promise<DashboardData> {
         suscripciones?: Record<string, unknown>[];
         clientes_baja_mes?: { id: string }[];
         suscripciones_canceladas?: { cliente_id: string; precio: number }[];
+        notas_credito?: Record<string, unknown>[];
       };
     };
     if (!json.success || !json.data) throw new Error("Respuesta inválida");
@@ -285,6 +325,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       suscripciones?: Record<string, unknown>[];
       clientes_baja_mes?: { id: string }[];
       suscripciones_canceladas?: { cliente_id: string; precio: number }[];
+      notas_credito?: Record<string, unknown>[];
     };
 
     if (d.query_errors && Object.keys(d.query_errors).length > 0) {
@@ -411,6 +452,13 @@ export async function getDashboardData(): Promise<DashboardData> {
       fecha_inicio: toCalendarDateStr(r.fecha_inicio as string),
       created_at: toIsoTimestampStr(r.created_at as string),
     }));
+
+    notasCredito = (d.notas_credito ?? []).map((r: Record<string, unknown>) => ({
+      id: r.id as string,
+      factura_id: String(r.factura_id ?? ""),
+      monto: toNum(r.monto),
+      estado_erp: String(r.estado_erp ?? ""),
+    }));
   } catch (err) {
     console.warn("[dashboard] Error cargando tablas empresa (clientes, facturas, etc.):", err);
     // prospectos ya cargados; clientes, facturas, etc. quedan vacíos
@@ -429,5 +477,6 @@ export async function getDashboardData(): Promise<DashboardData> {
     suscripciones,
     clientes_baja_mes: clientesBajaMes,
     monto_perdido_bajas_mes: montoPerdidoBajasMes,
+    notas_credito: notasCredito,
   };
 }

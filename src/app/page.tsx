@@ -9,6 +9,8 @@ import type { Usuario } from "@/lib/usuarios/types";
 import {
   esFacturaAnulada,
   esFacturaCorregidaNc,
+  buildMontoNcAprobadaPorFacturaId,
+  montoFacturaNetoValorComercial,
   getDashboardData,
   type ProspectoRaw,
   type ClienteRaw,
@@ -20,6 +22,7 @@ import {
   type CompraRaw,
   type GastoRaw,
   type SuscripcionDashRow,
+  type NotaCreditoDashRow,
 } from "@/lib/dashboard/data";
 import {
   enRangoCalendario,
@@ -534,18 +537,19 @@ function KpiCard({
 
 // ── Dashboard Comercial ───────────────────────────────────────────────────────
 
-/** Valor comercial del cliente en el período: 1) facturas emitidas en período, 2) suscripción alta/inicio en período. */
+/** Valor comercial del cliente en el período: 1) facturas netas (NC aprobadas) en período, 2) suscripción alta/inicio en período. */
 function valorComercialClienteEnPeriodo(
   clienteId: string | number,
   facturas: FacturaRaw[],
+  ncPorFactura: Map<string, number>,
   suscripciones: SuscripcionDashRow[],
   desde: Date,
   hasta: Date
 ): { monto: number; fuente: "facturas" | "suscripcion" | "sin_dato" } {
   const id = String(clienteId);
   const sumF = facturas
-    .filter((f) => String(f.cliente_id) === id && !esFacturaAnulada(f.estado) && enRango(f.fecha, desde, hasta))
-    .reduce((s, f) => s + (Number(f.monto) || 0), 0);
+    .filter((f) => String(f.cliente_id) === id && enRango(f.fecha, desde, hasta))
+    .reduce((s, f) => s + montoFacturaNetoValorComercial(f, ncPorFactura), 0);
   if (sumF > 0) return { monto: sumF, fuente: "facturas" };
 
   let sumS = 0;
@@ -575,6 +579,7 @@ function DashComercial({
   periodo,
   config,
   facturas,
+  notasCredito,
   suscripciones,
 }: {
   prospectos: ProspectoRaw[];
@@ -584,10 +589,13 @@ function DashComercial({
   periodo: Periodo;
   config: ConfigGlobal;
   facturas: FacturaRaw[];
+  notasCredito: NotaCreditoDashRow[];
   suscripciones: SuscripcionDashRow[];
 }) {
   void _tipificaciones;
   const { desde, hasta } = useMemo(() => getRango(periodo), [periodo]);
+
+  const ncPorFactura = useMemo(() => buildMontoNcAprobadaPorFacturaId(notasCredito), [notasCredito]);
 
   const isSupervisor = usuario?.nivel === "supervisor";
   const area = usuario?.area;
@@ -665,7 +673,14 @@ function DashComercial({
     const nuevos = clientes.filter((c) => enRango(c.created_at, desde, hasta));
     return nuevos
       .map((c) => {
-        const { monto, fuente } = valorComercialClienteEnPeriodo(c.id, facturas, suscripciones, desde, hasta);
+        const { monto, fuente } = valorComercialClienteEnPeriodo(
+          c.id,
+          facturas,
+          ncPorFactura,
+          suscripciones,
+          desde,
+          hasta
+        );
         return {
           id: String(c.id),
           nombre: c.empresa ?? c.nombre_contacto,
@@ -677,7 +692,7 @@ function DashComercial({
         };
       })
       .sort((a, b) => new Date(b.fechaAlta).getTime() - new Date(a.fechaAlta).getTime());
-  }, [clientes, facturas, suscripciones, desde, hasta]);
+  }, [clientes, facturas, ncPorFactura, suscripciones, desde, hasta]);
 
   const totalValorClientesNuevos = filasClientesPeriodo.reduce((s, r) => s + r.monto, 0);
   const nClientesNuevos = filasClientesPeriodo.length;
@@ -786,7 +801,9 @@ function DashComercial({
             </h2>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed" style={{ color: Z.muted }}>
               Altas con <strong style={{ color: Z.text }}>fecha de creación</strong> en el rango del filtro. Valor: suma de{" "}
-              <strong style={{ color: Z.text }}>facturas emitidas en el período</strong> por cliente; si no hay, suma de{" "}
+              <strong style={{ color: Z.text }}>facturas emitidas en el período</strong> por cliente (neto de{" "}
+              <strong style={{ color: Z.text }}>notas de crédito aprobadas</strong> por SET vinculadas a esas facturas; se excluyen
+              anuladas y corregidas por NC); si no hay, suma de{" "}
               <strong style={{ color: Z.text }}>precio de suscripción</strong> con alta o inicio en el período.
             </p>
           </div>
@@ -1662,6 +1679,7 @@ export default function DashboardPage() {
   const [prospectos,     setProspectos]     = useState<ProspectoRaw[]>([]);
   const [clientes,       setClientes]       = useState<ClienteRaw[]>([]);
   const [facturas,       setFacturas]       = useState<FacturaRaw[]>([]);
+  const [notasCredito,   setNotasCredito]   = useState<NotaCreditoDashRow[]>([]);
   const [suscripciones,  setSuscripciones]  = useState<SuscripcionDashRow[]>([]);
   const [pagos,          setPagos]          = useState<PagoRaw[]>([]);
   const [tipificaciones, setTipificaciones] = useState<TipificacionRaw[]>([]);
@@ -1698,6 +1716,7 @@ export default function DashboardPage() {
         setProspectos(data.prospectos);
         setClientes(data.clientes);
         setFacturas(data.facturas);
+        setNotasCredito(data.notas_credito ?? []);
         setSuscripciones(data.suscripciones);
         setPagos(data.pagos);
         setTipificaciones(data.tipificaciones);
@@ -1710,6 +1729,7 @@ export default function DashboardPage() {
         setProspectos([]);
         setClientes([]);
         setFacturas([]);
+        setNotasCredito([]);
         setSuscripciones([]);
         setPagos([]);
         setTipificaciones([]);
@@ -1861,6 +1881,7 @@ export default function DashboardPage() {
           periodo={periodo}
           config={config}
           facturas={facturas}
+          notasCredito={notasCredito}
           suscripciones={suscripciones}
         />
       )}

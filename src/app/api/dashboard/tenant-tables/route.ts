@@ -17,7 +17,8 @@ type TableKey =
   | "gastos"
   | "suscripciones"
   | "clientes_baja_mes"
-  | "suscripciones_canceladas";
+  | "suscripciones_canceladas"
+  | "notas_credito";
 
 /**
  * Antes: si **cualquier** consulta fallaba (p. ej. `clientes.deleted_at` inexistente en un tenant clonado),
@@ -69,6 +70,7 @@ export async function GET(request: NextRequest) {
       suscripcionesDashQ,
       bajasQ,
       suscBajasQ,
+      notaCreditoQ,
     ] = await Promise.all([
       /** Sin `.is("deleted_at", null)` en PostgREST: en tenants viejos la columna puede no existir y rompía todo el batch. */
       supabase.from("clientes").select("*").eq("empresa_id", empresaId),
@@ -96,6 +98,10 @@ export async function GET(request: NextRequest) {
         .select("cliente_id, precio")
         .eq("empresa_id", empresaId)
         .eq("estado", "cancelada"),
+      supabase
+        .from("nota_credito")
+        .select("id, factura_id, monto, estado_erp")
+        .eq("empresa_id", empresaId),
     ]);
 
     const queryErrors: Partial<Record<TableKey, string>> = {};
@@ -113,6 +119,7 @@ export async function GET(request: NextRequest) {
       suscripciones: pickRows("suscripciones", suscripcionesDashQ, queryErrors),
       clientes_baja_mes: pickRows("clientes_baja_mes", bajasQ, queryErrors),
       suscripciones_canceladas: pickRows("suscripciones_canceladas", suscBajasQ, queryErrors),
+      notas_credito: pickRows("notas_credito", notaCreditoQ, queryErrors),
       ...(Object.keys(queryErrors).length > 0 ? { query_errors: queryErrors } : {}),
       ...(includeDebug && dataSchema ? { _debug_data_schema: dataSchema, _debug_empresa_id: empresaId } : {}),
     };
