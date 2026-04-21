@@ -629,10 +629,21 @@ export default function FlowEditorPage() {
       setOptionPayloadDrafts((prev) => ({ ...prev, [liveOpt.id]: stringifyOptionPayload(payloadParsed) }));
     }
 
-    /** Lo que WhatsApp muestra como título del botón = columna `label`; debe reflejar opcion_label del modo simple / JSON. */
+    /**
+     * Fuente de verdad del texto visible (WhatsApp + columna `label`):
+     * 1) Campo «Texto del botón» (`liveOpt.label`) — si el usuario lo editó, gana sobre el borrador.
+     * 2) opcion_label ya resuelto en payload (modo avanzado / simple).
+     * Antes: `payloadOpc || top` hacía que un opcion_label viejo «Nueva opción» del borrador
+     * sobrescribiera el título nuevo aunque el usuario hubiera cambiado solo el input superior.
+     */
+    const topLabel = liveOpt.label.trim();
     const payloadOpc =
       typeof payloadParsed.opcion_label === "string" ? payloadParsed.opcion_label.trim() : "";
-    const effectiveDisplayLabel = (payloadOpc || liveOpt.label.trim()).slice(0, 500);
+    const effectiveDisplayLabel = (topLabel || payloadOpc).slice(0, 500);
+    if (!effectiveDisplayLabel) {
+      throw new Error("Completá el texto del botón u opción antes de guardar.");
+    }
+    payloadParsed = { ...payloadParsed, opcion_label: effectiveDisplayLabel };
 
     const metaButtonId = resolveUniqueMetaButtonId(live, liveOpt.id, effectiveDisplayLabel);
     const res = await fetchWithSupabaseSession(
@@ -675,6 +686,11 @@ export default function FlowEditorPage() {
   }
 
   async function createOption(node: FlowNode) {
+    if (node.node_type === "buttons" && node.options.length >= 10) {
+      throw new Error(
+        "WhatsApp admite como máximo 10 opciones en mensaje de lista. Eliminá una opción antes de agregar otra."
+      );
+    }
     // sort_order: evitar duplicados si hubo borrados (max + 1)
     const maxSort = node.options.reduce((m, o) => Math.max(m, o.sort_order ?? 0), 0);
     const sortOrder = maxSort + 1;
@@ -1618,13 +1634,48 @@ export default function FlowEditorPage() {
                   <div className="text-xs font-semibold text-slate-600 uppercase">
                     {node.node_type === "list" ? "Opciones de lista del cliente" : "Botones del cliente"}
                   </div>
+                  {node.node_type === "buttons" && (
+                    <p className="text-[11px] text-slate-700 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2 leading-snug">
+                      <span className="font-medium text-sky-900">WhatsApp Cloud API:</span> hasta{" "}
+                      <strong>3 respuestas tipo botón</strong> por mensaje. Con <strong>4 o más</strong> opciones se
+                      envía automáticamente un <strong>mensaje de lista interactiva</strong> (hasta{" "}
+                      <strong>10</strong> filas). El texto que ve el cliente es el del campo{" "}
+                      <strong>«Texto del botón»</strong>; guardá cada opción con el botón Guardar.
+                    </p>
+                  )}
                   {node.options.map((opt) => (
                     <div key={opt.id} className="grid grid-cols-1 md:grid-cols-4 gap-2 items-start">
                       <div>
                         <label className="block text-xs text-slate-500 mb-1">
                           {node.node_type === "list" ? "Texto de la opción" : "Texto del botón"}
                         </label>
-                        <input className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm w-full" value={opt.label} onChange={(e) => setNodes((prev) => prev.map((n) => n.id !== node.id ? n : ({ ...n, options: n.options.map((o) => o.id === opt.id ? { ...o, label: e.target.value } : o) } )))} placeholder={node.node_type === "list" ? "Ej: Plan Premium" : "Ej: Comprar entrada"} />
+                        <input
+                          className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm w-full"
+                          value={opt.label}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setNodes((prev) =>
+                              prev.map((n) =>
+                                n.id !== node.id
+                                  ? n
+                                  : {
+                                      ...n,
+                                      options: n.options.map((o) =>
+                                        o.id === opt.id ? { ...o, label: v } : o
+                                      ),
+                                    }
+                              )
+                            );
+                            setOptionSimpleDrafts((prev) => ({
+                              ...prev,
+                              [opt.id]: {
+                                ...(prev[opt.id] ?? toSimpleDraftFromPayload(opt)),
+                                opcion_label: v,
+                              },
+                            }));
+                          }}
+                          placeholder={node.node_type === "list" ? "Ej: Plan Premium" : "Ej: Comprar entrada"}
+                        />
                       </div>
                       <div>
                         <label className="block text-xs text-slate-500 mb-1">Va a</label>

@@ -5,7 +5,11 @@ import {
   mensajeClienteComprobanteNoValido,
   runComprobanteValidationPipeline,
 } from "@/lib/chat/comprobante-validation-service";
-import { sendWhatsAppInteractiveButtons, sendWhatsAppImage } from "@/lib/chat/whatsapp-send-service";
+import {
+  sendWhatsAppChoiceMessage,
+  sendWhatsAppImage,
+  sendWhatsAppInteractiveButtons,
+} from "@/lib/chat/whatsapp-send-service";
 import {
   resolveOutboundTextContextFromIds,
   sendOutboundTextMessage,
@@ -73,10 +77,12 @@ type FlowOption = {
 };
 
 /**
- * Texto del botón reply en WhatsApp: debe coincidir con lo configurado en el ERP.
- * Prioriza `option_payload.opcion_label` (modo simple del editor), luego promo/producto abreviado, luego `label`.
+ * Texto visible en WhatsApp (reply o fila de lista).
+ * Fuente de verdad **primaria**: columna `chat_flow_options.label` (campo «Texto del botón» en el ERP).
  */
 function whatsAppInteractiveTitleFromOption(o: FlowOption): string {
+  const labelCol = (o.label ?? "").trim();
+  if (labelCol) return labelCol;
   const pl = o.option_payload;
   if (pl && typeof pl === "object" && !Array.isArray(pl)) {
     const ol = (pl as Record<string, unknown>).opcion_label;
@@ -89,7 +95,7 @@ function whatsAppInteractiveTitleFromOption(o: FlowOption): string {
       return `${prod.trim()} ${monto}`.trim();
     }
   }
-  return (o.label ?? "").trim() || "Opción";
+  return "Opción";
 }
 
 type FlowNode = {
@@ -1057,7 +1063,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     // Compatibilidad: si el nodo aún no tiene bloques, mantiene comportamiento legacy.
     if (blocks.length === 0) {
       const bodyText = fallbackText;
-      if (node.node_type === "buttons") {
+      if (node.node_type === "buttons" || node.node_type === "list") {
         if (ctxSend.provider !== "meta") {
           return {
             ok: false,
@@ -1065,19 +1071,22 @@ export function createFlowEngine(ctx: FlowEngineContext) {
           };
         }
         const options = await getNodeOptions(node.id);
-        console.info("[flow-options]", "buttons_legacy_no_blocks", {
+        console.info("[flow-options]", "choices_legacy_no_blocks", {
           conversation_id: state.id,
           node_code: node.node_code,
+          node_type: node.node_type,
+          option_count: options.length,
           resolved_titles: options.map((o) => ({
             meta_button_id: o.meta_button_id,
             title: whatsAppInteractiveTitleFromOption(o),
           })),
         });
-        const send = await sendWhatsAppInteractiveButtons({
+        const send = await sendWhatsAppChoiceMessage({
           toDigits: ctxSend.toDigits,
           phoneNumberId: ctxSend.phoneNumberId,
           accessToken: ctxSend.token,
           bodyText,
+          listMenuButtonText: "Ver opciones",
           buttons: options.map((o) => ({
             id: o.meta_button_id,
             title: whatsAppInteractiveTitleFromOption(o),
@@ -1252,11 +1261,21 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         }
         const bodyTextRaw = block.content_text?.trim() || fallbackText;
         const bodyText = interpolateTemplate(bodyTextRaw, flowVars);
-        const send = await sendWhatsAppInteractiveButtons({
+        console.info("[flow-options]", "choices_block_buttons", {
+          conversation_id: state.id,
+          node_code: node.node_code,
+          option_count: options.length,
+          resolved_titles: options.map((o) => ({
+            meta_button_id: o.meta_button_id,
+            title: whatsAppInteractiveTitleFromOption(o),
+          })),
+        });
+        const send = await sendWhatsAppChoiceMessage({
           toDigits: ctxSend.toDigits,
           phoneNumberId: ctxSend.phoneNumberId,
           accessToken: ctxSend.token,
           bodyText,
+          listMenuButtonText: "Ver opciones",
           buttons: options.map((o) => ({
             id: o.meta_button_id,
             title: whatsAppInteractiveTitleFromOption(o),
