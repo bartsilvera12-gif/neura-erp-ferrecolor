@@ -92,6 +92,31 @@ export const SORTEO_COMPROBANTE_OCR_FECHA_FIELD = "sorteo_comprobante_ocr_fecha"
 export const SORTEO_COMPROBANTE_OCR_HORA_FIELD = "sorteo_comprobante_ocr_hora";
 export const SORTEO_COMPROBANTE_OCR_BANCO_FIELD = "sorteo_comprobante_ocr_banco";
 
+/** Fila de `chat_comprobante_validaciones` en el panel de conversaciones. */
+export type ComprobanteValidacionListRow = {
+  id: string;
+  estado_validacion: string;
+  motivo_validacion: string | null;
+  comprobante_url: string | null;
+  flow_code: string;
+  created_at: string;
+  ocr_referencia: string | null;
+  ocr_monto: string | null;
+  monto_validacion_esperado_gs: number | null;
+  monto_validacion_ocr_gs: number | null;
+  monto_validacion_diferencia_gs: number | null;
+  monto_validacion_status: string | null;
+  bank_val_titular_esperado: string | null;
+  bank_val_cuenta_esperada: string | null;
+  bank_val_alias_esperado: string | null;
+  bank_val_titular_ocr: string | null;
+  bank_val_cuenta_ocr: string | null;
+  bank_val_alias_ocr: string | null;
+  bank_val_coincidencias: number | null;
+  bank_val_min_requeridas: number | null;
+  bank_val_status: string | null;
+};
+
 export const DEFAULT_COMPROBANTE_VALIDATION_MESSAGES: ComprobanteValidationMessages = {
   hash_duplicado:
     "Este comprobante ya fue registrado en una compra anterior. Si es un error, enviá otro comprobante o hablá con un asesor.",

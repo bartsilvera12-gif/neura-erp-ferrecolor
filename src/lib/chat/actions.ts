@@ -9,6 +9,7 @@ import {
   SORTEO_COMPROBANTE_ESTADO_VALIDACION_FIELD,
   SORTEO_COMPROBANTE_MOTIVO_VALIDACION_FIELD,
   parseComprobanteValidationConfig,
+  type ComprobanteValidacionListRow,
 } from "@/lib/chat/comprobante-validation-types";
 import { requireEmpresaTenantServiceRole } from "@/lib/chat/empresa-tenant-service-role";
 import { isMissingColumnError } from "@/lib/chat/postgres-column-error";
@@ -43,6 +44,11 @@ import { pgMarkConversationUnreadZero, pgReleaseConversationToBot } from "@/lib/
 import { isInvalidPostgrestSchemaError } from "@/lib/chat/postgrest-schema-error";
 import { normalizeChannelType } from "@/lib/chat/channel-type-utils";
 import { fetchChatConversationsFromTenantPg } from "@/lib/chat/chat-inbox-fetch-pg";
+import {
+  pgApproveComprobanteValidacion,
+  pgConversationBelongsToEmpresa,
+  pgFetchComprobanteValidacionesForConversation,
+} from "@/lib/chat/chat-comprobante-validacion-pg";
 
 export type ConversacionesVista = "inbox" | "bot" | "historial";
 
@@ -1470,36 +1476,21 @@ export async function saveChatChannel(input: ChatChannelFormInput): Promise<stri
   return newId;
 }
 
-export type ComprobanteValidacionListRow = {
-  id: string;
-  estado_validacion: string;
-  motivo_validacion: string | null;
-  comprobante_url: string | null;
-  flow_code: string;
-  created_at: string;
-  ocr_referencia: string | null;
-  ocr_monto: string | null;
-  monto_validacion_esperado_gs: number | null;
-  monto_validacion_ocr_gs: number | null;
-  monto_validacion_diferencia_gs: number | null;
-  monto_validacion_status: string | null;
-  bank_val_titular_esperado: string | null;
-  bank_val_cuenta_esperada: string | null;
-  bank_val_alias_esperado: string | null;
-  bank_val_titular_ocr: string | null;
-  bank_val_cuenta_ocr: string | null;
-  bank_val_alias_ocr: string | null;
-  bank_val_coincidencias: number | null;
-  bank_val_min_requeridas: number | null;
-  bank_val_status: string | null;
-};
+export type { ComprobanteValidacionListRow };
 
 export async function fetchComprobanteValidacionesForConversation(
   conversationId: string
 ): Promise<ComprobanteValidacionListRow[]> {
-  const { supabase, empresa_id } = await requireEmpresaTenantServiceRole();
+  const { supabase, empresa_id, dataSchema } = await requireEmpresaTenantServiceRole();
   const cid = conversationId.trim();
   if (!cid) return [];
+
+  const pool = getChatPostgresPool();
+  if (pool && isLikelyUnexposedTenantChatSchema(dataSchema)) {
+    const ok = await pgConversationBelongsToEmpresa(pool, dataSchema, empresa_id, cid);
+    if (!ok) return [];
+    return pgFetchComprobanteValidacionesForConversation(pool, dataSchema, empresa_id, cid);
+  }
 
   const { data: conv, error: cErr } = await supabase
     .from("chat_conversations")
@@ -1524,9 +1515,15 @@ export async function fetchComprobanteValidacionesForConversation(
 }
 
 export async function approveComprobanteValidacion(validacionId: string): Promise<void> {
-  const { supabase, empresa_id } = await requireEmpresaTenantServiceRole();
+  const { supabase, empresa_id, dataSchema } = await requireEmpresaTenantServiceRole();
   const id = validacionId.trim();
   if (!id) throw new Error("ID de validación inválido");
+
+  const pool = getChatPostgresPool();
+  if (pool && isLikelyUnexposedTenantChatSchema(dataSchema)) {
+    await pgApproveComprobanteValidacion(pool, dataSchema, empresa_id, id);
+    return;
+  }
 
   const { data: row, error: qErr } = await supabase
     .from("chat_comprobante_validaciones")
