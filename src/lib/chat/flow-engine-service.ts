@@ -39,11 +39,19 @@ type ConversationFlowState = {
   contact_id: string;
   flow_code: string | null;
   flow_current_node: string | null;
-  flow_status: string;
+  flow_status: string | null;
   human_taken_over: boolean;
   /** Run activo: lecturas/escrituras de `chat_flow_data` solo bajo este id. */
   active_flow_session_id?: string | null;
 };
+
+/** `flow_status` null/vacío se trata como modo bot (filas legacy); solo `human` y takeover desactivan. */
+function isConversationInBotAutomationMode(
+  state: Pick<ConversationFlowState, "flow_status" | "human_taken_over">
+): boolean {
+  if (state.human_taken_over) return false;
+  return String(state.flow_status ?? "bot").trim().toLowerCase() !== "human";
+}
 
 export type ProcessInteractiveReplyParams = {
   conversationId: string;
@@ -574,7 +582,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
           acceptsInboundTextAsCapture: false,
         };
       }
-      if (state.flow_status !== "bot" || state.human_taken_over) {
+      if (!isConversationInBotAutomationMode(state)) {
         console.info(logPrefix, "skip: not_bot_mode", {
           conversationId: state.id,
           flow_status: state.flow_status,
@@ -1394,7 +1402,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     if (!state || state.empresa_id !== params.empresaId) {
       return { ok: false, status: "conversation_not_found", error: "Conversación no encontrada" };
     }
-    if (state.flow_status !== "bot" || state.human_taken_over) {
+    if (!isConversationInBotAutomationMode(state)) {
       await insertFlowEvent({
         empresaId: state.empresa_id,
         conversationId: state.id,
@@ -1846,7 +1854,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     if (!state || state.empresa_id !== params.empresaId) {
       return { ok: false, status: "conversation_not_found", error: "Conversación no encontrada" };
     }
-    if (state.flow_status !== "bot" || state.human_taken_over) {
+    if (!isConversationInBotAutomationMode(state)) {
       return { ok: true, status: "ignored_not_bot_mode" };
     }
     if (!state.flow_code || !state.flow_current_node) {
@@ -2034,12 +2042,12 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       });
       return { ok: false, status: "conversation_not_found", error: "Conversación no encontrada" };
     }
-    if (state.flow_status !== "bot" || state.human_taken_over) {
+    if (!isConversationInBotAutomationMode(state)) {
       console.info(FLOW_SORTEO_LOG, "processImageReply_early_exit", {
         status: "ignored_not_bot_mode",
         archivo: "src/lib/chat/flow-engine-service.ts",
         lineApprox: 1167,
-        condicion: "flow_status !== 'bot' || human_taken_over",
+        condicion: "!isConversationInBotAutomationMode(state)",
         conversationId: state.id,
         flow_status: state.flow_status,
         human_taken_over: state.human_taken_over,
