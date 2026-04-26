@@ -52,7 +52,8 @@ export async function PUT(
     if (typeof body.activo === "boolean") {
       patch.activo = body.activo;
     }
-    if (body.orden !== undefined) {
+    // `JSON.stringify` convierte `NaN` en `null`; no tratarlo como "orden=0" ni fallar.
+    if (body.orden !== undefined && body.orden !== null) {
       if (typeof body.orden === "number" && Number.isFinite(body.orden)) {
         patch.orden = Math.max(0, Math.min(32_000, Math.trunc(body.orden)));
       } else {

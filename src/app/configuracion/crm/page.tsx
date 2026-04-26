@@ -14,6 +14,18 @@ import {
 } from "@/lib/crm/etapas";
 import type { ClienteTipoServicioRow } from "@/lib/clientes/tipo-servicio-catalogo";
 
+/** Mensaje de error de respuestas JSON `{ success, error }` o texto. */
+async function leerErrorApiClientes(r: Response): Promise<string> {
+  const t = await r.text().catch(() => "");
+  try {
+    const j = JSON.parse(t) as { error?: string };
+    if (j && typeof j.error === "string" && j.error.trim()) return j.error.trim();
+  } catch {
+    /* no JSON */
+  }
+  return t.trim() || `Error ${r.status}`;
+}
+
 const FUENTE_ETAPAS_CONFIG =
   "GET /api/crm/etapas?config=1 → tabla crm_etapas (misma capa de datos que el Funnel; el dashboard no define etapas)";
 
@@ -28,7 +40,14 @@ export default function ConfiguracionCrmPipelinePage() {
   const [tiposServ, setTiposServ] = useState<ClienteTipoServicioRow[]>([]);
   const [cargandoTipos, setCargandoTipos] = useState(false);
   const [nuevoTipoNombre, setNuevoTipoNombre] = useState("");
-  const [editandoTipo, setEditandoTipo] = useState<string | null>(null);
+  /** Borrador al editar nombre/orden/activo (mismo `id` que el catálogo). */
+  const [borradorTipo, setBorradorTipo] = useState<{
+    id: string;
+    nombre: string;
+    orden: string;
+    activo: boolean;
+  } | null>(null);
+  const [busyTipoServ, setBusyTipoServ] = useState(false);
   const [mensajeTipos, setMensajeTipos] = useState<{ ok?: string; err?: string }>({});
 
   useEffect(() => {
@@ -70,11 +89,14 @@ export default function ConfiguracionCrmPipelinePage() {
   const loadTipos = useCallback(async () => {
     if (!rolCargado) return;
     setCargandoTipos(true);
-    setMensajeTipos((m) => ({ ...m, err: undefined, ok: undefined }));
     try {
       if (puedeConfig) {
         const r = await apiFetch("/api/cliente-tipos-servicio?all=1&with_usos=1");
-        if (!r.ok) throw new Error("No se pudo cargar el catálogo de tipos");
+        if (!r.ok) {
+          setTiposServ([]);
+          setMensajeTipos({ err: `No se pudo cargar el catálogo: ${await leerErrorApiClientes(r)}` });
+          return;
+        }
         const j = (await r.json()) as { success?: boolean; data?: ClienteTipoServicioRow[] };
         if (j?.success && Array.isArray(j.data)) setTiposServ([...j.data].sort((a, b) => a.orden - b.orden));
         else setTiposServ([]);
@@ -114,7 +136,7 @@ export default function ConfiguracionCrmPipelinePage() {
   }, [rolCargado, rolDetectado, puedeConfig, empresaIdCtx, etapasCrm.length, tiposServ.length]);
 
   const reordenarTipo = (rowId: string, direction: "up" | "down") => {
-    if (!puedeConfig) return;
+    if (!puedeConfig || busyTipoServ) return;
     const s = [...tiposServ].sort((a, b) => a.orden - b.orden);
     const i = s.findIndex((x) => x.id === rowId);
     if (i < 0) return;
@@ -125,24 +147,64 @@ export default function ConfiguracionCrmPipelinePage() {
     const ao = a.orden;
     const bo = b.orden;
     void (async () => {
-      setMensajeTipos({});
+      setBusyTipoServ(true);
+      setMensajeTipos({ err: undefined, ok: undefined });
       const r1 = await apiFetch(`/api/cliente-tipos-servicio/${a.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orden: bo }),
       });
+      if (!r1.ok) {
+        setMensajeTipos({ err: await leerErrorApiClientes(r1) });
+        setBusyTipoServ(false);
+        return;
+      }
       const r2 = await apiFetch(`/api/cliente-tipos-servicio/${b.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orden: ao }),
       });
-      if (r1.ok && r2.ok) {
-        setMensajeTipos({ ok: "Orden actualizado." });
-        void loadTipos();
-      } else {
-        const t = await r1.text().catch(() => "");
-        setMensajeTipos({ err: t || "No se pudo reordenar" });
+      if (!r2.ok) {
+        setMensajeTipos({ err: await leerErrorApiClientes(r2) });
+        setBusyTipoServ(false);
+        return;
       }
+      await loadTipos();
+      setMensajeTipos({ ok: "Orden actualizado correctamente." });
+      if (process.env.NODE_ENV === "development") {
+        console.debug("[config-crm][tipo-servicio] reordenar OK", { a: a.id, b: b.id, ao, bo });
+      }
+      setBusyTipoServ(false);
+    })();
+  };
+
+  const toggleActivoTipo = (t: ClienteTipoServicioRow, activo: boolean) => {
+    if (!puedeConfig || busyTipoServ) return;
+    void (async () => {
+      setBusyTipoServ(true);
+      setMensajeTipos({ err: undefined, ok: undefined });
+      const id = t.id;
+      const payload: { activo: boolean } = { activo };
+      if (process.env.NODE_ENV === "development") {
+        console.debug("[config-crm][tipo-servicio] toggleActivo", { id, payload });
+      }
+      const r = await apiFetch(`/api/cliente-tipos-servicio/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const resText = await r.clone().text();
+      if (process.env.NODE_ENV === "development") {
+        console.debug("[config-crm][tipo-servicio] toggleActivo resp", { id, status: r.status, body: resText });
+      }
+      if (!r.ok) {
+        setMensajeTipos({ err: await leerErrorApiClientes(r) });
+        setBusyTipoServ(false);
+        return;
+      }
+      await loadTipos();
+      setMensajeTipos({ ok: activo ? "Tipo activado correctamente." : "Tipo desactivado correctamente." });
+      setBusyTipoServ(false);
     })();
   };
 
@@ -361,13 +423,16 @@ export default function ConfiguracionCrmPipelinePage() {
             </p>
           ) : (
             <div className="space-y-2">
-              {[...tiposServ].sort((a, b) => a.orden - b.orden).map((t, idx, arr) => (
+              {[...tiposServ].sort((a, b) => a.orden - b.orden).map((t, idx, arr) => {
+                const editOpen = Boolean(puedeConfig && borradorTipo && borradorTipo.id === t.id);
+                const usos = t.usos ?? 0;
+                return (
                 <div key={t.id} className="flex items-start gap-2 rounded-lg border border-slate-100 bg-slate-50/50 p-3">
                   {puedeConfig && (
                     <div className="flex flex-col gap-0.5 pt-0.5" aria-label="Cambiar orden">
                       <button
                         type="button"
-                        disabled={idx === 0}
+                        disabled={idx === 0 || busyTipoServ}
                         onClick={() => reordenarTipo(t.id, "up")}
                         className="rounded border border-slate-200 px-1 text-xs leading-none text-slate-500 disabled:opacity-30"
                         aria-label="Subir"
@@ -376,7 +441,7 @@ export default function ConfiguracionCrmPipelinePage() {
                       </button>
                       <button
                         type="button"
-                        disabled={idx === arr.length - 1}
+                        disabled={idx === arr.length - 1 || busyTipoServ}
                         onClick={() => reordenarTipo(t.id, "down")}
                         className="rounded border border-slate-200 px-1 text-xs leading-none text-slate-500 disabled:opacity-30"
                         aria-label="Bajar"
@@ -386,46 +451,99 @@ export default function ConfiguracionCrmPipelinePage() {
                     </div>
                   )}
                   <div className="min-w-0 flex-1">
-                    {puedeConfig && editandoTipo === t.id ? (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <input id={`nmt-${t.id}`} defaultValue={t.nombre} className="w-40 rounded border px-2 py-1 text-sm" />
-                        <input id={`ord-${t.id}`} type="number" defaultValue={t.orden} className="w-16 rounded border px-2 py-1 text-sm" />
-                        <label className="flex items-center gap-1 text-xs">
-                          <input type="checkbox" id={`ac-${t.id}`} defaultChecked={t.activo} />
-                          Activo
-                        </label>
-                        <button
-                          type="button"
-                          className="text-xs font-medium text-green-600"
-                          onClick={async () => {
-                            setMensajeTipos({});
-                            const nombre = (document.getElementById(`nmt-${t.id}`) as HTMLInputElement)?.value?.trim();
-                            const ord = parseInt(
-                              (document.getElementById(`ord-${t.id}`) as HTMLInputElement)?.value ?? "0",
-                              10
-                            );
-                            const activo = (document.getElementById(`ac-${t.id}`) as HTMLInputElement)?.checked ?? true;
-                            if (!nombre) return;
-                            const r = await apiFetch(`/api/cliente-tipos-servicio/${t.id}`, {
-                              method: "PUT",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ nombre, orden: ord, activo }),
-                            });
-                            if (r.ok) {
-                              setMensajeTipos({ ok: "Cambios guardados." });
-                              setEditandoTipo(null);
-                              void loadTipos();
-                            } else {
-                              const j = (await r.json().catch(() => ({}))) as { error?: string };
-                              setMensajeTipos({ err: j.error ?? "No se pudo guardar" });
-                            }
-                          }}
-                        >
-                          Guardar
-                        </button>
-                        <button type="button" className="text-xs text-slate-500" onClick={() => setEditandoTipo(null)}>
-                          Cancelar
-                        </button>
+                    {editOpen && borradorTipo ? (
+                      <div className="flex flex-col gap-2">
+                        <p className="text-[10px] text-slate-500">
+                          <span className="font-mono">slug: {t.slug}</span>{" "}
+                          {t.es_sistema ? "· fijo; solo nombre visible y orden" : "· no editable; se fija al crear"}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <input
+                            value={borradorTipo.nombre}
+                            onChange={(e) => setBorradorTipo((d) => (d ? { ...d, nombre: e.target.value } : d))}
+                            className="w-48 min-w-0 rounded border px-2 py-1 text-sm"
+                            aria-label="Nombre visible"
+                          />
+                          <input
+                            value={borradorTipo.orden}
+                            onChange={(e) => setBorradorTipo((d) => (d ? { ...d, orden: e.target.value } : d))}
+                            type="text"
+                            inputMode="numeric"
+                            className="w-16 rounded border px-2 py-1 text-sm"
+                            aria-label="Orden"
+                          />
+                          <label className="flex items-center gap-1 text-xs">
+                            <input
+                              type="checkbox"
+                              checked={borradorTipo.activo}
+                              onChange={(e) => setBorradorTipo((d) => (d ? { ...d, activo: e.target.checked } : d))}
+                            />
+                            Activo
+                          </label>
+                          <button
+                            type="button"
+                            disabled={busyTipoServ}
+                            className="text-xs font-medium text-green-600 disabled:opacity-50"
+                            onClick={async () => {
+                              if (!borradorTipo.nombre.trim()) {
+                                setMensajeTipos({ err: "El nombre es obligatorio." });
+                                return;
+                              }
+                              setMensajeTipos({ err: undefined, ok: undefined });
+                              setBusyTipoServ(true);
+                              const ordStr = borradorTipo.orden.trim();
+                              const ordParsed = parseInt(ordStr, 10);
+                              const body: { nombre: string; activo: boolean; orden?: number } = {
+                                nombre: borradorTipo.nombre.trim(),
+                                activo: borradorTipo.activo,
+                              };
+                              if (ordStr !== "" && !Number.isNaN(ordParsed) && Number.isFinite(ordParsed)) {
+                                body.orden = Math.trunc(ordParsed);
+                              }
+                              const id = t.id;
+                              if (process.env.NODE_ENV === "development") {
+                                console.debug("[config-crm][tipo-servicio] PUT", { id, payload: body });
+                              }
+                              const r = await apiFetch(`/api/cliente-tipos-servicio/${id}`, {
+                                method: "PUT",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify(body),
+                              });
+                              const resClone = r.clone();
+                              const raw = await resClone.text();
+                              if (process.env.NODE_ENV === "development") {
+                                let parsed: unknown = raw;
+                                try { parsed = JSON.parse(raw) as unknown; } catch { /* */ }
+                                console.debug("[config-crm][tipo-servicio] PUT respuesta", { id, status: r.status, cuerpo: parsed });
+                                if (!r.ok) {
+                                  console.debug("[config-crm][tipo-servicio] PUT error", { id, status: r.status, raw });
+                                }
+                              }
+                              if (!r.ok) {
+                                setMensajeTipos({ err: await leerErrorApiClientes(r) });
+                                setBusyTipoServ(false);
+                                return;
+                              }
+                              setBorradorTipo(null);
+                              await loadTipos();
+                              setMensajeTipos({ ok: "Tipo actualizado correctamente." });
+                              setBusyTipoServ(false);
+                            }}
+                          >
+                            Guardar
+                          </button>
+                          <button
+                            type="button"
+                            className="text-xs text-slate-500"
+                            disabled={busyTipoServ}
+                            onClick={() => {
+                              setBorradorTipo(null);
+                              setMensajeTipos({ err: undefined, ok: undefined });
+                            }}
+                          >
+                            Cancelar
+                          </button>
+                        </div>
                       </div>
                     ) : (
                       <>
@@ -438,50 +556,92 @@ export default function ConfiguracionCrmPipelinePage() {
                           {typeof t.usos === "number" ? ` · ${t.usos} cliente(s)` : null}
                           {!t.activo && <span className="ml-1 text-amber-600">· inactivo</span>}
                         </p>
+                        {puedeConfig && (t.usos ?? 0) > 0 && t.es_sistema && (
+                          <p className="mt-1 text-[10px] text-slate-500">
+                            Con clientes: podés <strong>desactivar</strong> el segmento; no se puede eliminar el slug de
+                            sistema.
+                          </p>
+                        )}
+                        {puedeConfig && (t.usos ?? 0) > 0 && !t.es_sistema && (
+                          <p className="mt-1 text-[10px] text-amber-800/90">
+                            No se puede eliminar porque tiene {usos} cliente(s) vinculado(s). Podés desactivarlo o reasignar
+                            esos clientes a otro segmento.
+                          </p>
+                        )}
                       </>
                     )}
                   </div>
-                  {puedeConfig && editandoTipo !== t.id && (
-                    <div className="flex flex-wrap gap-1">
+                  {puedeConfig && !editOpen && (
+                    <div className="flex min-w-0 max-w-[11rem] flex-col gap-1 text-right sm:max-w-none sm:flex-row sm:items-center sm:justify-end sm:gap-1.5">
                       <button
                         type="button"
-                        className="text-xs text-slate-500 hover:text-slate-800"
+                        className="whitespace-nowrap text-xs text-slate-500 hover:text-slate-800 disabled:opacity-50"
+                        disabled={busyTipoServ}
                         onClick={() => {
-                          setMensajeTipos({});
-                          setEditandoTipo(t.id);
+                          setMensajeTipos({ err: undefined, ok: undefined });
+                          setBorradorTipo({ id: t.id, nombre: t.nombre, orden: String(t.orden), activo: t.activo });
                         }}
                       >
                         Editar
                       </button>
-                      {!t.es_sistema && (
+                      {t.activo ? (
                         <button
                           type="button"
-                          className="text-xs text-red-500 hover:text-red-700"
+                          className="whitespace-nowrap text-xs text-amber-700 hover:underline disabled:opacity-50"
+                          disabled={busyTipoServ}
+                          onClick={() => toggleActivoTipo(t, false)}
+                        >
+                          Desactivar
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="whitespace-nowrap text-xs text-emerald-700 hover:underline disabled:opacity-50"
+                          disabled={busyTipoServ}
+                          onClick={() => toggleActivoTipo(t, true)}
+                        >
+                          Activar
+                        </button>
+                      )}
+                      {!t.es_sistema && usos === 0 && (
+                        <button
+                          type="button"
+                          className="whitespace-nowrap text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
+                          disabled={busyTipoServ}
                           onClick={async () => {
-                            if ((t.usos ?? 0) > 0) {
-                              setMensajeTipos({ err: "Hay clientes con este segmento. Reasignalos o desactivá en lugar de borrar." });
+                            if (!window.confirm("¿Eliminar permanentemente este segmento? (sin clientes vinculados)")) {
                               return;
                             }
-                            if (!window.confirm("¿Eliminar este segmento? No debe tener clientes asignados.")) return;
-                            setMensajeTipos({});
-                            const r = await apiFetch(`/api/cliente-tipos-servicio/${t.id}`, { method: "DELETE" });
-                            if (r.ok) {
-                              setMensajeTipos({ ok: "Segmento eliminado." });
-                              void loadTipos();
-                            } else {
-                              const j = (await r.json().catch(() => ({}))) as { error?: string };
-                              setMensajeTipos({ err: j.error ?? "No se pudo eliminar" });
+                            setMensajeTipos({ err: undefined, ok: undefined });
+                            setBusyTipoServ(true);
+                            if (process.env.NODE_ENV === "development") {
+                              console.debug("[config-crm][tipo-servicio] DELETE", { id: t.id });
                             }
+                            const r = await apiFetch(`/api/cliente-tipos-servicio/${t.id}`, { method: "DELETE" });
+                            const raw = await r.clone().text();
+                            if (process.env.NODE_ENV === "development") {
+                              let parsed: unknown = raw;
+                              try { parsed = JSON.parse(raw) as unknown; } catch { /* */ }
+                              console.debug("[config-crm][tipo-servicio] DELETE resp", { id: t.id, status: r.status, cuerpo: parsed });
+                            }
+                            if (!r.ok) {
+                              setMensajeTipos({ err: await leerErrorApiClientes(r) });
+                              setBusyTipoServ(false);
+                              return;
+                            }
+                            await loadTipos();
+                            setMensajeTipos({ ok: "Segmento eliminado correctamente." });
+                            setBusyTipoServ(false);
                           }}
-                          disabled={(t.usos ?? 0) > 0}
                         >
-                          Borrar
+                          Eliminar
                         </button>
                       )}
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
 
               {puedeConfig && (
                 <div className="mt-2 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3">
@@ -492,27 +652,46 @@ export default function ConfiguracionCrmPipelinePage() {
                       onChange={(e) => setNuevoTipoNombre(e.target.value)}
                       placeholder="Ej. Consultoría contable"
                       className="w-56 rounded border px-2 py-1.5 text-sm"
+                      disabled={busyTipoServ}
                     />
                   </div>
                   <button
                     type="button"
-                    className="rounded bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-900"
+                    disabled={busyTipoServ}
+                    className="rounded bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-900 disabled:opacity-50"
                     onClick={async () => {
                       if (!nuevoTipoNombre.trim()) return;
-                      setMensajeTipos({});
+                      setMensajeTipos({ err: undefined, ok: undefined });
+                      setBusyTipoServ(true);
+                      const nombre = nuevoTipoNombre.trim();
+                      if (process.env.NODE_ENV === "development") {
+                        console.debug("[config-crm][tipo-servicio] POST", { payload: { nombre } });
+                      }
                       const r = await apiFetch("/api/cliente-tipos-servicio", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ nombre: nuevoTipoNombre.trim() }),
+                        body: JSON.stringify({ nombre }),
                       });
-                      if (r.ok) {
-                        setMensajeTipos({ ok: "Segmento creado. Ya podés asignarlo en clientes." });
-                        setNuevoTipoNombre("");
-                        void loadTipos();
-                      } else {
-                        const j = (await r.json().catch(() => ({}))) as { error?: string };
-                        setMensajeTipos({ err: j.error?.trim() ? j.error : "Error al crear" });
+                      const raw = await r.clone().text();
+                      if (process.env.NODE_ENV === "development") {
+                        let parsed: unknown = raw;
+                        try { parsed = JSON.parse(raw) as unknown; } catch { /* */ }
+                        console.debug("[config-crm][tipo-servicio] POST respuesta", { status: r.status, cuerpo: parsed });
+                        if (!r.ok) {
+                          console.debug("[config-crm][tipo-servicio] POST error", { status: r.status, raw });
+                        }
                       }
+                      if (!r.ok) {
+                        setMensajeTipos({ err: await leerErrorApiClientes(r) });
+                        setBusyTipoServ(false);
+                        return;
+                      }
+                      setNuevoTipoNombre("");
+                      await loadTipos();
+                      setMensajeTipos({
+                        ok: "Segmento creado correctamente. Debería aparecer en Clientes → Nuevo al recargar la página de alta.",
+                      });
+                      setBusyTipoServ(false);
                     }}
                   >
                     Agregar tipo
