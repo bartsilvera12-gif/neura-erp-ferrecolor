@@ -30,7 +30,6 @@ import {
   WEBHOOK_IMMEDIATE_HANDOFF_BUTTON_IDS,
 } from "@/lib/chat/resolve-whatsapp-active-flow";
 import { runWhatsappBusinessAutomationAfterInbound } from "@/lib/chat/channel-business-automation-runtime";
-import { sendWhatsAppText } from "@/lib/chat/whatsapp-send-service";
 import { ensureWhatsappInboundCrmLeadPg } from "@/lib/crm/whatsapp-inbound-lead-pg";
 import { ensureWhatsappInboundCrmProspecto } from "@/lib/crm/whatsapp-inbound-lead";
 import type {
@@ -167,6 +166,26 @@ export function extractInboundComprobanteMedia(msg: MetaInboundMessage): {
     };
   }
   return null;
+}
+
+/** Evita reprocesar la misma imagen si ya hay image_received con este wa_message_id (reintentos webhook). */
+async function flowImageInboundAlreadyRecorded(
+  supabase: SupabaseAdmin,
+  conversationId: string,
+  waMessageId: string
+): Promise<boolean> {
+  const { data: rows, error } = await supabase
+    .from("chat_flow_events")
+    .select("payload")
+    .eq("conversation_id", conversationId)
+    .eq("event_type", "image_received")
+    .order("created_at", { ascending: false })
+    .limit(25);
+  if (error || !rows?.length) return false;
+  return rows.some((r) => {
+    const p = r.payload as Record<string, unknown> | null | undefined;
+    return typeof p?.wa_message_id === "string" && p.wa_message_id === waMessageId;
+  });
 }
 
 function extractMetaButtonId(msg: MetaInboundMessage): string | null {
@@ -1238,37 +1257,135 @@ export async function processInboundWebhookValue(
               }
             }
           } else {
-            const comprobanteMedia = extractInboundComprobanteMedia(msg);
-            if (comprobanteMedia) {
-              const imageResult = await flowEngine.processImageReply({
-                conversationId,
-                empresaId,
-                mediaId: comprobanteMedia.mediaId,
-                mimeType: comprobanteMedia.mimeType,
-                caption: comprobanteMedia.caption,
-                rawPayload: msg as unknown as Record<string, unknown>,
-              });
-              console.info(logW, "flow_result: comprobante_media", {
-                conversationId,
-                mediaId: comprobanteMedia.mediaId,
-                sourceType: comprobanteMedia.sourceType,
-                messageTypeFromMeta: msg.type ?? null,
-                status: imageResult.status,
-                nextNodeCode: imageResult.nextNodeCode ?? null,
-              });
-              if (!imageResult.ok) {
-                errors.push(`Flow comprobante: ${imageResult.error ?? imageResult.status}`);
-              }
-            } else if (message_type === "image" || message_type === "document") {
+            const hasMediaSlot = extractInboundComprobanteMedia(msg);
+            if (!hasMediaSlot && (message_type === "image" || message_type === "document")) {
               errors.push(
                 `Flow comprobante: tipo ${message_type} pero falta media id en payload (revisar shape Meta/n8n)`
               );
-            } else {
+            } else if (!hasMediaSlot) {
               console.info(logW, "no_typed_flow_handler", {
                 conversationId,
                 message_type,
               });
             }
+            /* Imagen/documento con media_id: bloque unificado [flow-image-input] debajo (corre también con away/skipFlow). */
+          }
+        }
+      }
+
+      /**
+       * Comprobante imagen/documento: debe ejecutarse incluso si `skipFlowForBusinessAutomation`
+       * evitó el bloque anterior (fuera de horario / away sin interactivo).
+       */
+      const comprobanteUnified = extractInboundComprobanteMedia(msg);
+      if (
+        comprobanteUnified &&
+        !interactiveInboundMetaId &&
+        !keywordHandoffPendingConfirmation
+      ) {
+        const fsImg = String((existingConv as { flow_status?: string | null }).flow_status ?? "bot")
+          .trim()
+          .toLowerCase();
+        const htImg = Boolean((existingConv as { human_taken_over?: boolean | null }).human_taken_over);
+
+        console.info("[flow-image-input]", "[candidate]", {
+          conversationId,
+          waMessageId: waMid,
+          mediaId: comprobanteUnified.mediaId,
+          message_type,
+          skipFlowForBusinessAutomation,
+          flow_status: fsImg,
+          human_taken_over: htImg,
+          flow_current_node:
+            (existingConv as { flow_current_node?: string | null }).flow_current_node ?? null,
+        });
+
+        let skippedReason: string | null = null;
+        if (htImg || fsImg === "human") {
+          skippedReason = "human_mode";
+        }
+
+        let fallbackPublicUrl: string | undefined;
+        let fallbackMimeType: string | undefined;
+        if (inboundRowId) {
+          const { data: msgRow } = await supabase
+            .from("chat_messages")
+            .select("raw_payload")
+            .eq("id", inboundRowId)
+            .maybeSingle();
+          const rp = msgRow?.raw_payload as Record<string, unknown> | undefined;
+          const erp = rp?.erp as Record<string, unknown> | undefined;
+          if (erp && typeof erp.public_url === "string" && erp.public_url.trim()) {
+            fallbackPublicUrl = erp.public_url.trim();
+          }
+          if (erp && typeof erp.mime_type === "string" && erp.mime_type.trim()) {
+            fallbackMimeType = erp.mime_type.trim();
+          }
+        }
+
+        if (!skippedReason) {
+          const dupEv = await flowImageInboundAlreadyRecorded(supabase, conversationId, waMid);
+          if (dupEv) {
+            skippedReason = "already_recorded_image_received";
+          }
+        }
+
+        if (skippedReason) {
+          console.info("[flow-image-input]", "[skipped-reason]", {
+            conversationId,
+            waMessageId: waMid,
+            skippedReason,
+          });
+        } else {
+          console.info("[flow-image-input]", "[calling-processImageReply]", {
+            conversationId,
+            waMessageId: waMid,
+            hasFallbackUrl: Boolean(fallbackPublicUrl),
+          });
+          try {
+            const imageUnifiedResult = await flowEngine.processImageReply({
+              conversationId,
+              empresaId,
+              mediaId: comprobanteUnified.mediaId,
+              mimeType: comprobanteUnified.mimeType,
+              caption: comprobanteUnified.caption,
+              rawPayload: msg as unknown as Record<string, unknown>,
+              fallbackPublicUrl: fallbackPublicUrl ?? null,
+              fallbackMimeType: fallbackMimeType ?? null,
+              waMessageId: waMid,
+            });
+            console.info("[flow-image-input]", "[result]", {
+              conversationId,
+              waMessageId: waMid,
+              ok: imageUnifiedResult.ok,
+              status: imageUnifiedResult.status,
+              nextNodeCode: imageUnifiedResult.nextNodeCode ?? null,
+            });
+            console.info(logW, "flow_result: comprobante_media_unified", {
+              conversationId,
+              mediaId: comprobanteUnified.mediaId,
+              sourceType: comprobanteUnified.sourceType,
+              messageTypeFromMeta: msg.type ?? null,
+              status: imageUnifiedResult.status,
+              nextNodeCode: imageUnifiedResult.nextNodeCode ?? null,
+            });
+            if (!imageUnifiedResult.ok) {
+              errors.push(`Flow comprobante: ${imageUnifiedResult.error ?? imageUnifiedResult.status}`);
+              console.warn("[flow-image-input]", "[error]", {
+                conversationId,
+                waMessageId: waMid,
+                status: imageUnifiedResult.status,
+                error: imageUnifiedResult.error ?? null,
+              });
+            }
+          } catch (imgEx) {
+            const em = imgEx instanceof Error ? imgEx.message : String(imgEx);
+            errors.push(`Flow comprobante: ${em}`);
+            console.error("[flow-image-input]", "[error]", {
+              conversationId,
+              waMessageId: waMid,
+              exception: em,
+            });
           }
         }
       }

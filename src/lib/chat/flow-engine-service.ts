@@ -18,7 +18,6 @@ import {
   ycloudOutboundUnsupportedMessage,
 } from "@/lib/chat/outbound-send-dispatch";
 import type { SupabaseAdmin } from "@/lib/chat/types";
-import { normalizeWaPhone } from "@/lib/chat/whatsapp-webhook-service";
 import { ensureActiveFlowSessionForConversation } from "@/lib/chat/flow-session-service";
 import {
   applySorteoInteractiveCommercialContract,
@@ -143,6 +142,11 @@ export type ProcessImageReplyParams = {
   mimeType?: string | null;
   caption?: string | null;
   rawPayload: Record<string, unknown>;
+  /** URL ya subida por attachInboundMessageMedia (Graph alternativo si falla descarga por media_id). */
+  fallbackPublicUrl?: string | null;
+  fallbackMimeType?: string | null;
+  /** Idempotencia / auditoría en chat_flow_events.image_received */
+  waMessageId?: string | null;
 };
 
 export type EnsureInboundPresentParams = {
@@ -2103,11 +2107,58 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       });
       return { ok: true, status: "ignored_ycloud_image_pipeline" };
     }
-    const media = await downloadMetaMedia({
-      mediaId: params.mediaId,
-      accessToken: sendCtx.token,
-      mimeTypeHint: params.mimeType ?? null,
-    });
+
+    let media: { bytes: Uint8Array; mimeType: string };
+    try {
+      media = await downloadMetaMedia({
+        mediaId: params.mediaId,
+        accessToken: sendCtx.token,
+        mimeTypeHint: params.mimeType ?? null,
+      });
+    } catch (graphErr) {
+      const fb = params.fallbackPublicUrl?.trim();
+      const graphMsg = graphErr instanceof Error ? graphErr.message : String(graphErr);
+      if (fb && /^https:\/\//i.test(fb)) {
+        console.warn("[flow-image-input]", "[graph-fallback]", {
+          conversationId: state.id,
+          mediaId: params.mediaId,
+          graphError: graphMsg.slice(0, 240),
+        });
+        try {
+          const binRes = await fetch(fb);
+          if (!binRes.ok) {
+            return {
+              ok: false,
+              status: "graph_and_fallback_fetch_failed",
+              error: `Graph: ${graphMsg.slice(0, 120)}; fallback HTTP ${binRes.status}`,
+            };
+          }
+          const arr = new Uint8Array(await binRes.arrayBuffer());
+          const ct = binRes.headers.get("content-type")?.split(";")[0]?.trim();
+          media = {
+            bytes: arr,
+            mimeType:
+              ct ||
+              params.fallbackMimeType?.trim() ||
+              params.mimeType?.trim() ||
+              "image/jpeg",
+          };
+        } catch (fe) {
+          const fm = fe instanceof Error ? fe.message : String(fe);
+          return {
+            ok: false,
+            status: "fallback_fetch_failed",
+            error: `${graphMsg.slice(0, 80)} | fallback: ${fm}`,
+          };
+        }
+      } else {
+        return {
+          ok: false,
+          status: "graph_download_failed",
+          error: graphMsg,
+        };
+      }
+    }
     const mimeNorm = (media.mimeType || "").toLowerCase();
     if (!isComprobanteMimeAccepted(media.mimeType)) {
       const reminder = await buildImageInputReminderText(
@@ -2288,6 +2339,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       flowSessionId: imgFlowSid,
       eventType: "image_received",
       payload: {
+        wa_message_id: params.waMessageId ?? null,
         media_id: params.mediaId,
         mime_type: media.mimeType,
         caption: params.caption ?? null,
