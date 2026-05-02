@@ -5,10 +5,7 @@ import {
   mergeCustomTemplateFields,
   type SorteoTicketImageConfig,
 } from "@/lib/sorteos/sorteo-ticket-types";
-import {
-  getSorteoTicketSvgEmbeddedFontCss,
-  SORTEO_TICKET_FONT_FAMILY,
-} from "@/lib/sorteos/sorteo-ticket-svg-font";
+import { svgTextAsPath } from "@/lib/sorteos/sorteo-ticket-text-path";
 
 export type SorteoTicketRenderInput = {
   empresaNombre: string;
@@ -37,15 +34,6 @@ const HA = 1350;
 const PAD = 48;
 const CARD_RX = 28;
 
-function esc(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 function initials(name: string): string {
   const p = name.trim().split(/\s+/).filter(Boolean);
   if (p.length === 0) return "?";
@@ -58,21 +46,35 @@ function dataUrlFromBuffer(buf: Buffer, mime: string): string {
   return `data:${mime};base64,${b64}`;
 }
 
-/** Cupón(es): tipografía grande, centrado en bloque */
+/** Cupón(es): tipografía grande, centrado en bloque (paths: librsvg ignora &lt;text&gt;+fuentes) */
 function cuponesAutoSvg(
   cupones: string[],
   yStart: number,
   primary: string,
   accent: string
 ): string {
-  const ff = SORTEO_TICKET_FONT_FAMILY;
+  const cx = WA / 2;
   if (cupones.length === 0) {
-    return `<text font-family="${ff}" x="${WA / 2}" y="${yStart}" text-anchor="middle" font-size="36" fill="${accent}">—</text>`;
+    return svgTextAsPath({
+      text: "—",
+      x: cx,
+      y: yStart,
+      fontSize: 36,
+      weight: 600,
+      fill: accent,
+      textAnchor: "middle",
+    });
   }
   if (cupones.length === 1) {
-    return `<text font-family="${ff}" x="${WA / 2}" y="${yStart + 80}" text-anchor="middle" font-size="72" font-weight="800" letter-spacing="2" fill="${primary}">${esc(
-      cupones[0]!
-    )}</text>`;
+    return svgTextAsPath({
+      text: cupones[0]!,
+      x: cx,
+      y: yStart + 80,
+      fontSize: 72,
+      weight: 800,
+      fill: primary,
+      textAnchor: "middle",
+    });
   }
   const lines: string[] = [];
   let y = yStart;
@@ -80,16 +82,32 @@ function cuponesAutoSvg(
   const step = fs + 14;
   for (const c of cupones.slice(0, 24)) {
     lines.push(
-      `<text font-family="${ff}" x="${WA / 2}" y="${y}" text-anchor="middle" font-size="${fs}" font-weight="700" fill="${primary}">${esc(c)}</text>`
+      svgTextAsPath({
+        text: c,
+        x: cx,
+        y,
+        fontSize: fs,
+        weight: 700,
+        fill: primary,
+        textAnchor: "middle",
+      })
     );
     y += step;
   }
   if (cupones.length > 24) {
     lines.push(
-      `<text font-family="${ff}" x="${WA / 2}" y="${y + 20}" text-anchor="middle" font-size="22" font-weight="600" fill="${accent}">+${cupones.length - 24} más</text>`
+      svgTextAsPath({
+        text: `+${cupones.length - 24} más`,
+        x: cx,
+        y: y + 20,
+        fontSize: 22,
+        weight: 600,
+        fill: accent,
+        textAnchor: "middle",
+      })
     );
   }
-  return lines.join("\n");
+  return lines.filter(Boolean).join("\n");
 }
 
 /**
@@ -121,7 +139,15 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
     } else {
       const ini = initials(input.clienteNombre || input.empresaNombre);
       headerLogo = `<rect x="${(WA - 200) / 2}" y="${PAD}" width="200" height="200" rx="24" fill="#e2e8f0"/>
-        <text font-family="${SORTEO_TICKET_FONT_FAMILY}" x="${WA / 2}" y="${PAD + 120}" text-anchor="middle" font-size="64" font-weight="800" fill="#475569">${esc(ini)}</text>`;
+        ${svgTextAsPath({
+          text: ini,
+          x: WA / 2,
+          y: PAD + 120,
+          fontSize: 64,
+          weight: 800,
+          fill: "#475569",
+          textAnchor: "middle",
+        })}`;
     }
   }
 
@@ -156,10 +182,25 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
   let rowY = cardTop + 56;
   const rowSvg = rows
     .map((r) => {
-      const block = `<text x="${cardX + 36}" y="${rowY}" font-size="22" font-weight="600" fill="${secondary}">${esc(
-        r.label
-      )}</text>
-      <text x="${cardX + 36}" y="${rowY + 28}" font-size="30" font-weight="700" fill="${primary}">${esc(r.value)}</text>`;
+      const labelPath = svgTextAsPath({
+        text: r.label,
+        x: cardX + 36,
+        y: rowY,
+        fontSize: 22,
+        weight: 600,
+        fill: secondary,
+        textAnchor: "start",
+      });
+      const valuePath = svgTextAsPath({
+        text: r.value,
+        x: cardX + 36,
+        y: rowY + 28,
+        fontSize: 30,
+        weight: 700,
+        fill: primary,
+        textAnchor: "start",
+      });
+      const block = `${labelPath}\n${valuePath}`;
       rowY += 78;
       return block;
     })
@@ -170,21 +211,21 @@ export function buildSorteoTicketSvg(input: SorteoTicketRenderInput): string {
   const cupones = showCup ? input.cupones.filter((c) => String(c).trim()) : [];
   const cupSvg =
     cupones.length > 0
-      ? `<text font-family="${SORTEO_TICKET_FONT_FAMILY}" x="${WA / 2}" y="${cupY}" text-anchor="middle" font-size="26" font-weight="700" fill="${accent}" letter-spacing="0.05em">CUPONES</text>
+      ? `${svgTextAsPath({
+          text: "CUPONES",
+          x: WA / 2,
+          y: cupY,
+          fontSize: 26,
+          weight: 700,
+          fill: accent,
+          textAnchor: "middle",
+        })}
   ${cuponesAutoSvg(cupones, cupY + 40, primary, secondary)}`
       : "";
 
-  const fontCss = getSorteoTicketSvgEmbeddedFontCss();
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${WA}" height="${HA}" viewBox="0 0 ${WA} ${HA}">
   <defs>
-    ${
-      fontCss
-        ? `<style type="text/css"><![CDATA[
-${fontCss}
-]]></style>`
-        : ""
-    }
     <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
       <feDropShadow dx="0" dy="12" stdDeviation="18" flood-opacity="0.12"/>
     </filter>
@@ -192,21 +233,47 @@ ${fontCss}
   <rect width="${WA}" height="${HA}" fill="${bg}"/>
   ${bgPattern}
   ${headerLogo}
-  <text font-family="${SORTEO_TICKET_FONT_FAMILY}" x="${WA / 2}" y="${yHeader}" text-anchor="middle" font-size="28" font-weight="700" fill="${secondary}">${esc(
-    input.empresaNombre
-  )}</text>
-  <text font-family="${SORTEO_TICKET_FONT_FAMILY}" x="${WA / 2}" y="${yHeader + 42}" text-anchor="middle" font-size="40" font-weight="800" fill="${primary}">${esc(
-    title
-  )}</text>
+  ${svgTextAsPath({
+    text: input.empresaNombre,
+    x: WA / 2,
+    y: yHeader,
+    fontSize: 28,
+    weight: 700,
+    fill: secondary,
+    textAnchor: "middle",
+  })}
+  ${svgTextAsPath({
+    text: title,
+    x: WA / 2,
+    y: yHeader + 42,
+    fontSize: 40,
+    weight: 800,
+    fill: primary,
+    textAnchor: "middle",
+  })}
   <rect x="${cardX}" y="${cardTop}" width="${cardW}" height="${cardH}" rx="${CARD_RX}" fill="#ffffff" filter="url(#cardShadow)"/>
   ${rowSvg}
   ${cupSvg}
-  <text font-family="${SORTEO_TICKET_FONT_FAMILY}" x="${WA / 2}" y="${HA - PAD - (footer ? 56 : 28)}" text-anchor="middle" font-size="24" fill="${secondary}">${esc(
-    input.fechaHora
-  )}</text>
+  ${svgTextAsPath({
+    text: input.fechaHora,
+    x: WA / 2,
+    y: HA - PAD - (footer ? 56 : 28),
+    fontSize: 24,
+    weight: 400,
+    fill: secondary,
+    textAnchor: "middle",
+  })}
   ${
     footer
-      ? `<text font-family="${SORTEO_TICKET_FONT_FAMILY}" x="${WA / 2}" y="${HA - PAD - 12}" text-anchor="middle" font-size="20" fill="${secondary}">${esc(footer)}</text>`
+      ? svgTextAsPath({
+          text: footer,
+          x: WA / 2,
+          y: HA - PAD - 12,
+          fontSize: 20,
+          weight: 400,
+          fill: secondary,
+          textAnchor: "middle",
+        })
       : ""
   }
 </svg>`;
@@ -229,8 +296,6 @@ function buildCustomTemplateOverlaySvg(
   layout: ReturnType<typeof mergeCustomTemplateFields>
 ): string {
   const padX = Math.max(40, Math.min(layout.cliente_nombre?.x ?? 72, w * 0.2));
-  const fontCss = getSorteoTicketSvgEmbeddedFontCss();
-  const ff = SORTEO_TICKET_FONT_FAMILY;
   const bottomPad = Math.max(36, Math.round(h * 0.028));
   const zoneTopLimit = Math.round(h * 0.33);
 
@@ -339,7 +404,15 @@ function buildCustomTemplateOverlaySvg(
   for (const row of metaRows) {
     y += row.fs;
     pieces.push(
-      `<text x="${padX}" y="${y}" font-family="${ff}" font-size="${row.fs}" font-weight="${row.weight}" fill="${fillAttr(row.color)}">${esc(row.text)}</text>`
+      svgTextAsPath({
+        text: row.text,
+        x: padX,
+        y,
+        fontSize: row.fs,
+        weight: row.weight,
+        fill: fillAttr(row.color),
+        textAnchor: "start",
+      })
     );
     y += metaGap;
   }
@@ -360,7 +433,15 @@ function buildCustomTemplateOverlaySvg(
     for (let i = 0; i < cupones.length; i++) {
       y += step;
       pieces.push(
-        `<text x="${cx}" y="${y}" text-anchor="middle" font-family="${ff}" font-size="${fs}" font-weight="800" letter-spacing="0.02em" fill="${colCup}">${esc(cupones[i]!)}</text>`
+        svgTextAsPath({
+          text: cupones[i]!,
+          x: cx,
+          y,
+          fontSize: fs,
+          weight: 800,
+          fill: colCup,
+          textAnchor: "middle",
+        })
       );
     }
   } else {
@@ -377,27 +458,36 @@ function buildCustomTemplateOverlaySvg(
       const xCell = padX + col * cellW + cellW / 2;
       const yCell = gy + row * rowH;
       pieces.push(
-        `<text x="${xCell}" y="${yCell}" text-anchor="middle" font-family="${ff}" font-size="${fs}" font-weight="700" fill="${colCup}">${esc(list[i]!)}</text>`
+        svgTextAsPath({
+          text: list[i]!,
+          x: xCell,
+          y: yCell,
+          fontSize: fs,
+          weight: 700,
+          fill: colCup,
+          textAnchor: "middle",
+        })
       );
     }
     if (cupones.length > maxShow) {
       gy += Math.ceil(list.length / cols) * rowH + 8;
       pieces.push(
-        `<text x="${cx}" y="${gy}" text-anchor="middle" font-family="${ff}" font-size="${Math.round(18 * scale)}" font-weight="600" fill="${colCup}">+${cupones.length - maxShow} más</text>`
+        svgTextAsPath({
+          text: `+${cupones.length - maxShow} más`,
+          x: cx,
+          y: gy,
+          fontSize: Math.round(18 * scale),
+          weight: 600,
+          fill: colCup,
+          textAnchor: "middle",
+        })
       );
     }
   }
 
-  const defs =
-    fontCss.length > 0
-      ? `<defs><style type="text/css"><![CDATA[
-${fontCss}
-]]></style></defs>`
-      : "";
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-  ${defs}
-  ${pieces.join("\n")}
+  ${pieces.filter(Boolean).join("\n")}
 </svg>`;
 }
 
