@@ -9,10 +9,10 @@ import { resolveOutboundTextContextFromIds } from "@/lib/chat/outbound-send-disp
 import { sendWhatsAppImage } from "@/lib/chat/whatsapp-send-service";
 import { sendYCloudWhatsappMediaViaLink } from "@/lib/chat/ycloud-send-service";
 import type { EnsureSorteoOrderCreatedData } from "@/lib/sorteos/sorteo-order-from-chat";
-import { flowDataStubFromEntrada } from "@/lib/sorteos/sorteo-ticket-admin";
+import { flowDataStubFromEntrada, loadSorteoTicketEntradaDbSnapshot } from "@/lib/sorteos/sorteo-ticket-admin";
 import {
   buildSorteoTicketRenderData,
-  sorteoTicketRenderDataLogPayload,
+  buildSorteoTicketRenderLogPayload,
 } from "@/lib/sorteos/sorteo-ticket-render-data";
 import {
   normalizeTicketImageConfig,
@@ -283,16 +283,34 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
     entradaId,
     flowData,
   });
-  const normalized = buildSorteoTicketRenderData({
+  const { data: prevPayloadRow } = await db
+    .from("sorteo_ticket_deliveries")
+    .select("payload_snapshot")
+    .eq("entrada_id", entradaId)
+    .eq("empresa_id", empresaId)
+    .order("template_revision", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const prevPayloadRaw = (prevPayloadRow as { payload_snapshot?: unknown } | null)?.payload_snapshot;
+  const prevPayload =
+    prevPayloadRaw != null && typeof prevPayloadRaw === "object" && !Array.isArray(prevPayloadRaw)
+      ? (prevPayloadRaw as Record<string, unknown>)
+      : null;
+
+  const entradaDb = await loadSorteoTicketEntradaDbSnapshot(db, entradaId, empresaId);
+  const { fields: normalized, sourceUsed } = buildSorteoTicketRenderData({
+    entradaDb,
     flowData: flowDataMerged,
     orderResult,
     sorteoNombreCatalog: sorteoNombre,
+    payloadSnapshot: prevPayload,
   });
+
   console.info("[sorteo-ticket] render_data_resolved", {
     entradaId,
     sorteoId,
     trigger,
-    ...sorteoTicketRenderDataLogPayload(normalized),
+    ...buildSorteoTicketRenderLogPayload({ fields: normalized, sourceUsed }),
   });
 
   const payloadSnapshot = {
