@@ -136,7 +136,7 @@ async function main() {
       SELECT o.id, o.label, left(coalesce(o.option_payload::text,''), 300) AS payload_preview,
              o.next_node_code, n.node_code AS parent_node_code
       FROM "${SCHEMA}".chat_flow_options o
-      JOIN "${SCHEMA}".chat_flow_nodes n ON n.id = o.node_id AND n.empresa_id = o.empresa_id
+      JOIN "${SCHEMA}".chat_flow_nodes n ON n.id = o.node_id AND n.empresa_id = $1::uuid
       WHERE n.empresa_id = $1::uuid AND n.flow_code = $2
         AND (n.node_type = 'buttons' OR n.node_type = 'list')
       ORDER BY n.sort_order, o.sort_order
@@ -159,10 +159,10 @@ async function main() {
     const msgR = await pool.query(msgQ, [EMPRESA, conversationId]);
 
     const sessionsQ = `
-      SELECT id, status, flow_code, updated_at, started_at
+      SELECT id, status, flow_code, started_at, created_at
       FROM "${SCHEMA}".chat_flow_sessions
       WHERE empresa_id = $1::uuid AND conversation_id = $2::uuid
-      ORDER BY updated_at DESC NULLS LAST
+      ORDER BY started_at DESC NULLS LAST
       LIMIT 8
     `;
     const sessionsR = await pool.query(sessionsQ, [EMPRESA, conversationId]);
