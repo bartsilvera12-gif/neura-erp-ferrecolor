@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
+import { extractQuickReplyButtonsFromTemplateComponents } from "@/lib/campaigns/template-quick-reply-buttons";
 
 type CampaignDetail = Record<string, unknown> & {
   id: string;
@@ -120,6 +121,134 @@ export default function CampanasDetailClient({ campaignId }: { campaignId: strin
     typeof campaign?.send_config_json?.header_image_error === "string"
       ? String(campaign.send_config_json.header_image_error)
       : null;
+
+  const quickReplyTemplateButtons = useMemo(
+    () =>
+      extractQuickReplyButtonsFromTemplateComponents(
+        (campaign?.template_components_json ?? []) as unknown[]
+      ),
+    [campaign?.template_components_json]
+  );
+
+  const [buttonActionRows, setButtonActionRows] = useState<
+    Array<{
+      button_id: string;
+      button_label: string;
+      action_type: "none" | "start_flow" | "send_text";
+      flow_code: string;
+      start_node_code: string;
+      text_body: string;
+    }>
+  >([]);
+
+  const [flowCatalog, setFlowCatalog] = useState<Array<{ flow_code: string; label: string }>>([]);
+  const [nodeOptionsByFlow, setNodeOptionsByFlow] = useState<
+    Record<string, Array<{ node_code: string }>>
+  >({});
+
+  useEffect(() => {
+    if (!campaign || quickReplyTemplateButtons.length === 0) {
+      setButtonActionRows([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const [baRes, flRes] = await Promise.all([
+        fetchWithSupabaseSession(`/api/campanas/${campaignId}/button-actions`, { cache: "no-store" }),
+        fetchWithSupabaseSession(`/api/chat/flows`, { cache: "no-store" }),
+      ]);
+      const baj = (await baRes.json().catch(() => ({}))) as {
+        success?: boolean;
+        data?: {
+          actions?: Array<{
+            button_id: string;
+            button_label?: string | null;
+            action_type: string;
+            flow_code?: string | null;
+            start_node_code?: string | null;
+            text_body?: string | null;
+          }>;
+        };
+      };
+      const flj = (await flRes.json().catch(() => ({}))) as {
+        ok?: boolean;
+        items?: Array<{ flow_code: string; label?: string; activo?: boolean }>;
+      };
+      if (cancelled) return;
+      const saved = baj.data?.actions ?? [];
+      const flows = (flj.items ?? []).filter((f) => f.activo !== false);
+      setFlowCatalog(flows.map((f) => ({ flow_code: f.flow_code, label: f.label ?? f.flow_code })));
+
+      const merged = quickReplyTemplateButtons.map((t) => {
+        const s =
+          saved.find((x) => x.button_id === t.suggested_button_id) ??
+          saved.find((x) => (x.button_label ?? "").trim() === t.label);
+        const rawAt = String(s?.action_type ?? "none").trim();
+        const action_type: "none" | "start_flow" | "send_text" =
+          rawAt === "start_flow"
+            ? "start_flow"
+            : rawAt === "send_text"
+              ? "send_text"
+              : "none";
+        return {
+          button_id: (s?.button_id ?? t.suggested_button_id).trim(),
+          button_label: t.label,
+          action_type,
+          flow_code: String(s?.flow_code ?? "").trim(),
+          start_node_code: String(s?.start_node_code ?? "").trim(),
+          text_body: String(s?.text_body ?? "").trim(),
+        };
+      });
+      setButtonActionRows(merged);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [campaign, campaignId, quickReplyTemplateButtons]);
+
+  async function ensureNodesLoaded(flowCode: string) {
+    const fc = flowCode.trim();
+    if (!fc || nodeOptionsByFlow[fc]?.length) return;
+    const res = await fetchWithSupabaseSession(`/api/chat/flows/${encodeURIComponent(fc)}/nodes`, {
+      cache: "no-store",
+    });
+    const j = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      items?: Array<{ node_code: string }>;
+    };
+    if (!j.ok || !j.items?.length) return;
+    setNodeOptionsByFlow((prev) => ({
+      ...prev,
+      [fc]: j.items!.map((n) => ({ node_code: n.node_code })),
+    }));
+  }
+
+  async function saveButtonActions() {
+    setBusy(true);
+    setErr(null);
+    const res = await fetchWithSupabaseSession(`/api/campanas/${campaignId}/button-actions`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actions: buttonActionRows.map((r) => ({
+          button_id: r.button_id.trim(),
+          button_label: r.button_label,
+          action_type: r.action_type,
+          flow_code: r.action_type === "start_flow" ? r.flow_code.trim() : null,
+          start_node_code:
+            r.action_type === "start_flow" && r.start_node_code.trim() ? r.start_node_code.trim() : null,
+          text_body: r.action_type === "send_text" ? r.text_body.trim() : null,
+        })),
+      }),
+    });
+    const json = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
+    setBusy(false);
+    if (!res.ok || !json.success) {
+      setErr(json.error ?? "No se pudo guardar acciones de botones");
+      return;
+    }
+    await load();
+  }
 
   async function uploadFile(file: File) {
     setBusy(true);
@@ -273,6 +402,130 @@ export default function CampanasDetailClient({ campaignId }: { campaignId: strin
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
           >
             Validar destinatarios
+          </button>
+        </section>
+      ) : null}
+
+      {quickReplyTemplateButtons.length > 0 ? (
+        <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-sm font-semibold text-slate-900">Acciones de botones</h2>
+          <p className="text-xs text-slate-600">
+            Configurá qué hace cada respuesta rápida de la plantilla cuando el cliente la toca. El valor{" "}
+            <strong>ID / payload</strong> debe coincidir con el que envía WhatsApp en{" "}
+            <code className="rounded bg-slate-100 px-1">interactive.button_reply.id</code> (si el envío falla,
+            revisá el ID real en los logs o en Meta).
+          </p>
+          <div className="space-y-4">
+            {buttonActionRows.map((row, idx) => (
+              <div
+                key={`${row.button_label}-${idx}`}
+                className="rounded-lg border border-slate-100 bg-slate-50/80 p-3 text-sm"
+              >
+                <div className="font-medium text-slate-800">{row.button_label}</div>
+                <label className="mt-2 block text-xs text-slate-600">
+                  ID / payload del botón (Meta)
+                  <input
+                    className="mt-1 w-full rounded border border-slate-300 px-2 py-1 font-mono text-xs"
+                    value={row.button_id}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setButtonActionRows((prev) =>
+                        prev.map((r, i) => (i === idx ? { ...r, button_id: v } : r))
+                      );
+                    }}
+                  />
+                </label>
+                <label className="mt-2 block text-xs text-slate-600">
+                  Acción
+                  <select
+                    className="mt-1 w-full rounded border border-slate-300 px-2 py-1"
+                    value={row.action_type}
+                    onChange={(e) => {
+                      const v = e.target.value as typeof row.action_type;
+                      setButtonActionRows((prev) =>
+                        prev.map((r, i) => (i === idx ? { ...r, action_type: v } : r))
+                      );
+                    }}
+                  >
+                    <option value="none">Sin acción adicional</option>
+                    <option value="start_flow">Iniciar flujo</option>
+                    <option value="send_text">Enviar texto</option>
+                  </select>
+                </label>
+                {row.action_type === "start_flow" ? (
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <label className="block text-xs text-slate-600">
+                      Flujo
+                      <select
+                        className="mt-1 w-full rounded border border-slate-300 px-2 py-1"
+                        value={row.flow_code}
+                        onChange={(e) => {
+                          const fc = e.target.value;
+                          setButtonActionRows((prev) =>
+                            prev.map((r, i) =>
+                              i === idx ? { ...r, flow_code: fc, start_node_code: "" } : r
+                            )
+                          );
+                          void ensureNodesLoaded(fc);
+                        }}
+                      >
+                        <option value="">— Elegí un flujo —</option>
+                        {flowCatalog.map((f) => (
+                          <option key={f.flow_code} value={f.flow_code}>
+                            {f.label} ({f.flow_code})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block text-xs text-slate-600">
+                      Nodo inicial (opcional)
+                      <select
+                        className="mt-1 w-full rounded border border-slate-300 px-2 py-1"
+                        value={row.start_node_code}
+                        onFocus={() => void ensureNodesLoaded(row.flow_code)}
+                        onChange={(e) => {
+                          const nc = e.target.value;
+                          setButtonActionRows((prev) =>
+                            prev.map((r, i) => (i === idx ? { ...r, start_node_code: nc } : r))
+                          );
+                        }}
+                      >
+                        <option value="">— Por defecto (primer nodo activo) —</option>
+                        {(nodeOptionsByFlow[row.flow_code.trim()] ?? []).map((n) => (
+                          <option key={n.node_code} value={n.node_code}>
+                            {n.node_code}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                ) : null}
+                {row.action_type === "send_text" ? (
+                  <label className="mt-2 block text-xs text-slate-600">
+                    Texto a enviar
+                    <textarea
+                      className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                      rows={3}
+                      value={row.text_body}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setButtonActionRows((prev) =>
+                          prev.map((r, i) => (i === idx ? { ...r, text_body: v } : r))
+                        );
+                      }}
+                    />
+                  </label>
+                ) : null}
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            disabled={busy || campaign.status === "sending" || campaign.status === "completed"}
+            onClick={() => void saveButtonActions()}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+          >
+            Guardar acciones de botones
           </button>
         </section>
       ) : null}

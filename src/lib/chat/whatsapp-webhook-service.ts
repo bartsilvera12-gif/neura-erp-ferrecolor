@@ -41,6 +41,7 @@ import type {
 import { normalizeWaPhone } from "@/lib/chat/wa-phone";
 import { applySorteoReferralToActiveSession } from "@/lib/sorteos/referral-attribution";
 import { markCampaignReplyFromInbound } from "@/lib/campaigns/campaign-inbound-hook";
+import { tryHandleCampaignButtonAction } from "@/lib/campaigns/campaign-button-action-service";
 import {
   createServiceRoleClientWithDbSchema,
   fetchDataSchemaForEmpresaId,
@@ -1089,6 +1090,25 @@ export async function processInboundWebhookValue(
         console.warn("[campaign-reply][webhook]", e instanceof Error ? e.message : String(e));
       }
 
+      let campaignButtonSuppressFlowInteractive = false;
+      if (message_type === "interactive" && msg.interactive?.button_reply?.id) {
+        try {
+          const btnRes = await tryHandleCampaignButtonAction({
+            supabase,
+            empresaId,
+            channelId,
+            conversationId,
+            contactId,
+            inboundAtIso: ts,
+            waMessageId: waMid,
+            rawPayload: msg as unknown as Record<string, unknown>,
+          });
+          campaignButtonSuppressFlowInteractive = btnRes.handled;
+        } catch (e) {
+          console.warn("[campaign-button-action][webhook]", e instanceof Error ? e.message : String(e));
+        }
+      }
+
       {
         const { data: chTok } = await supabase
           .from("chat_channels")
@@ -1289,7 +1309,7 @@ export async function processInboundWebhookValue(
          * Si `ensure` corre primero y falta `node_sent` en BD, se re-envía el mismo menú interactivo
          * en el mismo webhook y el cliente ve el paso repetido sin avanzar al siguiente nodo.
          */
-        if (interactiveInboundMetaId) {
+        if (interactiveInboundMetaId && !campaignButtonSuppressFlowInteractive) {
           console.info(logW, "flow_trigger: interactive_reply_first", {
             conversationId,
             empresaId,

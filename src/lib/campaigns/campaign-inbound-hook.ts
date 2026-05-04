@@ -16,7 +16,8 @@ function maskPhoneDigits(digits: string): string {
   return `****${d.slice(-4)}`;
 }
 
-function replyLookbackMs(): number {
+/** Usado también por acciones de botón de campaña (misma ventana que RESPONDIERON). */
+export function campaignReplyLookbackMs(): number {
   const raw = process.env.CAMPAIGN_REPLY_LOOKBACK_DAYS?.trim();
   const n = raw ? parseInt(raw, 10) : DEFAULT_LOOKBACK_DAYS;
   const days = !Number.isNaN(n) && n >= 1 && n <= 90 ? n : DEFAULT_LOOKBACK_DAYS;
@@ -47,7 +48,7 @@ export async function markCampaignReplyFromInbound(params: {
       ? inboundAtIso.trim()
       : new Date().toISOString();
   const inboundMs = Date.parse(inboundTs);
-  const lookbackMs = replyLookbackMs();
+  const lookbackMs = campaignReplyLookbackMs();
 
   const { data: contact, error: cErr } = await supabase
     .from("chat_contacts")

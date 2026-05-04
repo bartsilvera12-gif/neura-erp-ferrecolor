@@ -8,6 +8,7 @@ import { markFirstHumanOperatorReply } from "@/lib/chat/conversation-sla-markers
 import { maybeRedistributeInitialAssignment } from "@/lib/chat/initial-assignment-redistribution";
 import { createWhatsappConversationWithActiveFlow } from "@/lib/chat/whatsapp-conversation-bootstrap";
 import { markCampaignReplyFromInbound } from "@/lib/campaigns/campaign-inbound-hook";
+import { tryHandleCampaignButtonAction } from "@/lib/campaigns/campaign-button-action-service";
 import type { SupabaseAdmin } from "@/lib/chat/types";
 import { normalizeWaPhone } from "@/lib/chat/wa-phone";
 
@@ -439,6 +440,32 @@ export async function saveIncomingMessage(params: SaveIncomingMessageParams): Pr
       });
     } catch (e) {
       console.warn("[saveIncomingMessage] markCampaignReplyFromInbound", e);
+    }
+    if (message_data.message_type === "interactive") {
+      const raw = message_data.raw_payload;
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        const intr = (raw as Record<string, unknown>).interactive;
+        if (
+          intr &&
+          typeof intr === "object" &&
+          (intr as { button_reply?: { id?: string } }).button_reply?.id
+        ) {
+          try {
+            await tryHandleCampaignButtonAction({
+              supabase,
+              empresaId,
+              channelId: channel.id,
+              conversationId,
+              contactId,
+              inboundAtIso: ts,
+              waMessageId: ext,
+              rawPayload: raw as Record<string, unknown>,
+            });
+          } catch (e) {
+            console.warn("[saveIncomingMessage] tryHandleCampaignButtonAction", e);
+          }
+        }
+      }
     }
   }
 
