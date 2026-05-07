@@ -1,6 +1,8 @@
+import { ensureCentralChatChannelMirror } from "@/lib/chat/central-chat-channel-mirror";
 import type { SupabaseAdmin } from "@/lib/chat/types";
 import { createServiceRoleClientWithDbSchema } from "@/lib/supabase/empresa-data-schema";
 import { createServiceRoleClient } from "@/lib/supabase/service-admin";
+import { getChatPostgresPool } from "@/lib/supabase/chat-pg-pool";
 import { SUPABASE_APP_SCHEMA } from "@/lib/supabase/schema";
 
 /** PostgREST con `db.schema=public`: los RPC omnicanal viven en `public`, no en `zentra_erp`. */
@@ -100,19 +102,36 @@ export async function syncOmnichannelRouteForWhatsappChannel(opts: {
     return error;
   };
 
+  const mirrorIfTenant = async () => {
+    if (opts.dataSchema.trim() === SUPABASE_APP_SCHEMA) return;
+    await ensureCentralChatChannelMirror({
+      pool: getChatPostgresPool(),
+      tenantDataSchema: opts.dataSchema,
+      empresaId: opts.empresaId,
+      channelId: opts.channelId,
+    });
+  };
+
   if (opts.dataSchema === SUPABASE_APP_SCHEMA || !opts.activo) {
     const rpcErr = await rpcDelete();
-    if (!rpcErr) return;
+    if (!rpcErr) {
+      await mirrorIfTenant();
+      return;
+    }
     const { error } = await catalog.from("omnichannel_routes").delete().eq("meta_phone_number_id", pid);
     if (error) {
       console.error("[omnichannel-route-sync] delete:", error.message);
       throw new Error(error.message);
     }
+    await mirrorIfTenant();
     return;
   }
 
   const syncErr = await rpcSync();
-  if (!syncErr) return;
+  if (!syncErr) {
+    await mirrorIfTenant();
+    return;
+  }
 
   console.warn("[omnichannel-route-sync] neura_sync_omnichannel_route:", syncErr.message);
 
@@ -130,6 +149,8 @@ export async function syncOmnichannelRouteForWhatsappChannel(opts: {
     console.error("[omnichannel-route-sync] upsert:", error.message);
     throw new Error(error.message);
   }
+
+  await mirrorIfTenant();
 }
 
 export async function deleteOmnichannelRouteByMetaPhone(metaPhoneNumberId: string): Promise<void> {

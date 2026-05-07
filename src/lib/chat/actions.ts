@@ -29,11 +29,12 @@ import {
   resolveQueueIdsForUsuarios,
   shouldBypassOmnicanalConversationScope,
 } from "@/lib/chat/omnicanal-scope";
+import { ensureCentralChatChannelMirror } from "@/lib/chat/central-chat-channel-mirror";
 import {
   deleteOmnichannelRouteByMetaPhone,
   syncOmnichannelRouteForWhatsappChannel,
 } from "@/lib/chat/omnichannel-route-sync";
-import type { AppSupabaseClient } from "@/lib/supabase/schema";
+import { SUPABASE_APP_SCHEMA, type AppSupabaseClient } from "@/lib/supabase/schema";
 import {
   getChatPostgresPool,
   isPgPoolExhaustionMessage,
@@ -53,6 +54,20 @@ import {
   pgUpdateGenericOmnichannelChannel,
   pgUpdateYCloudWhatsappChannel,
 } from "@/lib/chat/chat-channels-mutate-pg";
+
+async function mirrorTenantChatChannelToCentralCatalog(
+  dataSchema: string,
+  empresaId: string,
+  channelId: string
+): Promise<void> {
+  if (dataSchema.trim() === SUPABASE_APP_SCHEMA) return;
+  await ensureCentralChatChannelMirror({
+    pool: getChatPostgresPool(),
+    tenantDataSchema: dataSchema,
+    empresaId,
+    channelId,
+  });
+}
 import { pgMarkConversationUnreadZero, pgReleaseConversationToBot } from "@/lib/chat/chat-send-persist-pg";
 import { isInvalidPostgrestSchemaError } from "@/lib/chat/postgrest-schema-error";
 import { normalizeChannelType } from "@/lib/chat/channel-type-utils";
@@ -1643,6 +1658,7 @@ export async function saveYCloudWhatsappChannel(input: YCloudWhatsappChannelInpu
         updated_at: updatedAt,
       });
       if (!updated) throw new Error("No se pudo actualizar el canal.");
+      await mirrorTenantChatChannelToCentralCatalog(dataSchema, empresa_id, existingId);
       return existingId;
     }
     const { data: updated, error } = await supabase
@@ -1654,11 +1670,12 @@ export async function saveYCloudWhatsappChannel(input: YCloudWhatsappChannelInpu
       .maybeSingle();
     if (error) throw postgrestMutationError(dataSchema, error.message);
     if (!updated) throw new Error("No se pudo actualizar el canal.");
+    await mirrorTenantChatChannelToCentralCatalog(dataSchema, empresa_id, existingId);
     return existingId;
   }
 
   if (tenantPg) {
-    return pgInsertYCloudWhatsappChannel(pool!, dataSchema, {
+    const yId = await pgInsertYCloudWhatsappChannel(pool!, dataSchema, {
       empresa_id,
       nombre: base.nombre,
       type: base.type,
@@ -1669,6 +1686,8 @@ export async function saveYCloudWhatsappChannel(input: YCloudWhatsappChannelInpu
       config_status: base.config_status,
       config: base.config,
     });
+    await mirrorTenantChatChannelToCentralCatalog(dataSchema, empresa_id, yId);
+    return yId;
   }
 
   const { data: inserted, error } = await supabase
@@ -1682,6 +1701,7 @@ export async function saveYCloudWhatsappChannel(input: YCloudWhatsappChannelInpu
   if (error) throw postgrestMutationError(dataSchema, error.message);
   const newId = inserted?.id as string | undefined;
   if (!newId) throw new Error("No se pudo crear el canal.");
+  await mirrorTenantChatChannelToCentralCatalog(dataSchema, empresa_id, newId);
   return newId;
 }
 
@@ -1815,6 +1835,7 @@ export async function saveGenericOmnichannelChannel(input: GenericOmnichannelCha
         updated_at: updatedAt,
       });
       if (!updated) throw new Error("No se pudo actualizar el canal.");
+      await mirrorTenantChatChannelToCentralCatalog(dataSchema, empresa_id, existingId);
       return existingId;
     }
     const { data: updated, error } = await supabase
@@ -1826,11 +1847,12 @@ export async function saveGenericOmnichannelChannel(input: GenericOmnichannelCha
       .maybeSingle();
     if (error) throw postgrestMutationError(dataSchema, error.message);
     if (!updated) throw new Error("No se pudo actualizar el canal.");
+    await mirrorTenantChatChannelToCentralCatalog(dataSchema, empresa_id, existingId);
     return existingId;
   }
 
   if (tenantPg) {
-    return pgInsertGenericOmnichannelChannel(pool!, dataSchema, {
+    const gId = await pgInsertGenericOmnichannelChannel(pool!, dataSchema, {
       empresa_id,
       nombre: base.nombre,
       type: base.type,
@@ -1842,6 +1864,8 @@ export async function saveGenericOmnichannelChannel(input: GenericOmnichannelCha
       config_status: base.config_status,
       config: base.config,
     });
+    await mirrorTenantChatChannelToCentralCatalog(dataSchema, empresa_id, gId);
+    return gId;
   }
 
   const { data: inserted, error } = await supabase
@@ -1855,6 +1879,7 @@ export async function saveGenericOmnichannelChannel(input: GenericOmnichannelCha
   if (error) throw postgrestMutationError(dataSchema, error.message);
   const newId = inserted?.id as string | undefined;
   if (!newId) throw new Error("No se pudo crear el canal.");
+  await mirrorTenantChatChannelToCentralCatalog(dataSchema, empresa_id, newId);
   return newId;
 }
 

@@ -8,6 +8,8 @@ import { persistInboundChatMessageAndBump } from "@/lib/chat/incoming-message-se
 import { assignConversation } from "@/lib/chat/assign-conversation-service";
 import { assignConversationPg } from "@/lib/chat/webhooks/assign-conversation-pg";
 import { createTenantPgChatSupabaseShim } from "@/lib/chat/tenant-pg-chat-supabase-shim";
+import { ensureCentralChatChannelMirror } from "@/lib/chat/central-chat-channel-mirror";
+import { ensureCentralChatContactMirror } from "@/lib/chat/central-chat-contact-mirror";
 import {
   fetchOmnichannelRouteByMetaPhone,
   syncOmnichannelRouteForWhatsappChannel,
@@ -708,6 +710,20 @@ export async function processInboundWebhookValue(
       console.info(WH_CONTACT, "upsert_ok", { contact_id: (contact as { id?: string }).id });
 
       const contactId = contact.id as string;
+
+      await ensureCentralChatChannelMirror({
+        pool: pool ?? null,
+        tenantDataSchema,
+        empresaId,
+        channelId,
+      });
+      await ensureCentralChatContactMirror({
+        pool: pool ?? null,
+        tenantDataSchema,
+        empresaId,
+        contactId,
+      });
+
       if (displayName && displayName !== contact.name) {
         await supabase
           .from("chat_contacts")
