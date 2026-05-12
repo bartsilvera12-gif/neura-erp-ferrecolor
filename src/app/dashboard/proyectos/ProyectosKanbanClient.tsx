@@ -112,22 +112,46 @@ function readEstadoIdFromDropId(id: unknown): string | null {
   return raw.startsWith(COLUMN_DROP_PREFIX) ? raw.slice(COLUMN_DROP_PREFIX.length) : null;
 }
 
-function prioridadFallbackVisual(p: string): {
-  bgColor: string;
-  textColor: string;
-  borderColor: string;
-  accentColor: string;
-} {
-  if (p === "urgente") {
-    return { bgColor: "#fecaca", textColor: "#111827", borderColor: "#f87171", accentColor: "#dc2626" };
+type PriorityCardStyles = {
+  cardAccentClass: string;
+  badgeClass: string;
+  iconDotClass: string;
+};
+
+function getPriorityCardStyles(prioridad: string | null | undefined): PriorityCardStyles {
+  if (prioridad === "baja") {
+    return {
+      cardAccentClass: "border-l-emerald-500 hover:border-emerald-200",
+      badgeClass: "border-emerald-200 bg-emerald-50 text-emerald-700",
+      iconDotClass: "bg-emerald-500",
+    };
   }
-  if (p === "alta") {
-    return { bgColor: "#fed7aa", textColor: "#111827", borderColor: "#fb923c", accentColor: "#f97316" };
+  if (prioridad === "alta") {
+    return {
+      cardAccentClass: "border-l-orange-500 hover:border-orange-200",
+      badgeClass: "border-orange-200 bg-orange-50 text-orange-700",
+      iconDotClass: "bg-orange-500",
+    };
   }
-  if (p === "normal") {
-    return { bgColor: "#fde68a", textColor: "#111827", borderColor: "#f59e0b", accentColor: "#f59e0b" };
+  if (prioridad === "urgente") {
+    return {
+      cardAccentClass: "border-l-rose-600 hover:border-rose-200",
+      badgeClass: "border-rose-200 bg-rose-50 text-rose-700",
+      iconDotClass: "bg-rose-600",
+    };
   }
-  return { bgColor: "#e2e8f0", textColor: "#111827", borderColor: "#94a3b8", accentColor: "#64748b" };
+  if (prioridad === "normal" || prioridad === "media") {
+    return {
+      cardAccentClass: "border-l-sky-500 hover:border-sky-200",
+      badgeClass: "border-sky-200 bg-sky-50 text-sky-700",
+      iconDotClass: "bg-sky-500",
+    };
+  }
+  return {
+    cardAccentClass: "border-l-slate-300 hover:border-slate-300",
+    badgeClass: "border-slate-200 bg-slate-50 text-slate-600",
+    iconDotClass: "bg-slate-400",
+  };
 }
 
 function prioridadFallbackLabel(p: string): string {
@@ -136,23 +160,6 @@ function prioridadFallbackLabel(p: string): string {
   if (p === "urgente") return "Urgente";
   if (p === "baja") return "Baja";
   return p;
-}
-
-function hexToRgba(hex: string | null | undefined, alpha: number): string | null {
-  if (!hex || !/^#[0-9a-fA-F]{6}$/.test(hex)) return null;
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-function readableTextColor(hex: string | null | undefined): string {
-  if (!hex || !/^#[0-9a-fA-F]{6}$/.test(hex)) return "#111827";
-  const r = parseInt(hex.slice(1, 3), 16) / 255;
-  const g = parseInt(hex.slice(3, 5), 16) / 255;
-  const b = parseInt(hex.slice(5, 7), 16) / 255;
-  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  return luminance < 0.52 ? "#ffffff" : "#111827";
 }
 
 function formatSlaDuration(seconds: number | null | undefined): string {
@@ -604,38 +611,25 @@ function ProjectCardView({
     (p.cliente?.nombre_contacto || "").trim() ||
     "Sin cliente";
   const saasModulesLabel = saasModuleCountLabel(p);
+  const priorityStyles = getPriorityCardStyles(p.prioridad);
 
   const style: CSSProperties | undefined = transform
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
     : undefined;
-  const fallbackPriority = prioridadFallbackVisual(p.prioridad);
-  const priorityBg = prioridadConfig?.bg_color ?? prioridadConfig?.color ?? fallbackPriority.bgColor;
-  const priorityText = readableTextColor(priorityBg);
-  const priorityBorder = priorityBg || fallbackPriority.borderColor;
-  const softMutedText = hexToRgba(priorityText, 0.72) ?? priorityText;
-  const subtleBadgeBg = priorityText === "#ffffff" ? "rgba(255,255,255,0.16)" : "rgba(255,255,255,0.72)";
-  const subtleBadgeBorder = priorityText === "#ffffff" ? "rgba(255,255,255,0.36)" : "rgba(17,24,39,0.16)";
-  const cardStyle: CSSProperties = {
-    ...style,
-    backgroundColor: priorityBg,
-    borderColor: priorityBorder,
-    color: priorityText,
-  };
-  const softBadgeStyle: CSSProperties = {
-    backgroundColor: subtleBadgeBg,
-    borderColor: subtleBadgeBorder,
-    color: priorityText,
-  };
+  const baseBadgeClass =
+    "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium leading-4";
+  const neutralBadgeClass =
+    "inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium leading-4 text-slate-600";
 
   return (
     <div
       ref={setNodeRef}
-      style={cardStyle}
+      style={style}
       {...attributes}
       {...listeners}
-      className={`touch-none rounded-lg border p-3 shadow-sm transition-shadow hover:shadow-md ${
+      className={`touch-none rounded-2xl border border-l-4 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${
         dragOverlay ? "rotate-1 cursor-grabbing shadow-2xl" : "cursor-grab active:cursor-grabbing"
-      } ${isDragging ? "opacity-40" : ""} ${moving ? "ring-2 ring-sky-100" : ""}`}
+      } ${priorityStyles.cardAccentClass} ${isDragging ? "opacity-40" : ""} ${moving ? "ring-2 ring-sky-100" : ""}`}
     >
       <button
         type="button"
@@ -644,79 +638,94 @@ function ProjectCardView({
           if (!dragOverlay) onOpen(p.id);
         }}
       >
-        <div className="text-sm font-semibold hover:underline" style={{ color: priorityText }}>
-          {p.titulo}
+        <div className="flex items-start gap-2">
+          <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${priorityStyles.iconDotClass}`} />
+          <div className="min-w-0 flex-1">
+            <div className="text-[15px] font-semibold leading-snug text-slate-950 hover:underline">
+              {p.titulo}
+            </div>
+            <div className="mt-1 text-xs font-medium text-slate-600">
+              {cli}
+            </div>
+          </div>
         </div>
-        <div className="mt-1 text-xs" style={{ color: softMutedText }}>
-          {cli}
-        </div>
-        <div className="mt-2 flex flex-wrap gap-1">
-          <span className="rounded border px-1.5 py-0.5 text-[10px] font-medium" style={softBadgeStyle}>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          <span className={neutralBadgeClass}>
             {p.proyecto_tipo?.nombre ?? "Tipo"}
           </span>
           {saasModulesLabel ? (
-            <span className="rounded border px-1.5 py-0.5 text-[10px] font-medium" style={softBadgeStyle}>
+            <span className={neutralBadgeClass}>
               {saasModulesLabel}
             </span>
           ) : null}
-          <span
-            className="rounded border px-1.5 py-0.5 text-[10px] font-semibold"
-            style={softBadgeStyle}
-          >
+          <span className={`${baseBadgeClass} font-semibold ${priorityStyles.badgeClass}`}>
             {prioridadConfig?.nombre ?? prioridadFallbackLabel(p.prioridad)}
           </span>
-          <span className="rounded border px-1.5 py-0.5 text-[10px] font-medium" style={softBadgeStyle}>
+          <span className={p.sla_estado_actual?.vencido ? `${baseBadgeClass} border-rose-200 bg-rose-50 text-rose-700` : neutralBadgeClass}>
             {slaEstadoLabel(p)}
           </span>
           {p.bloqueado ? (
-            <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium text-rose-800">
+            <span className={`${baseBadgeClass} border-rose-200 bg-rose-50 text-rose-800`}>
               Bloqueado
             </span>
           ) : null}
           {moving ? (
-            <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-800">
+            <span className={`${baseBadgeClass} border-sky-200 bg-sky-50 text-sky-800`}>
               Guardando...
             </span>
           ) : null}
         </div>
-        <div className="mt-2 space-y-0.5 text-[11px]" style={{ color: softMutedText }}>
-          <div>Com.: {p.responsable_comercial?.nombre ?? "—"}</div>
-          <div>Téc.: {p.responsable_tecnico?.nombre ?? "—"}</div>
-          <div>Ingreso: {fmtDate(p.fecha_ingreso)}</div>
-          <div>Prometido: {fmtDate(p.fecha_prometida)}</div>
-          <div>Actividad: {fmtDateTime(p.last_activity_at)}</div>
+        <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-xl bg-slate-50/80 px-3 py-2 text-[11px] text-slate-700">
+          <MetaItem label="Com." value={p.responsable_comercial?.nombre ?? "—"} />
+          <MetaItem label="Téc." value={p.responsable_tecnico?.nombre ?? "—"} />
+          <MetaItem label="Ingreso" value={fmtDate(p.fecha_ingreso)} />
+          <MetaItem label="Prometido" value={fmtDate(p.fecha_prometida)} />
+          <div className="col-span-2">
+            <MetaItem label="Actividad" value={fmtDateTime(p.last_activity_at)} />
+          </div>
         </div>
       </button>
       {!dragOverlay ? (
         <>
-          <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+          <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3" onClick={(e) => e.stopPropagation()}>
             <Link
               href={`/dashboard/proyectos/${p.id}`}
-              className="text-[10px] font-medium text-sky-600 hover:underline"
+              className="text-[11px] font-semibold text-sky-700 hover:text-sky-800 hover:underline"
               onClick={(e) => e.stopPropagation()}
             >
               Abrir en página completa
             </Link>
           </div>
-          <label className="mt-2 block text-[10px] font-medium uppercase text-slate-500">Mover a</label>
-          <select
-            className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-xs"
-            value={p.estado_id}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => onMove(p.id, e.target.value)}
-          >
-            {!estadoActivoIds.has(p.estado_id) ? (
-              <option value={p.estado_id}>Estado actual oculto / no usado</option>
-            ) : null}
-            {estados.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.nombre}
-              </option>
-            ))}
-          </select>
+          <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-2" onClick={(e) => e.stopPropagation()}>
+            <label className="block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Mover a</label>
+            <select
+              className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 outline-none transition-colors hover:border-slate-300 focus:border-sky-400 focus:ring-2 focus:ring-sky-100"
+              value={p.estado_id}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => onMove(p.id, e.target.value)}
+            >
+              {!estadoActivoIds.has(p.estado_id) ? (
+                <option value={p.estado_id}>Estado actual oculto / no usado</option>
+              ) : null}
+              {estados.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.nombre}
+                </option>
+              ))}
+            </select>
+          </div>
         </>
       ) : null}
+    </div>
+  );
+}
+
+function MetaItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <span className="font-semibold text-slate-500">{label}</span>{" "}
+      <span className="break-words text-slate-800">{value}</span>
     </div>
   );
 }
