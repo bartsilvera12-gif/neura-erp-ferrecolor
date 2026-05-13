@@ -35,6 +35,13 @@ interface SupabaseRow {
   sifen_receptor_extranjero?: boolean | null;
   sifen_codigo_pais?: string | null;
   sifen_tipo_doc_receptor?: number | string | null;
+  sifen_receptor_manual?: boolean | null;
+  sifen_receptor_naturaleza?: string | null;
+  sifen_ti_ope?: number | string | null;
+  sifen_num_id_de?: string | null;
+  sifen_direccion_de?: string | null;
+  sifen_num_casa_de?: number | string | null;
+  sifen_descripcion_tipo_doc?: string | null;
   sitio_web:          string | null;
   instagram:          string | null;
   linkedin:           string | null;
@@ -123,6 +130,29 @@ function rowToCliente(row: SupabaseRow): Cliente {
   if (row.sifen_tipo_doc_receptor != null && row.sifen_tipo_doc_receptor !== "") {
     const n = typeof row.sifen_tipo_doc_receptor === "number" ? row.sifen_tipo_doc_receptor : parseInt(String(row.sifen_tipo_doc_receptor), 10);
     if (Number.isFinite(n)) c.sifen_tipo_doc_receptor = n;
+  }
+  if (row.sifen_receptor_manual === true) c.sifen_receptor_manual = true;
+  if (row.sifen_receptor_manual === false) c.sifen_receptor_manual = false;
+  const nat = row.sifen_receptor_naturaleza == null ? "" : String(row.sifen_receptor_naturaleza).trim();
+  if (nat === "contribuyente_paraguayo" || nat === "no_contribuyente" || nat === "extranjero") {
+    c.sifen_receptor_naturaleza = nat as Cliente["sifen_receptor_naturaleza"];
+  }
+  if (row.sifen_ti_ope != null && row.sifen_ti_ope !== "") {
+    const t = typeof row.sifen_ti_ope === "number" ? row.sifen_ti_ope : parseInt(String(row.sifen_ti_ope), 10);
+    if (Number.isFinite(t) && t >= 1 && t <= 4) c.sifen_ti_ope = t;
+  }
+  if (row.sifen_num_id_de != null && String(row.sifen_num_id_de).trim() !== "") {
+    c.sifen_num_id_de = String(row.sifen_num_id_de).trim();
+  }
+  if (row.sifen_direccion_de != null && String(row.sifen_direccion_de).trim() !== "") {
+    c.sifen_direccion_de = String(row.sifen_direccion_de).trim();
+  }
+  if (row.sifen_num_casa_de != null && row.sifen_num_casa_de !== "") {
+    const nc = typeof row.sifen_num_casa_de === "number" ? row.sifen_num_casa_de : parseInt(String(row.sifen_num_casa_de), 10);
+    if (Number.isFinite(nc) && nc >= 0) c.sifen_num_casa_de = Math.floor(nc);
+  }
+  if (row.sifen_descripcion_tipo_doc != null && String(row.sifen_descripcion_tipo_doc).trim() !== "") {
+    c.sifen_descripcion_tipo_doc = String(row.sifen_descripcion_tipo_doc).trim();
   }
   if (row.perfil_tributario_activo === true) c.perfil_tributario_activo = true;
   if (row.perfil_tributario != null) c.perfil_tributario = row.perfil_tributario;
@@ -270,6 +300,27 @@ export async function saveCliente(datos: NuevoClienteData): Promise<Cliente | nu
     insert.sifen_tipo_doc_receptor =
       datos.sifen_tipo_doc_receptor == null ? null : Number(datos.sifen_tipo_doc_receptor);
   }
+  if (datos.sifen_receptor_manual === true) {
+    insert.sifen_receptor_manual = true;
+    if (datos.sifen_receptor_naturaleza != null && String(datos.sifen_receptor_naturaleza).trim() !== "") {
+      insert.sifen_receptor_naturaleza = String(datos.sifen_receptor_naturaleza).trim();
+    }
+    if (datos.sifen_ti_ope != null && Number.isFinite(Number(datos.sifen_ti_ope))) {
+      insert.sifen_ti_ope = Math.floor(Number(datos.sifen_ti_ope));
+    }
+    if (datos.sifen_num_id_de != null && String(datos.sifen_num_id_de).trim() !== "") {
+      insert.sifen_num_id_de = String(datos.sifen_num_id_de).trim().slice(0, 20);
+    }
+    if (datos.sifen_direccion_de != null && String(datos.sifen_direccion_de).trim() !== "") {
+      insert.sifen_direccion_de = String(datos.sifen_direccion_de).trim();
+    }
+    if (datos.sifen_num_casa_de != null && Number.isFinite(Number(datos.sifen_num_casa_de))) {
+      insert.sifen_num_casa_de = Math.max(0, Math.floor(Number(datos.sifen_num_casa_de)));
+    }
+    if (datos.sifen_descripcion_tipo_doc != null && String(datos.sifen_descripcion_tipo_doc).trim() !== "") {
+      insert.sifen_descripcion_tipo_doc = String(datos.sifen_descripcion_tipo_doc).trim().slice(0, 41);
+    }
+  }
 
   const { data, error } = await supabase
     .from("clientes")
@@ -325,6 +376,56 @@ export function construirPatchActualizacionCliente(datos: ActualizarClienteInput
     } else {
       const n = Number(datos.sifen_tipo_doc_receptor);
       patch.sifen_tipo_doc_receptor = Number.isFinite(n) ? n : null;
+    }
+  }
+  if (datos.sifen_receptor_manual === false) {
+    patch.sifen_receptor_manual = false;
+    patch.sifen_receptor_naturaleza = null;
+    patch.sifen_ti_ope = null;
+    patch.sifen_num_id_de = null;
+    patch.sifen_direccion_de = null;
+    patch.sifen_num_casa_de = null;
+    patch.sifen_descripcion_tipo_doc = null;
+  } else if (datos.sifen_receptor_manual === true) {
+    patch.sifen_receptor_manual = true;
+  }
+  if (datos.sifen_receptor_manual === true) {
+    if (datos.sifen_receptor_naturaleza !== undefined) {
+      const v = datos.sifen_receptor_naturaleza == null ? "" : String(datos.sifen_receptor_naturaleza).trim();
+      patch.sifen_receptor_naturaleza =
+        v === "contribuyente_paraguayo" || v === "no_contribuyente" || v === "extranjero" ? v : null;
+    }
+    if (datos.sifen_ti_ope !== undefined) {
+      if (datos.sifen_ti_ope == null) patch.sifen_ti_ope = null;
+      else {
+        const t = Number(datos.sifen_ti_ope);
+        patch.sifen_ti_ope = Number.isFinite(t) && t >= 1 && t <= 4 ? t : null;
+      }
+    }
+    if (datos.sifen_num_id_de !== undefined) {
+      patch.sifen_num_id_de =
+        datos.sifen_num_id_de == null || String(datos.sifen_num_id_de).trim() === ""
+          ? null
+          : String(datos.sifen_num_id_de).trim().slice(0, 20);
+    }
+    if (datos.sifen_direccion_de !== undefined) {
+      patch.sifen_direccion_de =
+        datos.sifen_direccion_de == null || String(datos.sifen_direccion_de).trim() === ""
+          ? null
+          : String(datos.sifen_direccion_de).trim();
+    }
+    if (datos.sifen_num_casa_de !== undefined) {
+      if (datos.sifen_num_casa_de == null) patch.sifen_num_casa_de = null;
+      else {
+        const n = Number(datos.sifen_num_casa_de);
+        patch.sifen_num_casa_de = Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+      }
+    }
+    if (datos.sifen_descripcion_tipo_doc !== undefined) {
+      patch.sifen_descripcion_tipo_doc =
+        datos.sifen_descripcion_tipo_doc == null || String(datos.sifen_descripcion_tipo_doc).trim() === ""
+          ? null
+          : String(datos.sifen_descripcion_tipo_doc).trim().slice(0, 41);
     }
   }
   if (datos.sitio_web !== undefined) patch.sitio_web = datos.sitio_web ?? null;

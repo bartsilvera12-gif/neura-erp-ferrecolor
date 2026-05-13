@@ -21,7 +21,8 @@ import { getProspecto, updateProspecto } from "@/lib/crm/storage";
 import { getUsuariosActivosEmpresa, type UsuarioEmpresa } from "@/lib/usuarios/empresa";
 import MontoInput from "@/components/ui/MontoInput";
 import { getPlanes } from "@/lib/planes/storage";
-import type { TipoCliente, OrigenCliente } from "@/lib/clientes/types";
+import type { Cliente, TipoCliente, OrigenCliente } from "@/lib/clientes/types";
+import { ClienteDatosSifenReceptorForm } from "@/components/clientes/ClienteDatosSifenReceptorForm";
 import type { ClienteTipoServicioRow } from "@/lib/clientes/tipo-servicio-catalogo";
 import { filasTiposDesdeSistemaEstatico, fetchTiposFormCliente } from "@/lib/clientes/fetch-tipos-servicio-form";
 import type { Plan } from "@/lib/planes/types";
@@ -79,6 +80,15 @@ function NuevoClienteForm() {
     prospecto_id:          null as string | null,
     tipo_servicio_cliente: "" as string,
     estado:                "activo" as "activo" | "inactivo",
+    sifen_receptor_manual: false,
+    sifen_receptor_naturaleza: "" as string,
+    sifen_ti_ope: "" as string,
+    sifen_tipo_doc: "" as string,
+    sifen_num_id_de: "",
+    sifen_codigo_pais: "",
+    sifen_direccion_de: "",
+    sifen_num_casa_de: "",
+    sifen_descripcion_tipo_doc: "",
   });
 
   // Campos de suscripción (solo cuando condicion_pago = MENSUAL)
@@ -184,7 +194,7 @@ function NuevoClienteForm() {
     return () => { cancelled = true; };
   }, [fromCrmId]);
 
-  const upper = ["empresa", "nombre_contacto", "ciudad", "pais", "vendedor_asignado", "condicion_pago", "direccion"];
+  const upper = ["empresa", "nombre_contacto", "ciudad", "pais", "vendedor_asignado", "condicion_pago", "direccion", "sifen_codigo_pais"];
   const lower = ["email", "email_secundario"];
 
   function handleChange(
@@ -233,6 +243,65 @@ function NuevoClienteForm() {
       }
     }
 
+    if (form.sifen_receptor_manual) {
+      if (!form.sifen_receptor_naturaleza.trim()) {
+        return setError("SIFEN receptor: elegí la naturaleza del receptor.");
+      }
+      if (!form.sifen_ti_ope.trim()) {
+        return setError("SIFEN receptor: elegí el tipo de operación (B2B / B2C / B2G / B2F).");
+      }
+      if (!form.sifen_direccion_de.trim()) {
+        return setError("SIFEN receptor (modo explícito): completá la dirección para el DE.");
+      }
+      if (form.sifen_num_casa_de.trim() === "") {
+        return setError("SIFEN receptor (modo explícito): indicá el número de casa para el DE (0 si no aplica).");
+      }
+      if (form.sifen_receptor_naturaleza === "extranjero") {
+        const iso = form.sifen_codigo_pais.trim().toUpperCase();
+        if (!/^[A-Z]{3}$/.test(iso) || iso === "PRY") {
+          return setError("SIFEN receptor (extranjero): indicá un código país ISO3 válido distinto de PRY.");
+        }
+      }
+      if (form.sifen_receptor_naturaleza === "contribuyente_paraguayo" && !form.ruc.trim()) {
+        return setError("SIFEN receptor (contribuyente): el RUC del cliente es obligatorio.");
+      }
+      if (
+        form.sifen_receptor_naturaleza !== "contribuyente_paraguayo" &&
+        !form.sifen_num_id_de.trim() &&
+        !form.documento.trim() &&
+        !form.ruc.trim()
+      ) {
+        return setError(
+          "SIFEN receptor: completá el número de documento del DE o el documento/RUC del cliente."
+        );
+      }
+      const td = form.sifen_tipo_doc.trim();
+      if (td === "9") {
+        const d = form.sifen_descripcion_tipo_doc.trim();
+        if (d.length < 9 || d.length > 41) {
+          return setError(
+            "SIFEN receptor: con tipo de documento «Otro», la descripción debe tener entre 9 y 41 caracteres (SET)."
+          );
+        }
+      }
+    }
+
+    const sifenManualCreate: Partial<Parameters<typeof apiCreateCliente>[0]> =
+      form.sifen_receptor_manual
+        ? {
+            sifen_receptor_manual: true,
+            sifen_receptor_naturaleza: (form.sifen_receptor_naturaleza.trim() || null) as Cliente["sifen_receptor_naturaleza"],
+            sifen_ti_ope: form.sifen_ti_ope.trim() ? parseInt(form.sifen_ti_ope, 10) : null,
+            sifen_tipo_doc_receptor: form.sifen_tipo_doc.trim() ? parseInt(form.sifen_tipo_doc, 10) : null,
+            sifen_num_id_de: form.sifen_num_id_de.trim() || null,
+            sifen_codigo_pais: form.sifen_codigo_pais.trim().toUpperCase() || null,
+            sifen_direccion_de: form.sifen_direccion_de.trim() || null,
+            sifen_num_casa_de:
+              form.sifen_num_casa_de.trim() === "" ? null : Math.max(0, parseInt(form.sifen_num_casa_de, 10) || 0),
+            sifen_descripcion_tipo_doc: form.sifen_descripcion_tipo_doc.trim() || null,
+          }
+        : {};
+
     setGuardando(true);
 
     const creado = await apiCreateCliente({
@@ -253,6 +322,7 @@ function NuevoClienteForm() {
       plan_comercial_id: formSusc.plan_id.trim() || null,
       vendedor_asignado: form.vendedor_asignado.trim().toUpperCase() || undefined,
       vendedor_usuario_id: form.vendedor_usuario_id.trim() || null,
+      ...sifenManualCreate,
     });
 
     if (creado.ok !== true) {
@@ -530,6 +600,73 @@ function NuevoClienteForm() {
                 />
               </div>
             </div>
+
+            <ClienteDatosSifenReceptorForm
+              value={{
+                sifen_receptor_manual: form.sifen_receptor_manual,
+                sifen_receptor_naturaleza: (form.sifen_receptor_naturaleza || null) as Cliente["sifen_receptor_naturaleza"],
+                sifen_ti_ope: form.sifen_ti_ope.trim() ? parseInt(form.sifen_ti_ope, 10) : null,
+                sifen_tipo_doc_receptor: form.sifen_tipo_doc.trim() ? parseInt(form.sifen_tipo_doc, 10) : null,
+                sifen_codigo_pais: form.sifen_codigo_pais.trim() || null,
+                sifen_num_id_de: form.sifen_num_id_de.trim() || null,
+                sifen_direccion_de: form.sifen_direccion_de.trim() || null,
+                sifen_num_casa_de:
+                  form.sifen_num_casa_de.trim() === "" ? null : Math.max(0, parseInt(form.sifen_num_casa_de, 10) || 0),
+                sifen_descripcion_tipo_doc: form.sifen_descripcion_tipo_doc.trim() || null,
+              }}
+              onChange={(patch) => {
+                setForm((p) => {
+                  if (patch.sifen_receptor_manual === false) {
+                    return {
+                      ...p,
+                      sifen_receptor_manual: false,
+                      sifen_receptor_naturaleza: "",
+                      sifen_ti_ope: "",
+                      sifen_tipo_doc: "",
+                      sifen_num_id_de: "",
+                      sifen_codigo_pais: "",
+                      sifen_direccion_de: "",
+                      sifen_num_casa_de: "",
+                      sifen_descripcion_tipo_doc: "",
+                    };
+                  }
+                  return {
+                    ...p,
+                    ...(patch.sifen_receptor_manual !== undefined
+                      ? { sifen_receptor_manual: Boolean(patch.sifen_receptor_manual) }
+                      : {}),
+                    ...(patch.sifen_receptor_naturaleza !== undefined
+                      ? { sifen_receptor_naturaleza: patch.sifen_receptor_naturaleza ?? "" }
+                      : {}),
+                    ...(patch.sifen_ti_ope !== undefined
+                      ? { sifen_ti_ope: patch.sifen_ti_ope != null ? String(patch.sifen_ti_ope) : "" }
+                      : {}),
+                    ...(patch.sifen_tipo_doc_receptor !== undefined
+                      ? {
+                          sifen_tipo_doc:
+                            patch.sifen_tipo_doc_receptor != null ? String(patch.sifen_tipo_doc_receptor) : "",
+                        }
+                      : {}),
+                    ...(patch.sifen_num_id_de !== undefined ? { sifen_num_id_de: patch.sifen_num_id_de ?? "" } : {}),
+                    ...(patch.sifen_codigo_pais !== undefined
+                      ? { sifen_codigo_pais: patch.sifen_codigo_pais ?? "" }
+                      : {}),
+                    ...(patch.sifen_direccion_de !== undefined
+                      ? { sifen_direccion_de: patch.sifen_direccion_de ?? "" }
+                      : {}),
+                    ...(patch.sifen_num_casa_de !== undefined
+                      ? {
+                          sifen_num_casa_de:
+                            patch.sifen_num_casa_de != null ? String(patch.sifen_num_casa_de) : "",
+                        }
+                      : {}),
+                    ...(patch.sifen_descripcion_tipo_doc !== undefined
+                      ? { sifen_descripcion_tipo_doc: patch.sifen_descripcion_tipo_doc ?? "" }
+                      : {}),
+                  };
+                });
+              }}
+            />
           </section>
 
           {/* ── Datos comerciales ────────────────────────────────────────── */}

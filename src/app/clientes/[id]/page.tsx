@@ -57,6 +57,7 @@ import {
   getErrorDiaVencimientoTributario,
   type TributarioFormState,
 } from "@/components/clientes/ClientePerfilTributarioForm";
+import { ClienteDatosSifenReceptorForm } from "@/components/clientes/ClienteDatosSifenReceptorForm";
 // ── Estilos ────────────────────────────────────────────────────────────────────
 
 const inputClass =
@@ -203,6 +204,15 @@ export default function ClienteDetailPage() {
     vendedor_usuario_id:   "",
     tipo_servicio_cliente: "" as string,
     estado:                "activo" as Cliente["estado"],
+    sifen_receptor_manual: false,
+    sifen_receptor_naturaleza: "" as string,
+    sifen_ti_ope: "" as string,
+    sifen_tipo_doc: "" as string,
+    sifen_num_id_de: "",
+    sifen_codigo_pais: "",
+    sifen_direccion_de: "",
+    sifen_num_casa_de: "",
+    sifen_descripcion_tipo_doc: "",
   });
 
   const [formError, setFormError] = useState<string | null>(null);
@@ -346,6 +356,15 @@ export default function ClienteDetailPage() {
         vendedor_usuario_id:  c.vendedor_usuario_id ?? "",
         tipo_servicio_cliente: c.tipo_servicio_cliente ?? "",
         estado:               c.estado,
+        sifen_receptor_manual: Boolean(c.sifen_receptor_manual),
+        sifen_receptor_naturaleza: c.sifen_receptor_naturaleza ?? "",
+        sifen_ti_ope: c.sifen_ti_ope != null ? String(c.sifen_ti_ope) : "",
+        sifen_tipo_doc: c.sifen_tipo_doc_receptor != null ? String(c.sifen_tipo_doc_receptor) : "",
+        sifen_num_id_de: c.sifen_num_id_de ?? "",
+        sifen_codigo_pais: c.sifen_codigo_pais ?? "",
+        sifen_direccion_de: c.sifen_direccion_de ?? "",
+        sifen_num_casa_de: c.sifen_num_casa_de != null ? String(c.sifen_num_casa_de) : "",
+        sifen_descripcion_tipo_doc: c.sifen_descripcion_tipo_doc ?? "",
       });
       setFormTributario(formStateFromPerfil(c.perfil_tributario ?? null));
       setTributBlockOpen(
@@ -480,7 +499,7 @@ export default function ClienteDetailPage() {
     }
   }, [form.condicion_pago, id]);
 
-  const upper = ["empresa", "nombre_contacto", "ciudad", "pais", "vendedor_asignado", "condicion_pago", "direccion"];
+  const upper = ["empresa", "nombre_contacto", "ciudad", "pais", "vendedor_asignado", "condicion_pago", "direccion", "sifen_codigo_pais"];
   const lower = ["email", "email_secundario"];
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
@@ -527,7 +546,73 @@ export default function ClienteDetailPage() {
       }
     }
 
+    if (form.sifen_receptor_manual) {
+      if (!form.sifen_receptor_naturaleza.trim()) {
+        return setFormError("SIFEN receptor: elegí la naturaleza del receptor.");
+      }
+      if (!form.sifen_ti_ope.trim()) {
+        return setFormError("SIFEN receptor: elegí el tipo de operación (B2B / B2C / B2G / B2F).");
+      }
+      if (!form.sifen_direccion_de.trim()) {
+        return setFormError("SIFEN receptor (modo explícito): completá la dirección para el DE.");
+      }
+      if (form.sifen_num_casa_de.trim() === "") {
+        return setFormError("SIFEN receptor (modo explícito): indicá el número de casa para el DE (0 si no aplica).");
+      }
+      if (form.sifen_receptor_naturaleza === "extranjero") {
+        const iso = form.sifen_codigo_pais.trim().toUpperCase();
+        if (!/^[A-Z]{3}$/.test(iso) || iso === "PRY") {
+          return setFormError("SIFEN receptor (extranjero): indicá un código país ISO3 válido distinto de PRY.");
+        }
+      }
+      if (form.sifen_receptor_naturaleza === "contribuyente_paraguayo" && !form.ruc.trim()) {
+        return setFormError("SIFEN receptor (contribuyente): el RUC del cliente es obligatorio.");
+      }
+      if (
+        form.sifen_receptor_naturaleza !== "contribuyente_paraguayo" &&
+        !form.sifen_num_id_de.trim() &&
+        !form.documento.trim() &&
+        !form.ruc.trim()
+      ) {
+        return setFormError(
+          "SIFEN receptor: completá el número de documento del DE o el documento/RUC del cliente."
+        );
+      }
+      const td = form.sifen_tipo_doc.trim();
+      if (td === "9") {
+        const d = form.sifen_descripcion_tipo_doc.trim();
+        if (d.length < 9 || d.length > 41) {
+          return setFormError(
+            "SIFEN receptor: con tipo de documento «Otro», la descripción debe tener entre 9 y 41 caracteres (SET)."
+          );
+        }
+      }
+    }
+
     const tipoTs = (form.tipo_servicio_cliente || "").trim().toLowerCase();
+    const sifenManualPayload = form.sifen_receptor_manual
+      ? ({
+          sifen_receptor_manual: true,
+          sifen_receptor_naturaleza: (form.sifen_receptor_naturaleza.trim() || null) as Cliente["sifen_receptor_naturaleza"],
+          sifen_ti_ope: form.sifen_ti_ope.trim() ? parseInt(form.sifen_ti_ope, 10) : null,
+          sifen_tipo_doc_receptor: form.sifen_tipo_doc.trim() ? parseInt(form.sifen_tipo_doc, 10) : null,
+          sifen_num_id_de: form.sifen_num_id_de.trim() || null,
+          sifen_codigo_pais: form.sifen_codigo_pais.trim().toUpperCase() || null,
+          sifen_direccion_de: form.sifen_direccion_de.trim() || null,
+          sifen_num_casa_de:
+            form.sifen_num_casa_de.trim() === "" ? null : Math.max(0, parseInt(form.sifen_num_casa_de, 10) || 0),
+          sifen_descripcion_tipo_doc: form.sifen_descripcion_tipo_doc.trim() || null,
+        } satisfies Partial<Cliente>)
+      : ({
+          sifen_receptor_manual: false,
+          sifen_receptor_naturaleza: null,
+          sifen_ti_ope: null,
+          sifen_tipo_doc_receptor: null,
+          sifen_num_id_de: null,
+          sifen_direccion_de: null,
+          sifen_num_casa_de: null,
+          sifen_descripcion_tipo_doc: null,
+        } satisfies Partial<Cliente>);
     try {
       await updateCliente(id, {
         tipo_cliente:        form.tipo_cliente,
@@ -552,6 +637,7 @@ export default function ClienteDetailPage() {
         vendedor_usuario_id: form.vendedor_usuario_id.trim() || null,
         tipo_servicio_cliente: tipoTs || null,
         estado:              form.estado,
+        ...sifenManualPayload,
       });
     } catch (err) {
       const m = err instanceof Error ? err.message : String(err);
@@ -1462,6 +1548,73 @@ export default function ClienteDetailPage() {
                     <input type="text" name="pais" value={form.pais} onChange={handleChange} className={`${inputClass} uppercase`} />
                   </div>
                 </div>
+
+                <ClienteDatosSifenReceptorForm
+                  value={{
+                    sifen_receptor_manual: form.sifen_receptor_manual,
+                    sifen_receptor_naturaleza: (form.sifen_receptor_naturaleza || null) as Cliente["sifen_receptor_naturaleza"],
+                    sifen_ti_ope: form.sifen_ti_ope.trim() ? parseInt(form.sifen_ti_ope, 10) : null,
+                    sifen_tipo_doc_receptor: form.sifen_tipo_doc.trim() ? parseInt(form.sifen_tipo_doc, 10) : null,
+                    sifen_codigo_pais: form.sifen_codigo_pais.trim() || null,
+                    sifen_num_id_de: form.sifen_num_id_de.trim() || null,
+                    sifen_direccion_de: form.sifen_direccion_de.trim() || null,
+                    sifen_num_casa_de:
+                      form.sifen_num_casa_de.trim() === "" ? null : Math.max(0, parseInt(form.sifen_num_casa_de, 10) || 0),
+                    sifen_descripcion_tipo_doc: form.sifen_descripcion_tipo_doc.trim() || null,
+                  }}
+                  onChange={(patch) => {
+                    setForm((p) => {
+                      if (patch.sifen_receptor_manual === false) {
+                        return {
+                          ...p,
+                          sifen_receptor_manual: false,
+                          sifen_receptor_naturaleza: "",
+                          sifen_ti_ope: "",
+                          sifen_tipo_doc: "",
+                          sifen_num_id_de: "",
+                          sifen_codigo_pais: "",
+                          sifen_direccion_de: "",
+                          sifen_num_casa_de: "",
+                          sifen_descripcion_tipo_doc: "",
+                        };
+                      }
+                      return {
+                        ...p,
+                        ...(patch.sifen_receptor_manual !== undefined
+                          ? { sifen_receptor_manual: Boolean(patch.sifen_receptor_manual) }
+                          : {}),
+                        ...(patch.sifen_receptor_naturaleza !== undefined
+                          ? { sifen_receptor_naturaleza: patch.sifen_receptor_naturaleza ?? "" }
+                          : {}),
+                        ...(patch.sifen_ti_ope !== undefined
+                          ? { sifen_ti_ope: patch.sifen_ti_ope != null ? String(patch.sifen_ti_ope) : "" }
+                          : {}),
+                        ...(patch.sifen_tipo_doc_receptor !== undefined
+                          ? {
+                              sifen_tipo_doc:
+                                patch.sifen_tipo_doc_receptor != null ? String(patch.sifen_tipo_doc_receptor) : "",
+                            }
+                          : {}),
+                        ...(patch.sifen_num_id_de !== undefined ? { sifen_num_id_de: patch.sifen_num_id_de ?? "" } : {}),
+                        ...(patch.sifen_codigo_pais !== undefined
+                          ? { sifen_codigo_pais: patch.sifen_codigo_pais ?? "" }
+                          : {}),
+                        ...(patch.sifen_direccion_de !== undefined
+                          ? { sifen_direccion_de: patch.sifen_direccion_de ?? "" }
+                          : {}),
+                        ...(patch.sifen_num_casa_de !== undefined
+                          ? {
+                              sifen_num_casa_de:
+                                patch.sifen_num_casa_de != null ? String(patch.sifen_num_casa_de) : "",
+                            }
+                          : {}),
+                        ...(patch.sifen_descripcion_tipo_doc !== undefined
+                          ? { sifen_descripcion_tipo_doc: patch.sifen_descripcion_tipo_doc ?? "" }
+                          : {}),
+                      };
+                    });
+                  }}
+                />
               </section>
 
               {/* Digital */}

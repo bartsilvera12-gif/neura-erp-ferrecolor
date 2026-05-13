@@ -432,7 +432,58 @@ export function buildOfficialRdeFacturaElectronicaXml(
   gEmisParts.push("</gEmis>");
 
   const recParts: string[] = ["<gDatRec>"];
-  if (receptor.receptor_extranjero === true) {
+  if (
+    receptor.sifen_receptor_config_manual === true &&
+    receptor.sifen_i_nat_rec != null &&
+    receptor.sifen_i_ti_ope != null
+  ) {
+    const dirRec = (receptor.sifen_d_dir_rec ?? "").trim();
+    if (!dirRec) {
+      throw new Error("SIFEN receptor manual: falta dirección (dDirRec) en el payload.");
+    }
+    const cr = receptor.sifen_d_num_cas_rec;
+    const casa =
+      cr == null || !Number.isFinite(Number(cr)) ? 0 : Math.max(0, Math.floor(Number(cr)));
+    recParts.push(textEl("iNatRec", String(receptor.sifen_i_nat_rec)));
+    recParts.push(textEl("iTiOpe", String(receptor.sifen_i_ti_ope)));
+    if (receptor.sifen_i_nat_rec === 1) {
+      const rucL = receptor.ruc?.trim();
+      if (!rucL) throw new Error("SIFEN receptor manual: falta RUC en el payload.");
+      const { cuerpo: dRucRec, dDV: dDVRec } = splitRucParaXml(rucL);
+      const iTiContRec = iTipContCodigo(receptor.nombre);
+      recParts.push(textEl("cPaisRec", "PRY"));
+      recParts.push(textEl("dDesPaisRe", "Paraguay"));
+      recParts.push(textEl("iTiContRec", iTiContRec));
+      recParts.push(textEl("dRucRec", formatoCuerpoRucTipoTruc(dRucRec)));
+      recParts.push(textEl("dDVRec", dDVRec));
+      recParts.push(textEl("dNomRec", receptor.nombre.trim()));
+      recParts.push(textEl("dDirRec", dirRec));
+      recParts.push(textEl("dNumCasRec", String(casa)));
+    } else {
+      const cPais = (receptor.codigo_pais_iso3 ?? "").trim().toUpperCase();
+      if (!/^[A-Z]{3}$/.test(cPais)) {
+        throw new Error("SIFEN receptor manual: codigo_pais_iso3 inválido en el payload.");
+      }
+      const dDesPais = nombrePaisParaDescripcionSifen(cPais);
+      const tipo = receptor.tipo_doc_receptor ?? (cPais === "PRY" ? 1 : 9);
+      const dDesTipo = descripcionTipoDocRecepXml(tipo, receptor.descripcion_tipo_doc_receptor);
+      const num = (receptor.num_id_receptor ?? "").replace(/\s/g, "").trim().slice(0, 20);
+      if (!num) throw new Error("SIFEN receptor manual: falta num_id_receptor en el payload.");
+      recParts.push(textEl("cPaisRec", cPais));
+      recParts.push(textEl("dDesPaisRe", dDesPais));
+      recParts.push(textEl("iTipIDRec", String(tipo)));
+      recParts.push(textEl("dDTipIDRec", dDesTipo));
+      recParts.push(textEl("dNumIDRec", num));
+      recParts.push(textEl("dNomRec", receptor.nombre.trim()));
+      recParts.push(textEl("dDirRec", dirRec));
+      recParts.push(textEl("dNumCasRec", String(casa)));
+    }
+    if (receptor.telefono?.trim()) {
+      const tr = receptor.telefono.replace(/\D/g, "");
+      if (tr.length >= 8) recParts.push(textEl("dTelRec", tr.slice(0, 15)));
+    }
+    if (receptor.email?.trim()) recParts.push(textEl("dEmailRec", receptor.email.trim()));
+  } else if (receptor.receptor_extranjero === true) {
     const cPais = (receptor.codigo_pais_iso3 ?? "").trim().toUpperCase();
     if (!/^[A-Z]{3}$/.test(cPais)) {
       throw new Error("Receptor extranjero SIFEN: codigo_pais_iso3 inválido o ausente en el payload.");

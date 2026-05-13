@@ -89,6 +89,16 @@ export async function apiCreateCliente(data: {
   plan_comercial_id?: string | null;
   vendedor_asignado?: string;
   vendedor_usuario_id?: string | null;
+  sifen_receptor_extranjero?: boolean;
+  sifen_codigo_pais?: string | null;
+  sifen_tipo_doc_receptor?: number | null;
+  sifen_receptor_manual?: boolean;
+  sifen_receptor_naturaleza?: string | null;
+  sifen_ti_ope?: number | null;
+  sifen_num_id_de?: string | null;
+  sifen_direccion_de?: string | null;
+  sifen_num_casa_de?: number | null;
+  sifen_descripcion_tipo_doc?: string | null;
 }): Promise<
   | { ok: true; data: { id: string; [key: string]: unknown } }
   | { ok: false; error: string }

@@ -89,6 +89,20 @@ export interface Cliente {
   /** tiTipDocRec SET (1–6 | 9); con extranjero, null → 9 en facturación. */
   sifen_tipo_doc_receptor?: number | null;
 
+  /** Modo explícito «Datos SIFEN del receptor» (no inferencia legacy). */
+  sifen_receptor_manual?: boolean;
+  sifen_receptor_naturaleza?: "contribuyente_paraguayo" | "no_contribuyente" | "extranjero" | null;
+  /** iTiOpe SET 1–4 (B2B/B2C/B2G/B2F). */
+  sifen_ti_ope?: number | null;
+  /** Número de identificación en el DE cuando el modo manual lo exige. */
+  sifen_num_id_de?: string | null;
+  /** Dirección en gDatRec (prioridad sobre `direccion` comercial si está cargada). */
+  sifen_direccion_de?: string | null;
+  /** dNumCasRec (entero ≥ 0). */
+  sifen_num_casa_de?: number | null;
+  /** Texto dDTipIDRec solo si tipo documento = 9 (9–41 caracteres SET). */
+  sifen_descripcion_tipo_doc?: string | null;
+
   created_at:          string;          // ISO string
   updated_at:          string;          // ISO string
 

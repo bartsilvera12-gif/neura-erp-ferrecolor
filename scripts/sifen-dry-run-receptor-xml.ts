@@ -152,6 +152,39 @@ runCase(
   }
 );
 
+runCase(
+  "receptor manual extranjero (iTiOpe B2G explícito, dirección y casa)",
+  {
+    cliente_id: "00000000-0000-4000-8000-0000000000cc",
+    nombre: "Receptor exterior de prueba",
+    documento: "20603666098",
+    ruc: null,
+    direccion: null,
+    telefono: null,
+    email: null,
+    receptor_extranjero: true,
+    codigo_pais_iso3: "PER",
+    tipo_doc_receptor: 9,
+    num_id_receptor: "20603666098",
+    sifen_receptor_config_manual: true,
+    sifen_i_nat_rec: 2,
+    sifen_i_ti_ope: 3,
+    sifen_d_dir_rec: "CALLE COMERCIO EXTERIOR 1000",
+    sifen_d_num_cas_rec: 0,
+  },
+  {
+    mustHave: [
+      "<iNatRec>2</iNatRec>",
+      "<iTiOpe>3</iTiOpe>",
+      "<cPaisRec>PER</cPaisRec>",
+      "<dDirRec>CALLE COMERCIO EXTERIOR 1000</dDirRec>",
+      "<dNumCasRec>0</dNumCasRec>",
+      "<dNumIDRec>20603666098</dNumIDRec>",
+    ],
+    mustNot: ["<dRucRec>", "<dDVRec>"],
+  }
+);
+
 const feId = "00000000-0000-4000-8000-0000000000bb";
 const xml0 = buildOfficialRdeFacturaElectronicaXml(
   {

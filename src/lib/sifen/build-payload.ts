@@ -13,6 +13,10 @@ import {
   normalizarTipoDocReceptorSifen,
   resolveCodigoPaisIso3Receptor,
 } from "./sifen-receptor-pais";
+import {
+  clienteUsaReceptorSifenManual,
+  validateReceptorExplicitManual,
+} from "./sifen-receptor-manual-validate";
 
 function trimStr(v: unknown): string {
   if (v == null) return "";
@@ -63,6 +67,14 @@ export interface SifenBuildClienteRow {
   sifen_receptor_extranjero?: boolean | null;
   sifen_codigo_pais?: string | null;
   sifen_tipo_doc_receptor?: number | string | null;
+  /** Si true, el DE usa columnas explícitas SIFEN del receptor (ver sifen_receptor_naturaleza, sifen_ti_ope, etc.). */
+  sifen_receptor_manual?: boolean | null;
+  sifen_receptor_naturaleza?: string | null;
+  sifen_ti_ope?: number | string | null;
+  sifen_num_id_de?: string | null;
+  sifen_direccion_de?: string | null;
+  sifen_num_casa_de?: number | string | null;
+  sifen_descripcion_tipo_doc?: string | null;
 }
 
 export interface SifenBuildConfigRow {
@@ -199,6 +211,9 @@ function validateReceptor(
   }
   if (trimStr(cliente.id) !== trimStr(factura.cliente_id)) {
     return { ok: false, error: "El cliente cargado no coincide con cliente_id de la factura." };
+  }
+  if (clienteUsaReceptorSifenManual(cliente)) {
+    return validateReceptorExplicitManual(cliente, factura.cliente_id);
   }
   const nombre = nombreReceptor(cliente);
   if (!nombre) {

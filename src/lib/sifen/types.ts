@@ -249,6 +249,19 @@ export interface SifenPayloadReceptor {
   descripcion_tipo_doc_receptor?: string | null;
   /** Valor sanitizado para dNumIDRec (máx. 20). Con extranjero se arma en build-payload. */
   num_id_receptor?: string | null;
+  /**
+   * Modo explícito (cliente.sifen_receptor_manual): iNatRec / iTiOpe / dirección y número de casa del DE
+   * según columnas del cliente; no usa la inferencia legacy RUC/CI/extranjero boolean.
+   */
+  sifen_receptor_config_manual?: boolean;
+  /** iNatRec SET: 1 contribuyente, 2 no contribuyente. */
+  sifen_i_nat_rec?: 1 | 2;
+  /** iTiOpe SET: 1 B2B, 2 B2C, 3 B2G, 4 B2F. */
+  sifen_i_ti_ope?: 1 | 2 | 3 | 4;
+  /** dDirRec en gDatRec (obligatorio en modo manual cuando aplica dirección en el DE). */
+  sifen_d_dir_rec?: string | null;
+  /** dNumCasRec (entero ≥ 0). */
+  sifen_d_num_cas_rec?: number | null;
 }
 
 export interface SifenPayloadItem {

@@ -203,6 +203,13 @@ export async function POST(request: NextRequest) {
       sifen_receptor_extranjero,
       sifen_codigo_pais,
       sifen_tipo_doc_receptor,
+      sifen_receptor_manual,
+      sifen_receptor_naturaleza,
+      sifen_ti_ope,
+      sifen_num_id_de,
+      sifen_direccion_de,
+      sifen_num_casa_de,
+      sifen_descripcion_tipo_doc,
       condicion_pago,
       moneda_preferida,
       estado,
@@ -274,6 +281,30 @@ export async function POST(request: NextRequest) {
     if (sifen_tipo_doc_receptor != null && sifen_tipo_doc_receptor !== "") {
       const n = Number(sifen_tipo_doc_receptor);
       if (Number.isFinite(n)) (insertBase as Record<string, unknown>).sifen_tipo_doc_receptor = n;
+    }
+    if (sifen_receptor_manual === true) {
+      (insertBase as Record<string, unknown>).sifen_receptor_manual = true;
+      if (typeof sifen_receptor_naturaleza === "string" && sifen_receptor_naturaleza.trim()) {
+        (insertBase as Record<string, unknown>).sifen_receptor_naturaleza = sifen_receptor_naturaleza.trim();
+      }
+      if (sifen_ti_ope != null && sifen_ti_ope !== "") {
+        const t = Number(sifen_ti_ope);
+        if (Number.isFinite(t)) (insertBase as Record<string, unknown>).sifen_ti_ope = Math.floor(t);
+      }
+      if (sifen_num_id_de != null && String(sifen_num_id_de).trim() !== "") {
+        (insertBase as Record<string, unknown>).sifen_num_id_de = String(sifen_num_id_de).trim().slice(0, 20);
+      }
+      if (sifen_direccion_de != null && String(sifen_direccion_de).trim() !== "") {
+        (insertBase as Record<string, unknown>).sifen_direccion_de = String(sifen_direccion_de).trim();
+      }
+      if (sifen_num_casa_de != null && Number.isFinite(Number(sifen_num_casa_de))) {
+        (insertBase as Record<string, unknown>).sifen_num_casa_de = Math.max(0, Math.floor(Number(sifen_num_casa_de)));
+      }
+      if (sifen_descripcion_tipo_doc != null && String(sifen_descripcion_tipo_doc).trim() !== "") {
+        (insertBase as Record<string, unknown>).sifen_descripcion_tipo_doc = String(sifen_descripcion_tipo_doc)
+          .trim()
+          .slice(0, 41);
+      }
     }
 
     const rowWithPlan =
