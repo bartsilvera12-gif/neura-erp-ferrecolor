@@ -21,7 +21,8 @@ export async function GET(request: NextRequest) {
     const t = quoteSchemaTable(schema, "movimientos_inventario");
     const { rows } = await pool.query(
       `SELECT id, empresa_id, producto_id, producto_nombre, producto_sku,
-              tipo, cantidad, costo_unitario, origen, referencia, fecha, created_at, updated_at
+              tipo, cantidad, costo_unitario, origen, referencia, fecha, created_at, updated_at,
+              created_by, usuario_nombre
          FROM ${t}
         WHERE empresa_id = $1::uuid
         ORDER BY fecha DESC

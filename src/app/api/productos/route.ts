@@ -143,6 +143,9 @@ export async function POST(request: NextRequest) {
       });
 
       // Inventario inicial (mismo schema, via PG directo).
+      // Si falla aqui, el producto YA fue creado — registramos el error en
+      // logs y devolvemos warning al cliente, pero no perdemos el producto.
+      let movWarning: string | null = null;
       if (stockActual > 0) {
         try {
           await insertMovimientoInicial(schema, empresaId, {
@@ -151,15 +154,21 @@ export async function POST(request: NextRequest) {
             producto_sku: row.sku,
             cantidad: stockActual,
             costo_unitario: costoPromedio,
+            created_by: ctx.auth.usuarioCatalogId ?? null,
+            usuario_nombre: ctx.auth.user?.email ?? null,
           });
         } catch (movErr) {
+          const message = movErr instanceof Error ? movErr.message : String(movErr);
           console.error("[/api/productos] inventario_inicial fallo", {
             schema,
             empresaId,
             productoId: row.id,
-            message: movErr instanceof Error ? movErr.message : String(movErr),
+            message,
+            code: (movErr as { code?: string })?.code,
+            detail: (movErr as { detail?: string })?.detail,
+            constraint: (movErr as { constraint?: string })?.constraint,
           });
-          // No revertimos el producto; el alta principal queda.
+          movWarning = "El producto se guardó pero no se pudo registrar el movimiento inicial de stock. Avisá al equipo técnico.";
         }
       }
 
@@ -187,7 +196,9 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      return NextResponse.json(successResponse({ producto: rowToProductoApi(row) }));
+      return NextResponse.json(
+        successResponse({ producto: rowToProductoApi(row), warning: movWarning })
+      );
     } catch (err) {
       if (err instanceof DuplicadoError) {
         return NextResponse.json(errorResponse(err.message), { status: 409 });

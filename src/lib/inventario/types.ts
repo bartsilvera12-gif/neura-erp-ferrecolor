@@ -32,4 +32,6 @@ export interface MovimientoInventario {
   origen: OrigenMovimiento;
   fecha: string;       // ISO string
   referencia?: string; // ej: "COMP-000001"
+  created_by?: string | null;
+  usuario_nombre?: string | null;
 }

@@ -290,6 +290,8 @@ export interface MovimientoInicialInput {
   producto_sku: string;
   cantidad: number;
   costo_unitario: number;
+  created_by?: string | null;
+  usuario_nombre?: string | null;
 }
 
 export async function insertMovimientoInicial(
@@ -303,13 +305,24 @@ export async function insertMovimientoInicial(
     `
     INSERT INTO ${t} (
       empresa_id, producto_id, producto_nombre, producto_sku,
-      tipo, cantidad, costo_unitario, origen, referencia, fecha
+      tipo, cantidad, costo_unitario, origen, referencia, fecha,
+      created_by, usuario_nombre
     ) VALUES (
       $1::uuid, $2::uuid, $3, $4, 'ENTRADA', $5::numeric, $6::numeric,
-      'inventario_inicial', NULL, now()
+      'inventario_inicial', NULL, now(),
+      $7::uuid, $8
     )
   `,
-    [empresaId, m.producto_id, m.producto_nombre, m.producto_sku, m.cantidad, m.costo_unitario]
+    [
+      empresaId,
+      m.producto_id,
+      m.producto_nombre,
+      m.producto_sku,
+      m.cantidad,
+      m.costo_unitario,
+      m.created_by ?? null,
+      m.usuario_nombre ?? null,
+    ]
   );
 }
 
