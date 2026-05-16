@@ -13,6 +13,7 @@ import type { SorteoEntradaEstadoPago } from "@/lib/sorteos/types";
 type PrintFormat = "thermal_58" | "thermal_80" | "a4" | "oficio";
 
 const PRINT_FORMAT_STORAGE_KEY = "neura:sorteos:physical-coupons:print-format";
+const THERMAL_CUT_STORAGE_KEY = "neura:sorteos:physical-coupons:thermal-cut-each";
 const DEFAULT_PRINT_FORMAT: PrintFormat = "a4";
 
 const PRINT_FORMAT_OPTIONS: { value: PrintFormat; label: string; help: string }[] = [
@@ -145,26 +146,43 @@ function buildSheetBody(rows: PhysicalCouponPrintRow[], layout: FormatLayout): s
     .join("");
 }
 
-function buildThermalBody(rows: PhysicalCouponPrintRow[]): string {
+function buildThermalBody(rows: PhysicalCouponPrintRow[], cutEachCoupon: boolean): string {
+  const cls = cutEachCoupon ? "coupon-card coupon-card--cut" : "coupon-card";
   const articles = rows
-    .map((row) => `<article class="coupon-card">${renderCouponInner(row)}</article>`)
+    .map((row) => `<article class="${cls}">${renderCouponInner(row)}</article>`)
     .join("");
   return `<section class="thermal-ticket-list">${articles}</section>`;
 }
 
-function buildFormatCss(format: PrintFormat): string {
+function buildFormatCss(format: PrintFormat, cutEachCoupon: boolean): string {
   const layout = FORMAT_LAYOUTS[format];
 
   if (layout.kind === "thermal") {
     const widthMm = format === "thermal_58" ? 58 : 80;
-    const marginMm = format === "thermal_58" ? 2 : 3;
-    const numberSize = format === "thermal_58" ? "1.35rem" : "1.55rem";
+    const marginMm = format === "thermal_58" ? 1.5 : 2;
+    const numberSize = format === "thermal_58" ? "26px" : "32px";
+    const sorteoSize = format === "thermal_58" ? "12px" : "14px";
+    const ordenSize = format === "thermal_58" ? "13px" : "15px";
+    const bottomSize = format === "thermal_58" ? "13px" : "15px";
     const gapMm = format === "thermal_58" ? 2 : 3;
-    const cardPadding = format === "thermal_58" ? "6px" : "8px";
+    const cardPadding = format === "thermal_58" ? "6px 4px" : "8px 6px";
+    const cutCss = cutEachCoupon
+      ? `
+      .coupon-card--cut {
+        break-after: page;
+        page-break-after: always;
+      }
+      .coupon-card--cut:last-child {
+        break-after: auto;
+        page-break-after: auto;
+      }
+      `
+      : "";
     return `
       @page { size: ${widthMm}mm auto; margin: ${marginMm}mm; }
       ${SHARED_COUPON_CARD_CSS}
-      body { width: ${widthMm - marginMm * 2}mm; }
+      html, body { color: #000 !important; }
+      body { width: ${widthMm - marginMm * 2}mm; font-family: Arial, "Helvetica Neue", Helvetica, sans-serif; }
       .thermal-ticket-list {
         display: flex;
         flex-direction: column;
@@ -174,8 +192,34 @@ function buildFormatCss(format: PrintFormat): string {
       .coupon-card {
         width: 100%;
         padding: ${cardPadding};
+        border: 1.5px dashed #000 !important;
+        color: #000 !important;
       }
-      .coupon-numero { font-size: ${numberSize}; }
+      .coupon-sorteo {
+        font-size: ${sorteoSize} !important;
+        color: #000 !important;
+        font-weight: 700 !important;
+      }
+      .coupon-numero {
+        font-size: ${numberSize} !important;
+        color: #000 !important;
+        font-weight: 900 !important;
+        margin: 4px 0 !important;
+        line-height: 1.1 !important;
+      }
+      .coupon-orden { font-size: ${ordenSize} !important; color: #000 !important; }
+      .coupon-bottom {
+        margin-top: 6px !important;
+        padding-top: 6px !important;
+        border-top: 1px solid #000 !important;
+        font-size: ${bottomSize} !important;
+        color: #000 !important;
+      }
+      .coupon-bottom p { color: #000 !important; }
+      .coupon-nombre { color: #000 !important; font-weight: 700 !important; }
+      .coupon-nombre.muted { color: #000 !important; }
+      .coupon-fecha { color: #000 !important; }
+      ${cutCss}
     `;
   }
 
@@ -204,11 +248,13 @@ function buildFormatCss(format: PrintFormat): string {
 function buildPhysicalCouponsPrintDocument(
   rows: PhysicalCouponPrintRow[],
   documentTitle: string,
-  format: PrintFormat
+  format: PrintFormat,
+  cutEachCoupon: boolean
 ): string {
   const layout = FORMAT_LAYOUTS[format];
-  const body = layout.kind === "thermal" ? buildThermalBody(rows) : buildSheetBody(rows, layout);
-  const css = buildFormatCss(format);
+  const body =
+    layout.kind === "thermal" ? buildThermalBody(rows, cutEachCoupon) : buildSheetBody(rows, layout);
+  const css = buildFormatCss(format, cutEachCoupon);
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -280,6 +326,7 @@ export default function PhysicalCouponsPrintClient({
 
   const [selectedPrintFormat, setSelectedPrintFormat] = useState<PrintFormat>(DEFAULT_PRINT_FORMAT);
   const [formatHydrated, setFormatHydrated] = useState(false);
+  const [thermalCutEachCoupon, setThermalCutEachCoupon] = useState<boolean>(false);
 
   const [confirmPending, setConfirmPending] = useState(false);
   const [confirmErr, setConfirmErr] = useState<string | null>(null);
@@ -302,6 +349,8 @@ export default function PhysicalCouponsPrintClient({
       if (isPrintFormat(stored)) {
         setSelectedPrintFormat(stored);
       }
+      const cut = window.localStorage.getItem(THERMAL_CUT_STORAGE_KEY);
+      if (cut === "1") setThermalCutEachCoupon(true);
     } catch {
       /* localStorage no disponible */
     }
@@ -316,6 +365,15 @@ export default function PhysicalCouponsPrintClient({
       /* noop */
     }
   }, [selectedPrintFormat, formatHydrated]);
+
+  useEffect(() => {
+    if (!formatHydrated) return;
+    try {
+      window.localStorage.setItem(THERMAL_CUT_STORAGE_KEY, thermalCutEachCoupon ? "1" : "0");
+    } catch {
+      /* noop */
+    }
+  }, [thermalCutEachCoupon, formatHydrated]);
 
   const activeFormatHelp = useMemo(
     () =>
@@ -333,7 +391,12 @@ export default function PhysicalCouponsPrintClient({
   function handlePrint() {
     if (rows.length === 0) return;
     const title = sorteoNombre.trim() || "Cupones sorteo";
-    const html = buildPhysicalCouponsPrintDocument(rows, title, selectedPrintFormat);
+    const html = buildPhysicalCouponsPrintDocument(
+      rows,
+      title,
+      selectedPrintFormat,
+      isThermal && thermalCutEachCoupon
+    );
     /* Sin noopener en features: si no, algunos navegadores devuelven null y no podemos llamar a print(). */
     const w = window.open("", "_blank");
     if (!w) {
@@ -449,6 +512,29 @@ export default function PhysicalCouponsPrintClient({
             </select>
           </label>
           <p className="text-xs text-slate-600">{activeFormatHelp}</p>
+
+          {isThermal ? (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 space-y-1">
+              <label className="flex items-center gap-2 text-sm text-slate-800">
+                <input
+                  type="checkbox"
+                  checked={thermalCutEachCoupon}
+                  onChange={(e) => setThermalCutEachCoupon(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300"
+                />
+                <span className="font-medium">Cortar cada cupón</span>
+              </label>
+              <p className="text-xs text-slate-600">
+                Depende del driver de la ticketera. El sistema separará cada cupón como una página
+                para facilitar el auto-corte.
+              </p>
+              <p className="text-xs text-slate-500">
+                Para que la ticketera corte cada cupón, activá «Cortar cada cupón» y verificá que el
+                driver de la impresora tenga habilitado el corte automático al final de cada página.
+              </p>
+            </div>
+          ) : null}
+
           <p className="text-xs text-slate-500">
             Para ticketera térmica, elegí 58mm u 80mm según el papel de tu impresora. En el diálogo de
             impresión del navegador, seleccioná el mismo tamaño de papel y desactivá encabezados y pies
