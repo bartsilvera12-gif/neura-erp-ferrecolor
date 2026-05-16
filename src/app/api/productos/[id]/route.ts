@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
+import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
+import {
+  updateProductoPg,
+  rowToProductoApi,
+  DuplicadoError,
+} from "@/lib/inventario/server/productos-pg";
 
 /**
  * PATCH /api/productos/[id]
  *
- * Actualizacion parcial server-side. Resuelve empresa/schema via tenant-api
- * (evita consultar usuarios desde el browser). Solo aplica los campos que
- * vienen en el body (semantica de patch).
+ * Actualizacion parcial via PG directo (soporta tenants no expuestos).
+ * Aplica solo los campos presentes en el body. La capa PG valida ownership
+ * (id + empresa_id en el WHERE).
  */
 export async function PATCH(
   request: NextRequest,
@@ -20,8 +26,8 @@ export async function PATCH(
     if (!ctx) {
       return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
     }
-    const { supabase, auth } = ctx;
-    const empresaId = auth.empresa_id;
+    const empresaId = ctx.auth.empresa_id;
+    const schema = await fetchDataSchemaForEmpresaId(empresaId);
 
     let body: Record<string, unknown>;
     try {
@@ -30,18 +36,7 @@ export async function PATCH(
       return NextResponse.json(errorResponse("JSON inválido."), { status: 400 });
     }
 
-    // Verificar ownership
-    const prodRes = await supabase
-      .from("productos")
-      .select("id, empresa_id")
-      .eq("id", id)
-      .maybeSingle();
-    const prod = prodRes.data as { id: string; empresa_id: string } | null;
-    if (!prod || prod.empresa_id !== empresaId) {
-      return NextResponse.json(errorResponse(API_ERRORS.NOT_FOUND), { status: 404 });
-    }
-
-    const patch: Record<string, unknown> = {};
+    const patch: Parameters<typeof updateProductoPg>[3] = {};
     if (body.nombre !== undefined) patch.nombre = String(body.nombre).trim();
     if (body.sku !== undefined) patch.sku = String(body.sku).trim();
     if (body.costo_promedio !== undefined) patch.costo_promedio = Number(body.costo_promedio) || 0;
@@ -56,11 +51,9 @@ export async function PATCH(
     if (body.codigo_barras !== undefined) {
       const cb = body.codigo_barras != null ? String(body.codigo_barras).trim() : "";
       patch.codigo_barras = cb || null;
-      if (body.codigo_barras_interno !== undefined) {
-        patch.codigo_barras_interno = body.codigo_barras_interno === true;
-      } else if (!cb) {
-        patch.codigo_barras_interno = false;
-      }
+    }
+    if (body.codigo_barras_interno !== undefined) {
+      patch.codigo_barras_interno = body.codigo_barras_interno === true;
     }
     if (body.imagen_path !== undefined) {
       const v = body.imagen_path != null ? String(body.imagen_path) : "";
@@ -71,39 +64,33 @@ export async function PATCH(
       patch.imagen_url = v || null;
     }
 
-    if (Object.keys(patch).length === 0) {
-      return NextResponse.json(errorResponse("Sin campos para actualizar."), { status: 400 });
-    }
-
-    const { data, error } = await supabase
-      .from("productos")
-      .update(patch)
-      .eq("id", id)
-      .eq("empresa_id", empresaId)
-      .select()
-      .single();
-
-    if (error) {
-      const code = (error as { code?: string }).code;
-      const msg = error.message ?? "";
-      if (code === "23505" && /codigo_barras/i.test(msg)) {
-        return NextResponse.json(
-          errorResponse("Ya existe otro producto con el mismo código de barras en esta empresa."),
-          { status: 409 }
-        );
+    try {
+      const row = await updateProductoPg(schema, empresaId, id, patch);
+      if (!row) {
+        return NextResponse.json(errorResponse(API_ERRORS.NOT_FOUND), { status: 404 });
       }
-      if (code === "23505" && /sku/i.test(msg)) {
-        return NextResponse.json(
-          errorResponse("Ya existe otro producto con el mismo SKU en esta empresa."),
-          { status: 409 }
-        );
+      return NextResponse.json(successResponse({ producto: rowToProductoApi(row) }));
+    } catch (err) {
+      if (err instanceof DuplicadoError) {
+        return NextResponse.json(errorResponse(err.message), { status: 409 });
       }
-      return NextResponse.json(errorResponse(msg || "No se pudo actualizar el producto."), { status: 500 });
+      console.error("[/api/productos/[id] PATCH]", {
+        schema,
+        empresaId,
+        id,
+        message: err instanceof Error ? err.message : String(err),
+        code: (err as { code?: string })?.code,
+      });
+      return NextResponse.json(
+        errorResponse("No se pudo actualizar el producto. Revisá los datos e intentá nuevamente."),
+        { status: 500 }
+      );
     }
-
-    return NextResponse.json(successResponse({ producto: data }));
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Error";
-    return NextResponse.json(errorResponse(msg), { status: 500 });
+    console.error("[/api/productos/[id] PATCH] outer", err instanceof Error ? err.message : err);
+    return NextResponse.json(
+      errorResponse("No se pudo actualizar el producto."),
+      { status: 500 }
+    );
   }
 }
