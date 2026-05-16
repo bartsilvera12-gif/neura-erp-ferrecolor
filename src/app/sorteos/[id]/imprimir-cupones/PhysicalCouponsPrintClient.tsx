@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import type {
   EntradaImpresionContext,
@@ -10,9 +10,48 @@ import type {
 } from "@/lib/sorteos/physical-coupons-print";
 import type { SorteoEntradaEstadoPago } from "@/lib/sorteos/types";
 
-const COLS = 2;
-const ROWS = 5;
-const PER_PAGE = COLS * ROWS;
+type PrintFormat = "thermal_58" | "thermal_80" | "a4" | "oficio";
+
+const PRINT_FORMAT_STORAGE_KEY = "neura:sorteos:physical-coupons:print-format";
+const DEFAULT_PRINT_FORMAT: PrintFormat = "a4";
+
+const PRINT_FORMAT_OPTIONS: { value: PrintFormat; label: string; help: string }[] = [
+  {
+    value: "thermal_58",
+    label: "Ticket 58mm",
+    help: "Formato para impresoras térmicas de 58mm. Los cupones se imprimen uno debajo del otro.",
+  },
+  {
+    value: "thermal_80",
+    label: "Ticket 80mm",
+    help: "Formato recomendado para ticketeras térmicas de 80mm, como ZKTeco/ZKP8003.",
+  },
+  { value: "a4", label: "Hoja A4", help: "Formato para hojas A4 con varios cupones por página." },
+  {
+    value: "oficio",
+    label: "Hoja oficio",
+    help: "Formato para hoja oficio con varios cupones por página.",
+  },
+];
+
+type FormatLayout = {
+  kind: "thermal" | "sheet";
+  cols: number;
+  rows: number;
+};
+
+const FORMAT_LAYOUTS: Record<PrintFormat, FormatLayout> = {
+  thermal_58: { kind: "thermal", cols: 1, rows: 1 },
+  thermal_80: { kind: "thermal", cols: 1, rows: 1 },
+  a4: { kind: "sheet", cols: 2, rows: 5 },
+  oficio: { kind: "sheet", cols: 2, rows: 7 },
+};
+
+function isPrintFormat(value: string | null): value is PrintFormat {
+  return (
+    value === "thermal_58" || value === "thermal_80" || value === "a4" || value === "oficio"
+  );
+}
 
 const ESTADOS: { value: SorteoEntradaEstadoPago; label: string }[] = [
   { value: "confirmado", label: "Confirmado" },
@@ -35,41 +74,142 @@ function escapeHtml(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/**
- * Documento HTML mínimo solo con cupones (sin AppShell). Evita overflow/h-svh del ERP en impresión.
- */
-function buildPhysicalCouponsPrintDocument(rows: PhysicalCouponPrintRow[], documentTitle: string): string {
-  const pages = chunk(rows, PER_PAGE);
-  const pagesHtml = pages
+function renderCouponInner(row: PhysicalCouponPrintRow): string {
+  const nombre = row.nombre_participante ? escapeHtml(row.nombre_participante) : "";
+  const docLine = row.documento_masked ? `<p>Doc. ${escapeHtml(row.documento_masked)}</p>` : "";
+  const telLine = row.whatsapp_masked ? `<p>Tel. ${escapeHtml(row.whatsapp_masked)}</p>` : "";
+  return `
+    <div class="coupon-top">
+      <p class="coupon-sorteo">${escapeHtml(row.sorteo_nombre)}</p>
+      <p class="coupon-numero">${escapeHtml(row.numero_cupon)}</p>
+      <p class="coupon-orden">Orden <strong>${escapeHtml(String(row.numero_orden))}</strong></p>
+    </div>
+    <div class="coupon-bottom">
+      ${nombre ? `<p class="coupon-nombre">${nombre}</p>` : `<p class="coupon-nombre muted">—</p>`}
+      ${docLine}
+      ${telLine}
+      <p class="coupon-fecha">${escapeHtml(row.fecha_display)}</p>
+    </div>`;
+}
+
+function buildSheetBody(rows: PhysicalCouponPrintRow[], layout: FormatLayout): string {
+  const perPage = layout.cols * layout.rows;
+  const pages = chunk(rows, perPage);
+  return pages
     .map((pageRows) => {
       const articles = pageRows
-        .map((row) => {
-          const nombre = row.nombre_participante ? escapeHtml(row.nombre_participante) : "";
-          const docLine = row.documento_masked ? `<p>Doc. ${escapeHtml(row.documento_masked)}</p>` : "";
-          const telLine = row.whatsapp_masked ? `<p>Tel. ${escapeHtml(row.whatsapp_masked)}</p>` : "";
-          return `
-            <article class="coupon-card">
-              <div class="coupon-top">
-                <p class="coupon-sorteo">${escapeHtml(row.sorteo_nombre)}</p>
-                <p class="coupon-numero">${escapeHtml(row.numero_cupon)}</p>
-                <p class="coupon-orden">Orden <strong>${escapeHtml(String(row.numero_orden))}</strong></p>
-              </div>
-              <div class="coupon-bottom">
-                ${nombre ? `<p class="coupon-nombre">${nombre}</p>` : `<p class="coupon-nombre muted">—</p>`}
-                ${docLine}
-                ${telLine}
-                <p class="coupon-fecha">${escapeHtml(row.fecha_display)}</p>
-              </div>
-            </article>`;
-        })
+        .map((row) => `<article class="coupon-card">${renderCouponInner(row)}</article>`)
         .join("");
-      const padCount = Math.max(0, PER_PAGE - pageRows.length);
+      const padCount = Math.max(0, perPage - pageRows.length);
       const pads = Array.from({ length: padCount })
         .map(() => `<div class="coupon-pad" aria-hidden="true"></div>`)
         .join("");
       return `<section class="coupon-page">${articles}${pads}</section>`;
     })
     .join("");
+}
+
+function buildThermalBody(rows: PhysicalCouponPrintRow[]): string {
+  const articles = rows
+    .map((row) => `<article class="coupon-card">${renderCouponInner(row)}</article>`)
+    .join("");
+  return `<section class="thermal-ticket-list">${articles}</section>`;
+}
+
+function buildFormatCss(format: PrintFormat): string {
+  const layout = FORMAT_LAYOUTS[format];
+  const commonReset = `
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; color: #000; font-family: Arial, "Helvetica Neue", Helvetica, sans-serif; background: #fff; }
+    @media print {
+      html, body { background: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  `;
+
+  if (layout.kind === "thermal") {
+    const widthMm = format === "thermal_58" ? 58 : 80;
+    const marginMm = format === "thermal_58" ? 2 : 3;
+    const numberSize = format === "thermal_58" ? "22pt" : "26pt";
+    const baseSize = format === "thermal_58" ? "10pt" : "11pt";
+    return `
+      @page { size: ${widthMm}mm auto; margin: ${marginMm}mm; }
+      ${commonReset}
+      body { width: ${widthMm - marginMm * 2}mm; font-size: ${baseSize}; }
+      .thermal-ticket-list { width: 100%; display: block; }
+      .coupon-card {
+        width: 100%;
+        padding: 2mm 1mm;
+        border-top: 1px dashed #000;
+        margin: 0;
+        text-align: center;
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+      .coupon-card:first-child { border-top: 0; }
+      .coupon-top { display: block; }
+      .coupon-sorteo { font-size: ${baseSize}; font-weight: 700; text-transform: uppercase; margin: 0 0 1mm; }
+      .coupon-numero { font-size: ${numberSize}; font-weight: 800; margin: 1mm 0; font-variant-numeric: tabular-nums; letter-spacing: 0.5px; }
+      .coupon-orden { font-size: ${baseSize}; margin: 0 0 1mm; }
+      .coupon-bottom { margin-top: 1mm; padding-top: 1mm; border-top: 1px dotted #000; font-size: ${baseSize}; }
+      .coupon-bottom p { margin: 0.5mm 0; }
+      .coupon-nombre { font-weight: 600; word-break: break-word; }
+      .coupon-nombre.muted { color: #555; font-weight: 400; }
+      .coupon-fecha { margin-top: 1mm !important; }
+    `;
+  }
+
+  const pageSize = format === "oficio" ? "216mm 330mm" : "A4";
+  const pageMargin = format === "oficio" ? "10mm" : "10mm";
+  const maxWidth = format === "oficio" ? "196mm" : "190mm";
+  return `
+    @page { size: ${pageSize}; margin: ${pageMargin}; }
+    ${commonReset}
+    html, body { color: #0f172a; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .coupon-page {
+      display: grid;
+      grid-template-columns: repeat(${layout.cols}, minmax(0, 1fr));
+      gap: 10px;
+      grid-auto-rows: minmax(28mm, auto);
+      max-width: ${maxWidth};
+      margin: 0 auto;
+      break-after: page;
+      page-break-after: always;
+    }
+    .coupon-page:last-child { break-after: auto; page-break-after: auto; }
+    .coupon-card {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      border: 1px dashed #64748b;
+      border-radius: 8px;
+      padding: 10px;
+      text-align: center;
+      background: #fff;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .coupon-sorteo { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; margin: 0; }
+    .coupon-numero { font-size: 1.625rem; font-weight: 800; margin: 4px 0; font-variant-numeric: tabular-nums; }
+    .coupon-orden { font-size: 12px; color: #475569; margin: 0; }
+    .coupon-bottom { margin-top: 8px; padding-top: 8px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #334155; }
+    .coupon-nombre { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .coupon-nombre.muted { color: #94a3b8; }
+    .coupon-fecha { margin: 4px 0 0; color: #64748b; font-size: 11px; }
+    .coupon-pad { visibility: hidden; break-inside: avoid; }
+  `;
+}
+
+/**
+ * Documento HTML mínimo solo con cupones (sin AppShell). Evita overflow/h-svh del ERP en impresión.
+ */
+function buildPhysicalCouponsPrintDocument(
+  rows: PhysicalCouponPrintRow[],
+  documentTitle: string,
+  format: PrintFormat
+): string {
+  const layout = FORMAT_LAYOUTS[format];
+  const body = layout.kind === "thermal" ? buildThermalBody(rows) : buildSheetBody(rows, layout);
+  const css = buildFormatCss(format);
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -77,48 +217,10 @@ function buildPhysicalCouponsPrintDocument(rows: PhysicalCouponPrintRow[], docum
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>${escapeHtml(documentTitle)}</title>
-<style>
-  @page { size: A4; margin: 10mm; }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; color: #0f172a; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
-  .coupon-page {
-    display: grid;
-    grid-template-columns: repeat(${COLS}, minmax(0, 1fr));
-    gap: 10px;
-    grid-auto-rows: minmax(28mm, auto);
-    max-width: 190mm;
-    margin: 0 auto;
-    break-after: page;
-    page-break-after: always;
-  }
-  .coupon-page:last-child { break-after: auto; page-break-after: auto; }
-  .coupon-card {
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    border: 1px dashed #64748b;
-    border-radius: 8px;
-    padding: 10px;
-    text-align: center;
-    background: #fff;
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
-  .coupon-sorteo { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; margin: 0; }
-  .coupon-numero { font-size: 1.625rem; font-weight: 800; margin: 4px 0; font-variant-numeric: tabular-nums; }
-  .coupon-orden { font-size: 12px; color: #475569; margin: 0; }
-  .coupon-bottom { margin-top: 8px; padding-top: 8px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #334155; }
-  .coupon-nombre { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .coupon-nombre.muted { color: #94a3b8; }
-  .coupon-fecha { margin: 4px 0 0; color: #64748b; font-size: 11px; }
-  .coupon-pad { visibility: hidden; break-inside: avoid; }
-  @media print {
-    html, body { background: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  }
-</style>
+<style>${css}</style>
 </head>
 <body>
-${pagesHtml}
+${body}
 </body>
 </html>`;
 }
@@ -147,7 +249,9 @@ export default function PhysicalCouponsPrintClient({
   entradaContext: EntradaImpresionContext | null;
 }) {
   const router = useRouter();
-  const pages = chunk(rows, PER_PAGE);
+
+  const [selectedPrintFormat, setSelectedPrintFormat] = useState<PrintFormat>(DEFAULT_PRINT_FORMAT);
+  const [formatHydrated, setFormatHydrated] = useState(false);
 
   const [confirmPending, setConfirmPending] = useState(false);
   const [confirmErr, setConfirmErr] = useState<string | null>(null);
@@ -164,10 +268,44 @@ export default function PhysicalCouponsPrintClient({
     };
   }, []);
 
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(PRINT_FORMAT_STORAGE_KEY);
+      if (isPrintFormat(stored)) {
+        setSelectedPrintFormat(stored);
+      }
+    } catch {
+      /* localStorage no disponible */
+    }
+    setFormatHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!formatHydrated) return;
+    try {
+      window.localStorage.setItem(PRINT_FORMAT_STORAGE_KEY, selectedPrintFormat);
+    } catch {
+      /* noop */
+    }
+  }, [selectedPrintFormat, formatHydrated]);
+
+  const activeFormatHelp = useMemo(
+    () =>
+      PRINT_FORMAT_OPTIONS.find((o) => o.value === selectedPrintFormat)?.help ?? "",
+    [selectedPrintFormat]
+  );
+
+  const layout = FORMAT_LAYOUTS[selectedPrintFormat];
+  const isThermal = layout.kind === "thermal";
+  const previewWidthMm = selectedPrintFormat === "thermal_58" ? 58 : 80;
+  const previewMaxWidth = selectedPrintFormat === "oficio" ? "196mm" : "190mm";
+  const perPage = layout.cols * layout.rows;
+  const pages = isThermal ? [rows] : chunk(rows, perPage);
+
   function handlePrint() {
     if (rows.length === 0) return;
     const title = sorteoNombre.trim() || "Cupones sorteo";
-    const html = buildPhysicalCouponsPrintDocument(rows, title);
+    const html = buildPhysicalCouponsPrintDocument(rows, title, selectedPrintFormat);
     /* Sin noopener en features: si no, algunos navegadores devuelven null y no podemos llamar a print(). */
     const w = window.open("", "_blank");
     if (!w) {
@@ -262,11 +400,31 @@ export default function PhysicalCouponsPrintClient({
           <p className="text-xs text-slate-500">
             Fecha en el cupón: se usa la fecha de pago si existe; si no, la fecha de creación de la orden.
           </p>
-          <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
-            <strong className="text-slate-800">Impresión:</strong> esta vista está pensada para hoja{" "}
-            <strong>A4</strong>. Si en el cuadro de impresión del navegador ves la URL o la fecha arriba/abajo,
-            desactivá <strong>«Encabezados y pies de página»</strong> (Chrome/Edge: Más ajustes / Options).
-            Para ticketera térmica habría que usar otro formato (mejora futura).
+        </div>
+
+        <div className="no-print rounded-xl border border-slate-200 bg-white p-4 space-y-2">
+          <label className="flex flex-col gap-1 text-sm text-slate-700">
+            <span className="font-semibold text-slate-800">Formato de impresión</span>
+            <select
+              value={selectedPrintFormat}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (isPrintFormat(v)) setSelectedPrintFormat(v);
+              }}
+              className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm max-w-xs"
+            >
+              {PRINT_FORMAT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="text-xs text-slate-600">{activeFormatHelp}</p>
+          <p className="text-xs text-slate-500">
+            Para ticketera térmica, elegí 58mm u 80mm según el papel de tu impresora. En el diálogo de
+            impresión del navegador, seleccioná el mismo tamaño de papel y desactivá encabezados y pies
+            de página si aparece la URL o fecha.
           </p>
         </div>
 
@@ -438,56 +596,93 @@ export default function PhysicalCouponsPrintClient({
             <p className="no-print text-sm text-slate-500">No hay cupones con los filtros seleccionados.</p>
           ) : null}
 
-          {pages.map((pageRows, pi) => (
+          {isThermal ? (
             <div
-              key={pi}
-              className={`print-page-break mx-auto max-w-[190mm] ${pi > 0 ? "mt-8 print:mt-0" : ""}`}
+              className="mx-auto flex flex-col gap-2 bg-white"
+              style={{ width: `${previewWidthMm}mm`, maxWidth: "100%" }}
             >
-              <div
-                className="grid gap-3 print:gap-2"
-                style={{
-                  gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))`,
-                  gridAutoRows: "minmax(28mm, auto)",
-                }}
-              >
-                {pageRows.map((row) => (
-                  <article
-                    key={row.cupon_id}
-                    className="flex flex-col justify-between rounded-lg border border-dashed border-slate-400 bg-slate-50/80 p-3 text-center shadow-sm print:bg-white print:shadow-none break-inside-avoid page-break-inside-avoid"
+              {rows.map((row) => (
+                <article
+                  key={row.cupon_id}
+                  className="border-t border-dashed border-black bg-white px-2 py-2 text-center text-black first:border-t-0 break-inside-avoid page-break-inside-avoid"
+                  style={{ fontFamily: "Arial, sans-serif" }}
+                >
+                  <p className="text-[11px] font-bold uppercase tracking-wide">{row.sorteo_nombre}</p>
+                  <p
+                    className="font-extrabold tabular-nums leading-tight"
+                    style={{ fontSize: selectedPrintFormat === "thermal_58" ? "20pt" : "24pt" }}
                   >
-                    <div className="space-y-1">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                        {row.sorteo_nombre}
-                      </p>
-                      <p className="text-2xl font-bold tabular-nums text-slate-900">{row.numero_cupon}</p>
-                      <p className="text-xs text-slate-600">
-                        Orden <span className="font-semibold tabular-nums">{row.numero_orden}</span>
-                      </p>
-                    </div>
-                    <div className="mt-2 space-y-0.5 border-t border-slate-200 pt-2 text-[11px] text-slate-700">
-                      {row.nombre_participante ? (
-                        <p className="truncate" title={row.nombre_participante}>
-                          {row.nombre_participante}
-                        </p>
-                      ) : (
-                        <p className="text-slate-400">—</p>
-                      )}
-                      {row.documento_masked ? <p>Doc. {row.documento_masked}</p> : null}
-                      {row.whatsapp_masked ? <p>Tel. {row.whatsapp_masked}</p> : null}
-                      <p className="text-slate-500">{row.fecha_display}</p>
-                    </div>
-                  </article>
-                ))}
-                {Array.from({ length: Math.max(0, PER_PAGE - pageRows.length) }).map((_, i) => (
-                  <div
-                    key={`pad-${pi}-${i}`}
-                    className="rounded-lg border border-transparent print:hidden"
-                    aria-hidden
-                  />
-                ))}
-              </div>
+                    {row.numero_cupon}
+                  </p>
+                  <p className="text-[11px]">
+                    Orden <span className="font-semibold tabular-nums">{row.numero_orden}</span>
+                  </p>
+                  <div className="mt-1 border-t border-dotted border-black pt-1 text-[11px] leading-snug">
+                    {row.nombre_participante ? (
+                      <p className="font-semibold break-words">{row.nombre_participante}</p>
+                    ) : (
+                      <p className="text-slate-500">—</p>
+                    )}
+                    {row.documento_masked ? <p>Doc. {row.documento_masked}</p> : null}
+                    {row.whatsapp_masked ? <p>Tel. {row.whatsapp_masked}</p> : null}
+                    <p>{row.fecha_display}</p>
+                  </div>
+                </article>
+              ))}
             </div>
-          ))}
+          ) : (
+            pages.map((pageRows, pi) => (
+              <div
+                key={pi}
+                className={`print-page-break mx-auto ${pi > 0 ? "mt-8 print:mt-0" : ""}`}
+                style={{ maxWidth: previewMaxWidth }}
+              >
+                <div
+                  className="grid gap-3 print:gap-2"
+                  style={{
+                    gridTemplateColumns: `repeat(${layout.cols}, minmax(0, 1fr))`,
+                    gridAutoRows: "minmax(28mm, auto)",
+                  }}
+                >
+                  {pageRows.map((row) => (
+                    <article
+                      key={row.cupon_id}
+                      className="flex flex-col justify-between rounded-lg border border-dashed border-slate-400 bg-slate-50/80 p-3 text-center shadow-sm print:bg-white print:shadow-none break-inside-avoid page-break-inside-avoid"
+                    >
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                          {row.sorteo_nombre}
+                        </p>
+                        <p className="text-2xl font-bold tabular-nums text-slate-900">{row.numero_cupon}</p>
+                        <p className="text-xs text-slate-600">
+                          Orden <span className="font-semibold tabular-nums">{row.numero_orden}</span>
+                        </p>
+                      </div>
+                      <div className="mt-2 space-y-0.5 border-t border-slate-200 pt-2 text-[11px] text-slate-700">
+                        {row.nombre_participante ? (
+                          <p className="truncate" title={row.nombre_participante}>
+                            {row.nombre_participante}
+                          </p>
+                        ) : (
+                          <p className="text-slate-400">—</p>
+                        )}
+                        {row.documento_masked ? <p>Doc. {row.documento_masked}</p> : null}
+                        {row.whatsapp_masked ? <p>Tel. {row.whatsapp_masked}</p> : null}
+                        <p className="text-slate-500">{row.fecha_display}</p>
+                      </div>
+                    </article>
+                  ))}
+                  {Array.from({ length: Math.max(0, perPage - pageRows.length) }).map((_, i) => (
+                    <div
+                      key={`pad-${pi}-${i}`}
+                      className="rounded-lg border border-transparent print:hidden"
+                      aria-hidden
+                    />
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </>
