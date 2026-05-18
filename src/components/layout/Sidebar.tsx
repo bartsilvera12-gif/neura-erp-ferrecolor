@@ -315,6 +315,7 @@ function NavItem({
 export default function Sidebar() {
   const pathname = usePathname();
   const [modulos, setModulos] = useState<ModuloEmpresa[]>([]);
+  const [inactiveSlugsList, setInactiveSlugsList] = useState<string[]>([]);
   const [favoritos, setFavoritos] = useState<string[]>([]);
   const [collapsed, setCollapsed] = useState(false);
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({
@@ -353,13 +354,16 @@ export default function Sidebar() {
         let modList: ModuloEmpresa[] = [];
         const bootstrapSuper = isBootstrapSuperAdminEmail(session.user.email ?? null);
 
+        let inactiveList: string[] = [];
         if (res.ok) {
           const body = (await res.json()) as {
             superAdmin?: boolean;
             modulos?: ModuloEmpresa[];
+            inactiveSlugs?: string[];
           };
           superA = !!body.superAdmin || bootstrapSuper;
           modList = Array.isArray(body.modulos) ? body.modulos : [];
+          inactiveList = Array.isArray(body.inactiveSlugs) ? body.inactiveSlugs : [];
         } else {
           superA = bootstrapSuper;
         }
@@ -393,10 +397,12 @@ export default function Sidebar() {
         if (cancelled) return;
         setEsSuperAdmin(superA);
         setModulos(modList);
+        setInactiveSlugsList(inactiveList);
       } catch {
         if (!cancelled) {
           setModulos([]);
           setEsSuperAdmin(false);
+          setInactiveSlugsList([]);
         }
       } finally {
         if (!cancelled) setCargando(false);
@@ -423,7 +429,9 @@ export default function Sidebar() {
   };
 
   const modulosSlugs = new Set(modulos.map((m) => m.slug));
-  const hasAccess = (slug: string) => canAccessSidebarSlug(slug, modulosSlugs, esSuperAdmin);
+  const inactiveSlugsSet = useMemo(() => new Set(inactiveSlugsList), [inactiveSlugsList]);
+  const hasAccess = (slug: string) =>
+    canAccessSidebarSlug(slug, modulosSlugs, esSuperAdmin, inactiveSlugsSet);
 
   const isActive = (slug: string, href: string) => {
     const p = pathname ?? "";
@@ -440,26 +448,28 @@ export default function Sidebar() {
   const favoritosItemsFiltered = useMemo(() => {
     const slugs = new Set(modulos.map((m) => m.slug));
     const idForSlug = (slug: string) => modulos.find((m) => m.slug === slug)?.id ?? slug;
-    const access = (slug: string) => canAccessSidebarSlug(slug, slugs, esSuperAdmin);
+    const access = (slug: string) =>
+      canAccessSidebarSlug(slug, slugs, esSuperAdmin, inactiveSlugsSet);
     return MENU_STRUCTURE.filter(
       (item) =>
         favoritos.includes(idForSlug(item.slug)) &&
         access(item.slug) &&
         menuItemMatchesQuery(item, menuSearchQuery)
     );
-  }, [favoritos, menuSearchQuery, modulos, esSuperAdmin]);
+  }, [favoritos, menuSearchQuery, modulos, esSuperAdmin, inactiveSlugsSet]);
 
   const mainItemsFiltered = useMemo(() => {
     const slugs = new Set(modulos.map((m) => m.slug));
     const idForSlug = (slug: string) => modulos.find((m) => m.slug === slug)?.id ?? slug;
-    const access = (slug: string) => canAccessSidebarSlug(slug, slugs, esSuperAdmin);
+    const access = (slug: string) =>
+      canAccessSidebarSlug(slug, slugs, esSuperAdmin, inactiveSlugsSet);
     return MENU_STRUCTURE.filter(
       (item) =>
         !favoritos.includes(idForSlug(item.slug)) &&
         access(item.slug) &&
         menuItemMatchesQuery(item, menuSearchQuery)
     );
-  }, [favoritos, menuSearchQuery, modulos, esSuperAdmin]);
+  }, [favoritos, menuSearchQuery, modulos, esSuperAdmin, inactiveSlugsSet]);
 
   const anyMenuVisible =
     favoritosItemsFiltered.length > 0 ||

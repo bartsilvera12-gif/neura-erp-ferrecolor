@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { getCurrentUser, getSession } from "@/lib/auth";
@@ -13,13 +14,14 @@ import {
 
 const PUBLIC_ROUTES = ["/login"];
 
-type ModuleAccess = { superAdmin: boolean; slugs: Set<string> };
+type ModuleAccess = { superAdmin: boolean; slugs: Set<string>; inactiveSlugs: Set<string> };
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [loading, setLoading] = useState(true);
   const [access, setAccess] = useState<ModuleAccess | null>(null);
+  const [blockedSlug, setBlockedSlug] = useState<string | null>(null);
 
   const isPublic = useMemo(
     () => !!(pathname && PUBLIC_ROUTES.includes(pathname)),
@@ -52,13 +54,19 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
       let superAdmin = false;
       let slugs: string[] = [];
+      let inactiveSlugs: string[] = [];
 
       const bootstrapSuper = isBootstrapSuperAdminEmail(session.user.email ?? null);
 
       if (res.ok) {
-        const data = (await res.json()) as { superAdmin?: boolean; slugs?: string[] };
+        const data = (await res.json()) as {
+          superAdmin?: boolean;
+          slugs?: string[];
+          inactiveSlugs?: string[];
+        };
         superAdmin = !!data.superAdmin || bootstrapSuper;
         slugs = Array.isArray(data.slugs) ? data.slugs : [];
+        inactiveSlugs = Array.isArray(data.inactiveSlugs) ? data.inactiveSlugs : [];
       } else {
         superAdmin = bootstrapSuper;
       }
@@ -75,6 +83,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       setAccess({
         superAdmin,
         slugs: new Set(slugs),
+        inactiveSlugs: new Set(inactiveSlugs),
       });
       setLoading(false);
     }
@@ -86,24 +95,67 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [isPublic, router]);
 
   useEffect(() => {
-    if (loading || isPublic || !access || !pathname) return;
+    if (loading || isPublic || !access || !pathname) {
+      setBlockedSlug(null);
+      return;
+    }
 
     if (pathname.startsWith("/admin") && !access.superAdmin) {
-      router.replace(firstAccessibleHref(access.slugs, { superAdmin: false }));
+      router.replace(
+        firstAccessibleHref(access.slugs, {
+          superAdmin: false,
+          inactiveSlugs: access.inactiveSlugs,
+        })
+      );
+      setBlockedSlug(null);
       return;
     }
 
     const slug = pathRequiresModuleSlug(pathname);
-    if (slug && !access.superAdmin && !isModuleSlugGranted(slug, access.slugs)) {
-      const dest = firstAccessibleHref(access.slugs, { superAdmin: access.superAdmin });
-      if (dest !== pathname.split("?")[0]) router.replace(dest);
+    if (
+      slug &&
+      !access.superAdmin &&
+      !isModuleSlugGranted(slug, access.slugs, access.inactiveSlugs)
+    ) {
+      setBlockedSlug(slug);
+      return;
     }
+    setBlockedSlug(null);
   }, [pathname, access, loading, isPublic, router]);
 
   if (loading && !isPublic) {
     return (
       <div className="flex items-center justify-center min-h-screen text-sm text-gray-400">
         Cargando…
+      </div>
+    );
+  }
+
+  if (blockedSlug && access) {
+    const fallback = firstAccessibleHref(access.slugs, {
+      superAdmin: access.superAdmin,
+      inactiveSlugs: access.inactiveSlugs,
+    });
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen px-6 text-center bg-gray-50">
+        <div className="max-w-md w-full bg-white border border-gray-200 rounded-lg shadow-sm p-8">
+          <div className="text-amber-500 text-4xl mb-3" aria-hidden>⚠</div>
+          <h1 className="text-lg font-semibold text-gray-900 mb-2">
+            Módulo no habilitado para esta empresa.
+          </h1>
+          <p className="text-sm text-gray-600 mb-1">
+            El módulo <code className="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded">{blockedSlug}</code> no está activo en tu cuenta.
+          </p>
+          <p className="text-sm text-gray-600 mb-6">
+            Si creés que esto es un error, contactá al administrador del sistema.
+          </p>
+          <Link
+            href={fallback}
+            className="inline-flex items-center justify-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition"
+          >
+            Volver al inicio
+          </Link>
+        </div>
       </div>
     );
   }

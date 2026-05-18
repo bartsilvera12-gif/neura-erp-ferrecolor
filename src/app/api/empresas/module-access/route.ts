@@ -38,10 +38,11 @@ export async function GET(request: Request) {
         return NextResponse.json({
           superAdmin: true,
           slugs: modulos.map((m) => m.slug).filter(Boolean),
+          inactiveSlugs: [],
           modulos: modulos.map((m) => ({ id: m.id, nombre: m.nombre, slug: m.slug })),
         });
       }
-      return NextResponse.json({ superAdmin: false, slugs: [], modulos: [] });
+      return NextResponse.json({ superAdmin: false, slugs: [], inactiveSlugs: [], modulos: [] });
     }
 
     const modulos = await resolveEffectiveModules(supabase, {
@@ -52,9 +53,32 @@ export async function GET(request: Request) {
 
     const superAdmin = (usuario.rol ?? "").trim() === "super_admin";
 
+    /**
+     * Slugs presentes en `empresa_modulos` con `activo=false` para esta empresa.
+     * Permite al gate de rutas distinguir "no presente" (alias legacy puede otorgar) de
+     * "explícitamente desactivado" (ningún alias debe otorgar).
+     */
+    let inactiveSlugs: string[] = [];
+    if (!superAdmin && usuario.empresa_id) {
+      const { data: emInactive, error: errInactive } = await supabase
+        .from("empresa_modulos")
+        .select("modulo_id, modulos!inner(slug)")
+        .eq("empresa_id", usuario.empresa_id)
+        .eq("activo", false);
+      if (!errInactive && Array.isArray(emInactive)) {
+        inactiveSlugs = emInactive
+          .map((r: { modulos?: { slug?: unknown } | { slug?: unknown }[] }) => {
+            const mod = Array.isArray(r.modulos) ? r.modulos[0] : r.modulos;
+            return typeof mod?.slug === "string" ? mod.slug : "";
+          })
+          .filter((s) => s.length > 0);
+      }
+    }
+
     return NextResponse.json({
       superAdmin,
       slugs: modulos.map((m) => m.slug).filter(Boolean),
+      inactiveSlugs,
       modulos: modulos.map((m) => ({ id: m.id, nombre: m.nombre, slug: m.slug })),
     });
   } catch (err: unknown) {
