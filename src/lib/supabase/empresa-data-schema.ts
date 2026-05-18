@@ -1,34 +1,20 @@
 import { createClient } from "@supabase/supabase-js";
 import {
-  SUPABASE_APP_SCHEMA,
-  resolveEmpresaDataSchema,
+  NEURA_CLIENT_SCHEMA,
   type AppSupabaseClient,
-  supabaseServiceRoleClientOptions,
 } from "@/lib/supabase/schema";
 import { createServiceRoleClient } from "@/lib/supabase/service-admin";
 
 /**
- * Lee `empresas.data_schema` (catálogo en zentra_erp).
- * NULL o vacío → datos de negocio en plantilla `zentra_erp` (empresas legadas).
- * Valor `erp_*` → schema tenant clonado desde zentra_erp.
+ * Instancia dedicada monocliente: no consulta `empresas.data_schema`.
+ * Devuelve siempre el schema único de la instancia. Firma async preservada
+ * para compatibilidad con callers existentes.
  */
-export async function fetchDataSchemaForEmpresaId(empresaId: string): Promise<string> {
-  const catalog = createServiceRoleClient();
-  const { data, error } = await catalog
-    .from("empresas")
-    .select("data_schema")
-    .eq("id", empresaId)
-    .maybeSingle();
-
-  if (error) {
-    console.error("[empresa-data-schema] fetch:", error.message);
-    return SUPABASE_APP_SCHEMA;
-  }
-
-  return resolveEmpresaDataSchema((data as { data_schema?: string | null } | null)?.data_schema);
+export async function fetchDataSchemaForEmpresaId(_empresaId: string): Promise<string> {
+  return NEURA_CLIENT_SCHEMA;
 }
 
-/** Service role apuntando al esquema de datos operativos de la empresa (chat/omnicanal). */
+/** Service role apuntando a un schema arbitrario (compat para callers existentes). */
 export function createServiceRoleClientWithDbSchema(schema: string): AppSupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
@@ -41,11 +27,10 @@ export function createServiceRoleClientWithDbSchema(schema: string): AppSupabase
   }) as AppSupabaseClient;
 }
 
-/** Resuelve cliente service role: tenant si `data_schema`, si no catálogo zentra_erp. */
-export async function createServiceRoleClientForEmpresa(empresaId: string): Promise<AppSupabaseClient> {
-  const schema = await fetchDataSchemaForEmpresaId(empresaId);
-  if (schema === SUPABASE_APP_SCHEMA) {
-    return createServiceRoleClient();
-  }
-  return createServiceRoleClientWithDbSchema(schema);
+/**
+ * Instancia dedicada: cliente service role en el schema único.
+ * Se ignora `empresaId`. Firma preservada.
+ */
+export async function createServiceRoleClientForEmpresa(_empresaId: string): Promise<AppSupabaseClient> {
+  return createServiceRoleClient();
 }
