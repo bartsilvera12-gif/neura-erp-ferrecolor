@@ -35,6 +35,8 @@ export interface Producto {
   factor_compra_receta?: number;
   /** Tiempo estimado de preparación en minutos (para Kanban cocina). */
   tiempo_prep_minutos?: number;
+  /** Descripción detallada (visible en Menú y edición). */
+  descripcion?: string | null;
 }
 
 export interface MovimientoInventario {

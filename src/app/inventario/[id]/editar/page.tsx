@@ -33,6 +33,8 @@ export default function EditarProductoPage() {
   const [errorDuplicado, setErrorDuplicado] = useState<string | null>(null);
   const [errorGeneral, setErrorGeneral] = useState<string | null>(null);
 
+  // descripcion live separately because form se inicializa al cargar
+  const [descripcion, setDescripcion] = useState("");
   const [form, setForm] = useState({
     nombre: "",
     sku: "",
@@ -159,6 +161,7 @@ export default function EditarProductoPage() {
       setEsVendible(esVend);
       setEsInsumo(esIns);
       setControlaStock(ctrlStock);
+      setDescripcion(p.descripcion ?? "");
       setValorizado(p.valorizado ?? true);
       setUnidadCompra(p.unidad_compra ?? "");
       setUnidadReceta(p.unidad_receta ?? "");
@@ -287,6 +290,7 @@ export default function EditarProductoPage() {
         unidad_receta: unidadReceta.trim() || null,
         factor_compra_receta: Math.max(parseFloat(factorCompraReceta) || 1, 0.0001),
         tiempo_prep_minutos: Math.max(parseInt(tiempoPrepMinutos) || 0, 0),
+        descripcion: descripcion.trim() || null,
       };
       if (cambioCodigo) {
         updatePayload.codigo_barras = codigoIngresado || null;
@@ -377,6 +381,24 @@ export default function EditarProductoPage() {
               onChange={handleChange}
               className={`${inputClass} uppercase`}
               required
+            />
+          </div>
+
+          <div>
+            <label className={labelClass}>
+              Descripción
+              {tipoGastro === "menu" && <span className="text-xs font-normal text-amber-700 ml-2">(visible al cliente)</span>}
+            </label>
+            <textarea
+              value={descripcion}
+              onChange={(e) => setDescripcion(e.target.value)}
+              placeholder={
+                tipoGastro === "menu"
+                  ? "Ej: Pan, carne, huevo, doble queso, lechuga, tomate, mayonesa."
+                  : "Descripción opcional del producto"
+              }
+              rows={tipoGastro === "menu" ? 3 : 2}
+              className={inputClass}
             />
           </div>
 

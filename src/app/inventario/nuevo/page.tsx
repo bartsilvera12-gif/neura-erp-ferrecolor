@@ -30,6 +30,7 @@ export default function NuevoProductoPage() {
 
   const [form, setForm] = useState({
     nombre: "",
+    descripcion: "",
     sku: "",
     codigo_barras: "",
     costo_promedio: "",
@@ -172,7 +173,7 @@ export default function NuevoProductoPage() {
 
   // Campos sin lógica reactiva
   function handleChange(
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) {
     setErrorDuplicado(null);
     setErrorGeneral(null);
@@ -297,6 +298,7 @@ export default function NuevoProductoPage() {
       try {
         guardado = await saveProducto({
           nombre: form.nombre.trim().toUpperCase(),
+          descripcion: form.descripcion.trim() || null,
           sku: form.sku.trim().toUpperCase(),
           costo_promedio: parseFloat(form.costo_promedio) || 0,
           precio_venta: parseFloat(form.precio_venta) || 0,
@@ -499,9 +501,29 @@ export default function NuevoProductoPage() {
               name="nombre"
               value={form.nombre}
               onChange={handleChange}
-              placeholder="Ej: REMERA OVERSIZE BLANCA"
+              placeholder="Ej: HAMBURGUESA CASERA"
               className={`${inputClass} uppercase`}
               required
+            />
+          </div>
+
+          {/* Descripción */}
+          <div>
+            <label className={labelClass}>
+              Descripción
+              {tipoGastro === "menu" && <span className="text-xs font-normal text-amber-700 ml-2">(visible al cliente)</span>}
+            </label>
+            <textarea
+              name="descripcion"
+              value={form.descripcion}
+              onChange={handleChange}
+              placeholder={
+                tipoGastro === "menu"
+                  ? "Ej: Pan, carne, huevo, doble queso, lechuga, tomate, mayonesa."
+                  : "Descripción opcional del producto"
+              }
+              rows={tipoGastro === "menu" ? 3 : 2}
+              className={inputClass}
             />
           </div>
 
