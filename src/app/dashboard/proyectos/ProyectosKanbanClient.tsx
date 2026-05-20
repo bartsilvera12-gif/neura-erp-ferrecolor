@@ -495,8 +495,8 @@ export default function ProyectosKanbanClient() {
       </div>
 
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="max-h-[calc(100vh-260px)] min-h-[520px] overflow-auto rounded-xl pb-4">
-          <div className="flex min-h-full gap-2">
+        <div className="max-h-[calc(100vh-260px)] min-h-[520px] overflow-y-auto overflow-x-hidden rounded-xl pb-4">
+          <div className="flex min-h-full gap-2 w-full">
             {kanbanColumns.map((col) => {
               const items = byColumn.get(col.id) ?? [];
               return (
@@ -574,7 +574,7 @@ function KanbanColumnView({ col, children }: KanbanColumnViewProps) {
   return (
     <div
       ref={setNodeRef}
-      className={`flex w-[240px] shrink-0 flex-col rounded-lg border bg-slate-50/80 transition-colors ${
+      className={`flex min-w-[120px] flex-1 flex-col rounded-lg border bg-slate-50/80 transition-colors ${
         isOver && !col.inactiveFallback
           ? "border-indigo-300 bg-indigo-50/70 ring-2 ring-indigo-100"
           : "border-slate-200"
