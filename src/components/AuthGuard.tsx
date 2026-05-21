@@ -134,9 +134,9 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     setBlockedSlug(null);
   }, [pathname, access, loading, isPublic, router]);
 
-  if (loading && !isPublic) {
-    return <AppLoadingScreen />;
-  }
+  // Overlay de carga: el loader queda encima MIENTRAS children se montan en background.
+  // Así el sidebar/dashboard ya están fetcheando sus datos al desaparecer el loader.
+  const showLoader = loading && !isPublic;
 
   if (blockedSlug && access) {
     const fallback = firstAccessibleHref(access.slugs, {
@@ -168,5 +168,10 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     );
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      <AppLoadingScreen active={showLoader} />
+    </>
+  );
 }

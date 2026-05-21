@@ -168,14 +168,22 @@ body {
     linear-gradient(168deg, #5CB8BC 0%, #4FAEB2 45%, #3E8C90 100%);
 }
 
-.app-loading-z {
-  background: rgba(255, 255, 255, 0.12);
-  animation: app-loading-pulse 1.8s ease-in-out infinite;
+/* Logo Z: las dos mitades se separan suavemente y vuelven a su sitio */
+.app-loading-z-top {
+  transform-origin: center;
+  animation: app-loading-z-top 2.2s ease-in-out infinite;
 }
-
-@keyframes app-loading-pulse {
-  0%, 100% { transform: scale(1); opacity: 0.92; }
-  50%      { transform: scale(1.04); opacity: 1; }
+.app-loading-z-bot {
+  transform-origin: center;
+  animation: app-loading-z-bot 2.2s ease-in-out infinite;
+}
+@keyframes app-loading-z-top {
+  0%, 100% { transform: translate(0, 0); }
+  50%      { transform: translate(6px, -6px); }
+}
+@keyframes app-loading-z-bot {
+  0%, 100% { transform: translate(0, 0); }
+  50%      { transform: translate(-6px, 6px); }
 }
 
 .app-loading-dots {
