@@ -217,9 +217,9 @@ body {
 
 .zentra-dashboard-shell {
   background:
-    radial-gradient(ellipse 100% 70% at 50% 0%, rgba(20, 184, 166, 0.08), transparent 55%),
+    radial-gradient(ellipse 100% 70% at 50% 0%, rgba(79, 174, 178, 0.10), transparent 55%),
     radial-gradient(ellipse 100% 50% at 100% 0%, rgba(255, 255, 255, 0.04), transparent 60%),
-    linear-gradient(168deg, #143638 0%, #0E2E2F 45%, #082021 100%);
+    linear-gradient(168deg, #103B3E 0%, #0A2E30 45%, #061F21 100%);
 }
 
 

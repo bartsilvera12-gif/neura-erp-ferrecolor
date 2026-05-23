@@ -50,13 +50,16 @@ import {
 } from "recharts";
 
 // ── ZENTRA (solo dashboard / esta página) ─────────────────────────────────────
+// Paleta turquesa #4FAEB2 (rediseño 2026). Conserva el shell oscuro del dashboard
+// pero migra el acento de teal Tailwind (#14B8A6) al turquesa de marca Zentra.
 const Z = {
-  bg:       "#0E2E2F",
-  surface:  "#143638",
-  card:     "#1A4143",
-  accent:   "#14B8A6",
+  bg:       "#0A2E30",
+  surface:  "#103B3E",
+  card:     "#164B4F",
+  accent:   "#4FAEB2",
+  accentHover: "#3F8E91",
   text:     "#FFFFFF",
-  muted:    "#9CC2BF",
+  muted:    "#A8CCCA",
   success:  "#22C55E",
   error:    "#EF4444",
 } as const;
