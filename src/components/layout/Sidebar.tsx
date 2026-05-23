@@ -341,9 +341,13 @@ export default function Sidebar() {
   const { setSidebarReady } = useBoot();
 
   /** Reporta al BootContext cuándo el sidebar tiene sus módulos cargados.
-   *  El AuthGuard mantiene el ZentraLoader overlay hasta que esto sea true. */
+   *  Sticky: solo va false → true, nunca true → false. Esto evita que el
+   *  ZentraLoader vuelva a aparecer entre navegaciones cuando Supabase
+   *  dispara onAuthStateChange (token refresh) y reinicia "cargando". */
   useEffect(() => {
-    setSidebarReady(!cargando);
+    if (!cargando) {
+      setSidebarReady(true);
+    }
   }, [cargando, setSidebarReady]);
 
   useEffect(() => {
