@@ -289,8 +289,31 @@ export async function getDashboardData(): Promise<DashboardData> {
     };
   }
 
+  /**
+   * Rango temporal por defecto: últimos 13 meses.
+   * El Dashboard tiene un filtro de período en el header (Hoy / 7d / 30d / Mes actual / Año)
+   * que se aplica del lado del cliente. 13 meses cubre cualquier elección del usuario y
+   * evita traer histórico completo de la empresa (que en ERPs de varios años puede ser
+   * decenas de miles de filas en `ventas` / `ventas_items`).
+   *
+   * Si querés ver TODO el histórico explícitamente, pasá `?desde=&hasta=` vacíos en URL
+   * o llamá al endpoint sin el query string.
+   */
+  const dashboardNow = new Date();
+  const dashboardDesde = new Date(
+    dashboardNow.getFullYear(),
+    dashboardNow.getMonth() - 13,
+    dashboardNow.getDate()
+  );
+  const fmtYmd = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const dashboardRangeQs = `?desde=${fmtYmd(dashboardDesde)}&hasta=${fmtYmd(dashboardNow)}`;
+
   try {
-    const res = await fetchWithSupabaseSession("/api/dashboard/tenant-tables", { cache: "no-store" });
+    const res = await fetchWithSupabaseSession(
+      `/api/dashboard/tenant-tables${dashboardRangeQs}`,
+      { cache: "no-store" }
+    );
     if (!res.ok) throw new Error(await res.text());
     const json = (await res.json()) as {
       success?: boolean;
