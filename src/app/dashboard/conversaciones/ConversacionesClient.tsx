@@ -1009,12 +1009,21 @@ export function ConversacionesClient({
     };
   }, [chatDataSchema, supabaseChat]);
 
-  /** Respaldo si Realtime no llega (publicación RLS, pestaña en background, etc.). */
+  /** Respaldo si Realtime no llega (publicación RLS, pestaña en background, etc.).
+   *  Frecuencia configurable en runtime sin redeploy:
+   *    localStorage.setItem("__neura_inbox_poll_ms__", "2800")  // volver al valor original
+   *    localStorage.removeItem("__neura_inbox_poll_ms__")        // usar default
+   *  Default 5000 ms: Realtime ya cubre los eventos en <1s; este intervalo es solo respaldo. */
   useEffect(() => {
+    const override =
+      typeof window !== "undefined"
+        ? Number(window.localStorage?.getItem("__neura_inbox_poll_ms__") ?? "")
+        : NaN;
+    const intervalMs = Number.isFinite(override) && override >= 1000 ? override : 5000;
     const id = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
       void loadConversationsRef.current?.({ silent: true });
-    }, 2800);
+    }, intervalMs);
     return () => window.clearInterval(id);
   }, []);
 
@@ -1030,13 +1039,21 @@ export function ConversacionesClient({
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
 
-  /** Con hilo abierto: sondeo corto por si Realtime no entrega INSERT/UPDATE (p. ej. webhook vía PG). */
+  /** Con hilo abierto: sondeo corto por si Realtime no entrega INSERT/UPDATE (p. ej. webhook vía PG).
+   *  Override en runtime:
+   *    localStorage.setItem("__neura_thread_poll_ms__", "2800")  // volver al valor original
+   *  Default 5000 ms: Realtime + Realtime con filtro `conversation_id=eq.${selectedId}` cubren el caso normal. */
   useEffect(() => {
     if (!selectedId) return;
+    const override =
+      typeof window !== "undefined"
+        ? Number(window.localStorage?.getItem("__neura_thread_poll_ms__") ?? "")
+        : NaN;
+    const intervalMs = Number.isFinite(override) && override >= 1000 ? override : 5000;
     const id = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
       void loadMessagesRef.current(selectedId, { silent: true });
-    }, 2800);
+    }, intervalMs);
     return () => window.clearInterval(id);
   }, [selectedId]);
 
