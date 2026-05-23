@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getCompras } from "@/lib/compras/storage";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
+import EdgeScrollArea from "@/components/ui/EdgeScrollArea";
 import type { Compra, TipoPago } from "@/lib/compras/types";
 
 const inputFilterClass =
@@ -130,7 +131,7 @@ export default function ComprasPage() {
         </div>
 
         {/* Tabla */}
-        <div className="overflow-x-auto">
+        <EdgeScrollArea>
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="border-b text-gray-500">
@@ -201,7 +202,7 @@ export default function ComprasPage() {
               )}
             </tbody>
           </table>
-        </div>
+        </EdgeScrollArea>
 
       </div>
 

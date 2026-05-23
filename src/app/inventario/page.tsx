@@ -6,6 +6,7 @@ import { getProductos } from "@/lib/inventario/storage";
 import type { Producto, MetodoValuacion } from "@/lib/inventario/types";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import ImportExcelButton from "@/components/ui/ImportExcelButton";
+import EdgeScrollArea from "@/components/ui/EdgeScrollArea";
 import { useIsAdmin } from "@/lib/auth/use-is-admin";
 
 const inputFilterClass =
@@ -361,7 +362,7 @@ export default function InventarioPage() {
 
         </div>
 
-        <div className="overflow-x-auto">
+        <EdgeScrollArea>
           <table className="w-full text-left text-sm">
 
             <thead>
@@ -448,7 +449,7 @@ export default function InventarioPage() {
             </tbody>
 
           </table>
-        </div>
+        </EdgeScrollArea>
 
       </div>
 

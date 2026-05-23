@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import EdgeScrollArea from "@/components/ui/EdgeScrollArea";
 import { getVentas } from "@/lib/ventas/storage";
 import type { Venta, TipoVenta, TipoIvaVenta } from "@/lib/ventas/types";
 
@@ -294,7 +295,7 @@ export default function VentasPage() {
         </div>
 
         {/* Tabla */}
-        <div className="overflow-x-auto">
+        <EdgeScrollArea>
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="bg-slate-50 text-slate-600 text-sm font-semibold">
@@ -379,7 +380,7 @@ export default function VentasPage() {
               )}
             </tbody>
           </table>
-        </div>
+        </EdgeScrollArea>
 
       </div>
 
