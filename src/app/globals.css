@@ -6,13 +6,15 @@
   --foreground: #0F172A;
   --foreground-muted: #475569;
   --card: #FFFFFF;
-  /* Sidebar Zentra: deep teal #0B3A3D con elevated #104A4E. */
-  --zentra-sidebar: #0B3A3D;
-  --zentra-sidebar-elevated: #104A4E;
-  --zentra-sidebar-border: rgba(255, 255, 255, 0.08);
-  --zentra-sidebar-hover: rgba(255, 255, 255, 0.06);
-  --zentra-sidebar-active: rgba(255, 255, 255, 0.18);
+  /* Sidebar Zentra — rediseño blanco premium 2026: superficie clara, acento turquesa.
+     (Antes era deep teal oscuro; migrado a blanco para una estética más limpia.) */
+  --zentra-sidebar: #FFFFFF;
+  --zentra-sidebar-elevated: #F8FAFC;
+  --zentra-sidebar-border: #E9EEF3;
+  --zentra-sidebar-hover: #F1F5F9;
+  --zentra-sidebar-active: #E5F4F4;
   --zentra-sidebar-accent: #4FAEB2;
+  --zentra-sidebar-active-text: #2F6E71;
   --zentra-login-bg-mid: #145053;
   --zentra-login-bg-deep: #0a3437;
   --sidebar: var(--zentra-sidebar);
@@ -28,6 +30,11 @@
   --badge-warning-text: #854D0E;
   --badge-error-bg: #FEE2E2;
   --badge-error-text: #991B1B;
+  /* Tokens premium — sombras suaves, radios y ring turquesa reutilizables. */
+  --shadow-card: 0 1px 2px 0 rgba(15, 23, 42, 0.04), 0 1px 3px 0 rgba(15, 23, 42, 0.05);
+  --shadow-pop: 0 12px 32px -12px rgba(15, 23, 42, 0.20);
+  --radius-card: 0.875rem;
+  --ring-primary: rgba(79, 174, 178, 0.30);
 }
 
 .dark {
@@ -164,9 +171,8 @@ body {
    ============================================================================= */
 .zentra-sidebar-bg {
   background:
-    radial-gradient(ellipse 120% 60% at 100% 0%, rgba(255, 255, 255, 0.06), transparent 55%),
-    radial-gradient(ellipse 120% 60% at 0% 0%, rgba(255, 255, 255, 0.04), transparent 55%),
-    linear-gradient(180deg, #104A4E 0%, #0B3A3D 35%, #082A2D 100%);
+    radial-gradient(ellipse 120% 50% at 100% 0%, rgba(79, 174, 178, 0.05), transparent 58%),
+    linear-gradient(180deg, #FFFFFF 0%, #FCFEFE 55%, #F6FAFB 100%);
 }
 
 /* =============================================================================
@@ -264,6 +270,40 @@ body {
   background:
     radial-gradient(ellipse 80% 40% at 50% 0%, rgba(79, 174, 178, 0.06), transparent 60%),
     #F8FAFC;
+}
+
+/* =============================================================================
+   Selects nativos — tratamiento premium global (Bloque 3 QA 2026)
+   Reemplaza la flecha del SO por un chevron consistente y unifica el focus a
+   turquesa SIN tocar el JSX de los ~61 <select> de la app. Las utilidades
+   Tailwind de cada select (bg/borde/padding propios) siguen ganando por mayor
+   especificidad; esto solo rellena lo que no esté definido + el chevron + focus.
+   ============================================================================= */
+select:not([multiple]):not([size]) {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%234FAEB2' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  background-size: 1.05rem 1.05rem;
+  padding-right: 2.1rem;
+  cursor: pointer;
+}
+
+/* Focus turquesa unificado para controles de formulario (donde no haya un focus
+   propio más específico). Mejora la coherencia sin romper estilos existentes. */
+select:focus-visible,
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: #4FAEB2;
+  box-shadow: 0 0 0 3px var(--ring-primary);
+}
+
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 

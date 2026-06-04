@@ -13,7 +13,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import type { CSSProperties, ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { readSaasBriefData } from "@/lib/proyectos/brief-data";
 import ProyectoDetalleModal from "./components/ProyectoDetalleModal";
@@ -273,6 +273,45 @@ export default function ProyectosKanbanClient() {
     useSensor(KeyboardSensor)
   );
 
+  // Las opciones no-críticas (tipos, usuarios, prioridades) son config estática:
+  // no dependen de los filtros y solo alimentan selects + estilos de badge.
+  // Se cargan UNA sola vez y nunca bloquean el render del tablero. Esto evita
+  // refetch en cada cambio de filtro y, sobre todo, que un endpoint lento/caído
+  // (ej. /prioridades vía pool PG directo) congele el kanban en "Cargando…".
+  const opcionesCargadasRef = useRef(false);
+
+  const cargarOpcionesNoCriticas = useCallback(async () => {
+    if (opcionesCargadasRef.current) return;
+    opcionesCargadasRef.current = true;
+    try {
+      const [rTipos, rUsers, rPrioridades] = await Promise.all([
+        fetchWithSupabaseSession("/api/proyectos/tipos", { cache: "no-store" }),
+        fetchWithSupabaseSession("/api/usuarios/empresa-activos", { cache: "no-store" }),
+        fetchWithSupabaseSession("/api/configuracion/proyectos/prioridades", { cache: "no-store" }),
+      ]);
+      const jTipos = (await rTipos.json().catch(() => ({}))) as {
+        success?: boolean;
+        data?: { id: string; nombre: string }[];
+      };
+      const jUsers = (await rUsers.json().catch(() => ({}))) as { usuarios?: { id: string; nombre?: string }[] };
+      const jPrioridades = (await rPrioridades.json().catch(() => ({}))) as {
+        success?: boolean;
+        data?: { prioridades?: PrioridadConfig[] };
+      };
+      if (jTipos.success && jTipos.data) setTipoOpts(jTipos.data);
+      if (jUsers.usuarios) setUserOpts(jUsers.usuarios);
+      if (rPrioridades.ok && jPrioridades.success && jPrioridades.data?.prioridades) {
+        setPrioridadesConfig(jPrioridades.data.prioridades);
+      } else {
+        // Sin config válida usamos los estilos de prioridad por defecto (fallback del componente).
+        setPrioridadesConfig([]);
+      }
+    } catch {
+      // No-crítico: el tablero ya está visible; los selects quedan con sus defaults.
+      opcionesCargadasRef.current = false; // permitir reintento en el próximo load
+    }
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
@@ -283,25 +322,14 @@ export default function ProyectosKanbanClient() {
     if (filtroRc) sp.set("responsable_comercial_id", filtroRc);
     if (filtroRt) sp.set("responsable_tecnico_id", filtroRt);
 
-    const [rEst, rPr, rTipos, rUsers, rPrioridades] = await Promise.all([
+    // Camino crítico: el tablero solo necesita estados + proyectos para pintar.
+    const [rEst, rPr] = await Promise.all([
       fetchWithSupabaseSession("/api/proyectos/estados", { cache: "no-store" }),
       fetchWithSupabaseSession(`/api/proyectos?${sp.toString()}`, { cache: "no-store" }),
-      fetchWithSupabaseSession("/api/proyectos/tipos", { cache: "no-store" }),
-      fetchWithSupabaseSession("/api/usuarios/empresa-activos", { cache: "no-store" }),
-      fetchWithSupabaseSession("/api/configuracion/proyectos/prioridades", { cache: "no-store" }),
     ]);
 
     const jEst = (await rEst.json().catch(() => ({}))) as { success?: boolean; data?: EstadoRow[]; error?: string };
     const jPr = (await rPr.json().catch(() => ({}))) as { success?: boolean; data?: ProyectoCard[]; error?: string };
-    const jTipos = (await rTipos.json().catch(() => ({}))) as {
-      success?: boolean;
-      data?: { id: string; nombre: string }[];
-    };
-    const jUsers = (await rUsers.json().catch(() => ({}))) as { usuarios?: { id: string; nombre?: string }[] };
-    const jPrioridades = (await rPrioridades.json().catch(() => ({}))) as {
-      success?: boolean;
-      data?: { prioridades?: PrioridadConfig[] };
-    };
 
     if (!rEst.ok || !jEst.success) {
       setErr(jEst.error ?? "No se pudieron cargar estados");
@@ -315,17 +343,11 @@ export default function ProyectosKanbanClient() {
     }
     setEstados(jEst.data ?? []);
     setProyectos(jPr.data ?? []);
-
-    if (jTipos.success && jTipos.data) setTipoOpts(jTipos.data);
-    if (jUsers.usuarios) setUserOpts(jUsers.usuarios);
-    if (rPrioridades.ok && jPrioridades.success && jPrioridades.data?.prioridades) {
-      setPrioridadesConfig(jPrioridades.data.prioridades);
-    } else {
-      setPrioridadesConfig([]);
-    }
-
     setLoading(false);
-  }, [q, filtroEstado, filtroTipo, filtroRc, filtroRt]);
+
+    // No-críticas en segundo plano: no bloquean el render del tablero.
+    void cargarOpcionesNoCriticas();
+  }, [q, filtroEstado, filtroTipo, filtroRc, filtroRt, cargarOpcionesNoCriticas]);
 
   useEffect(() => {
     void load();
