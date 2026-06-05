@@ -79,7 +79,6 @@ export default function Header() {
   const fallbackEmail = clean(usuario?.email);
   const displayName = nombreReal || fallbackEmail || "Usuario";
   const dropdownName = nombreReal || "Usuario";
-  const avatarInitial = (nombreReal || fallbackEmail || "Usuario").charAt(0).toUpperCase();
   const displayRole = roleLabel(usuario?.rol);
 
   return (
@@ -121,20 +120,16 @@ export default function Header() {
             className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 shadow-sm transition-all hover:border-[#4FAEB2]/60"
           >
             <div
-              className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-black text-white"
+              className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-black"
               style={{ boxShadow: "0 0 0 3px rgba(79, 174, 178, 0.25)" }}
             >
-              {/* Fallback: inicial detrás del logo (visible si la imagen no carga) */}
-              <span className="absolute inset-0 flex items-center justify-center text-sm font-bold">
-                {avatarInitial}
-              </span>
               <Image
                 src="/brand/reservacaacupe-logo.png"
                 alt="Reserva Ecológica Caacupé"
                 width={72}
                 height={72}
                 sizes="36px"
-                className="relative h-full w-full object-contain p-0.5"
+                className="h-full w-full object-contain p-0.5"
                 priority
               />
             </div>
