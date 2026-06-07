@@ -178,7 +178,9 @@ export default function InventarioPage() {
   // entran en valorizado / bajo / disponibles; el resto (Menú sin control) se cuenta
   // únicamente en "Total productos".
   const resumen = useMemo(() => {
-    const conStock = productos.filter((p) => p.controla_stock !== false);
+    // Tienen stock real: Reventa (controla_stock) y Materia prima (insumos, que se
+    // mueven por compras/recetas). Solo el Menú "sin control" queda fuera.
+    const conStock = productos.filter((p) => !(p.controla_stock === false && p.es_insumo !== true));
     const stockValorizado = conStock.reduce((s, p) => s + p.stock_actual * p.costo_promedio, 0);
     const bajo = conStock.filter((p) => p.stock_actual <= p.stock_minimo).length;
     const disponibles = conStock.filter((p) => p.stock_actual > 0).length;
@@ -438,6 +440,9 @@ export default function InventarioPage() {
               {productos.map((p) => {
                 const stockBajo = p.stock_actual <= p.stock_minimo;
                 const margen = calcularMargenVenta(p.costo_promedio, p.precio_venta);
+                // "Sin control" SOLO para Menú (vendible sin stock). Los insumos
+                // (Materia prima) sí tienen stock real aunque controla_stock=false.
+                const sinControl = p.controla_stock === false && p.es_insumo !== true;
                 return (
                   <tr key={p.id} className="border-b border-slate-200 last:border-0 hover:bg-[#4FAEB2]/[0.04] transition-colors">
                     <td className="py-4 pr-4 font-medium text-gray-800">
@@ -457,7 +462,7 @@ export default function InventarioPage() {
                     <td className="py-4 pr-4 text-gray-700">{formatGs(p.costo_promedio)}</td>
                     <td className="py-4 pr-4 text-gray-700">{formatGs(p.precio_venta)}</td>
                     <td className="py-4 pr-4 text-center">
-                      {p.controla_stock === false ? (
+                      {sinControl ? (
                         <span className="text-xs text-gray-400">— sin control</span>
                       ) : (
                         <span className={`font-semibold tabular-nums ${stockBajo ? "text-red-600" : "text-gray-800"}`}>
@@ -467,7 +472,7 @@ export default function InventarioPage() {
                       )}
                     </td>
                     <td className="py-4 pr-4 text-center text-gray-500 hidden lg:table-cell">
-                      {p.controla_stock === false ? "—" : <span className="tabular-nums">{formatStock(p.stock_minimo)}</span>}
+                      {sinControl ? "—" : <span className="tabular-nums">{formatStock(p.stock_minimo)}</span>}
                     </td>
                     <td className="py-4 pr-4 text-gray-600 text-xs hidden lg:table-cell">
                       {p.ubicacion_principal_id
