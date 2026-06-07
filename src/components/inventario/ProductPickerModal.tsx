@@ -9,6 +9,7 @@ export interface ProductoPickerItem {
   codigo_barras: string | null;
   codigo_barras_interno: boolean;
   precio_venta: number;
+  precio_mayorista: number;
   costo_promedio: number;
   stock_actual: number;
   stock_minimo: number;
@@ -35,6 +36,23 @@ export interface AgregarVentaPayload {
   cantidad: number;
   precio_input: number;
   iva: "EXENTA" | "5%" | "10%";
+  /** Nivel de precio elegido en el panel de detalle. */
+  tipo_precio: "minorista" | "mayorista" | "costo";
+}
+
+/**
+ * Precio unitario (en PYG) según el tipo elegido, con fallbacks:
+ *  minorista → precio_venta;
+ *  mayorista → precio_mayorista (>0) o fallback a precio_venta;
+ *  costo     → costo_promedio.
+ */
+function precioPorTipoPicker(
+  p: ProductoPickerItem,
+  tipo: "minorista" | "mayorista" | "costo"
+): number {
+  if (tipo === "mayorista") return p.precio_mayorista != null && p.precio_mayorista > 0 ? p.precio_mayorista : p.precio_venta;
+  if (tipo === "costo") return p.costo_promedio ?? 0;
+  return p.precio_venta;
 }
 
 interface Props {
@@ -72,7 +90,21 @@ export default function ProductPickerModal({
   const [cantidad, setCantidad] = useState("1");
   const [precio, setPrecio] = useState("");
   const [iva, setIva] = useState<"EXENTA" | "5%" | "10%">(ivaDefault);
+  const [tipoPrecio, setTipoPrecio] = useState<"minorista" | "mayorista" | "costo">("minorista");
   const [feedback, setFeedback] = useState<string | null>(null);
+
+  /** Precio en la moneda activa de la venta (string para el input). */
+  function precioEnMonedaStr(precioGs: number): string {
+    if (moneda === "USD" && tipoCambio > 0) return String(Math.round((precioGs / tipoCambio) * 100) / 100);
+    return String(Math.round(precioGs));
+  }
+
+  /** Cambia el tipo de precio del producto seleccionado y ajusta el precio unitario. */
+  function handleTipoPrecio(tipo: "minorista" | "mayorista" | "costo") {
+    setTipoPrecio(tipo);
+    if (sel) setPrecio(precioEnMonedaStr(precioPorTipoPicker(sel, tipo)));
+    setFeedback(null);
+  }
 
   useEffect(() => { if (open) { setQ(""); setError(null); setSel(null); setTimeout(() => inputRef.current?.focus(), 50); } }, [open]);
   useEffect(() => {
@@ -111,13 +143,9 @@ export default function ProductPickerModal({
   function selectProducto(p: ProductoPickerItem) {
     setSel(p);
     setCantidad("1");
-    // Precio inicial: en la moneda de la venta
-    const precioGs = p.precio_venta;
-    if (moneda === "USD" && tipoCambio > 0) {
-      setPrecio(String(Math.round((precioGs / tipoCambio) * 100) / 100));
-    } else {
-      setPrecio(String(Math.round(precioGs)));
-    }
+    // Precio inicial: minorista (precio_venta) en la moneda de la venta.
+    setTipoPrecio("minorista");
+    setPrecio(precioEnMonedaStr(precioPorTipoPicker(p, "minorista")));
     setIva(ivaDefault);
     setFeedback(null);
   }
@@ -140,7 +168,7 @@ export default function ProductPickerModal({
         return;
       }
     }
-    const ok = onAgregar({ producto: sel, cantidad: cantNum, precio_input: precioNum, iva });
+    const ok = onAgregar({ producto: sel, cantidad: cantNum, precio_input: precioNum, iva, tipo_precio: tipoPrecio });
     if (ok !== false) {
       setFeedback("Producto agregado ✓");
       setCantidad("1");
@@ -331,6 +359,29 @@ export default function ProductPickerModal({
                 )}
 
                 <div className="space-y-2 bg-white p-3 rounded-xl border border-slate-200">
+                  {/* Tipo de precio: al tocar, carga el precio correspondiente y recalcula. */}
+                  <div>
+                    <label className="block text-[11px] uppercase text-slate-400 mb-1">Tipo de precio</label>
+                    <div className="flex border border-slate-200 rounded-lg overflow-hidden">
+                      {(["minorista", "mayorista", "costo"] as const).map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => handleTipoPrecio(t)}
+                          className={`flex-1 py-1.5 px-1 text-center transition-colors ${
+                            tipoPrecio === t ? "bg-[#0EA5E9] text-white" : "bg-white text-slate-600 hover:bg-slate-50"
+                          }`}
+                        >
+                          <span className="block text-xs font-medium">
+                            {t === "minorista" ? "Minorista" : t === "mayorista" ? "Mayorista" : "Al costo"}
+                          </span>
+                          <span className={`block text-[10px] tabular-nums ${tipoPrecio === t ? "text-white/90" : "text-slate-400"}`}>
+                            {formatGs(precioPorTipoPicker(sel, t))}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="block text-[11px] uppercase text-slate-400 mb-1">Cantidad</label>

@@ -8,6 +8,7 @@ export interface CreateVentaItemInput {
   precio_venta_original: number;
   precio_venta: number;
   tipo_iva: "EXENTA" | "5%" | "10%";
+  tipo_precio: "minorista" | "mayorista" | "costo";
   subtotal: number;
   monto_iva: number;
   total_linea: number;
@@ -314,6 +315,7 @@ export async function createVentaTransaccionalPg(
       precio_venta_original: line.precio_venta_original,
       precio_venta: line.precio_venta,
       tipo_iva: line.tipo_iva,
+      tipo_precio: line.tipo_precio,
       subtotal: line.subtotal,
       monto_iva: line.monto_iva,
       total_linea: line.total_linea,
