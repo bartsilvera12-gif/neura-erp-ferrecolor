@@ -80,8 +80,10 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(errorResponse(`${label}: la cantidad debe ser mayor a 0.`), { status: 400 });
       if (!(Number(it.costo_unitario) > 0))
         return NextResponse.json(errorResponse(`${label}: el costo unitario debe ser mayor a 0.`), { status: 400 });
-      if (!(Number(it.precio_venta) > 0))
-        return NextResponse.json(errorResponse(`${label}: el precio de venta debe ser mayor a 0.`), { status: 400 });
+      // El precio de venta NO es obligatorio: para materia prima / insumos no vendibles
+      // puede venir vacío o en 0. Solo rechazamos valores negativos.
+      if (it.precio_venta != null && Number(it.precio_venta) < 0)
+        return NextResponse.json(errorResponse(`${label}: el precio de venta no puede ser negativo.`), { status: 400 });
       items.push({
         producto_id: String(it.producto_id),
         producto_nombre: String(it.producto_nombre ?? ""),

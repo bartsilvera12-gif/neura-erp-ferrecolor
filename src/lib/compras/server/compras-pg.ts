@@ -283,12 +283,15 @@ export async function insertComprasConImpacto(
         warnings.push(it.producto_nombre);
       }
 
-      // Actualizar producto: stock + costo_promedio + precio_venta (igual que compra simple).
+      // Actualizar producto: stock + costo_promedio siempre.
+      // precio_venta SOLO se actualiza si la compra trae un precio > 0 (productos
+      // vendibles). Para materia prima / insumos sin precio (0 o vacío) mantenemos
+      // el precio actual: nunca lo pisamos con 0 ni con un valor inventado.
       await client.query(
         `UPDATE ${tP}
             SET stock_actual = stock_actual + $1::numeric,
                 costo_promedio = $2::numeric,
-                precio_venta = $3::numeric,
+                precio_venta = CASE WHEN $3::numeric > 0 THEN $3::numeric ELSE precio_venta END,
                 updated_at = now()
           WHERE id = $4::uuid AND empresa_id = $5::uuid`,
         [it.cantidad, it.costo_unitario, it.precio_venta, it.producto_id, empresaId]
@@ -414,12 +417,13 @@ export async function insertCompraConImpacto(
         "La compra se guardó pero no se pudo registrar el movimiento de entrada en inventario.";
     }
 
-    // Actualizar producto: stock + costo_promedio + precio_venta
+    // Actualizar producto: stock + costo_promedio siempre; precio_venta solo si > 0
+    // (no pisamos el precio de insumos / materia prima con 0).
     await client.query(
       `UPDATE ${tP}
           SET stock_actual = stock_actual + $1::numeric,
               costo_promedio = $2::numeric,
-              precio_venta = $3::numeric,
+              precio_venta = CASE WHEN $3::numeric > 0 THEN $3::numeric ELSE precio_venta END,
               updated_at = now()
         WHERE id = $4::uuid AND empresa_id = $5::uuid`,
       [d.cantidad, d.costo_unitario, d.precio_venta, d.producto_id, empresaId]

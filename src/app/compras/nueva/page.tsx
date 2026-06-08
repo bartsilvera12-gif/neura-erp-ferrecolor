@@ -162,7 +162,11 @@ export default function NuevaCompraPage() {
   const nlTotal = nlSubtotal + nlIva;
   const nlMargen = nlPrecio > 0 && nlCostoPYG > 0 ? ((nlPrecio - nlCostoPYG) / nlPrecio) * 100 : null;
   const productoSel = productos.find((p) => p.id === nl.producto_id);
-  const lineaLista = !!nl.producto_id && nlCant > 0 && nlCostoPYG > 0 && nlPrecio > 0;
+  // Materia prima / insumo NO vendible: no exigimos precio de venta (se compra para recetas).
+  const esInsumoNoVendible = !!productoSel && productoSel.es_insumo === true && productoSel.es_vendible !== true;
+  const requierePrecioVenta = !esInsumoNoVendible;
+  const lineaLista =
+    !!nl.producto_id && nlCant > 0 && nlCostoPYG > 0 && (!requierePrecioVenta || nlPrecio > 0);
 
   // ── Totales de la compra ───────────────────────────────────────────────────
   const totales = useMemo(() => {
@@ -182,7 +186,8 @@ export default function NuevaCompraPage() {
     if (!nl.producto_id) return setErrorLinea("Elegí un producto.");
     if (nlCant <= 0) return setErrorLinea("La cantidad debe ser mayor a 0.");
     if (nlCostoPYG <= 0) return setErrorLinea("El costo unitario debe ser mayor a 0.");
-    if (nlPrecio <= 0) return setErrorLinea("El precio de venta debe ser mayor a 0.");
+    if (requierePrecioVenta && nlPrecio <= 0)
+      return setErrorLinea("El precio de venta debe ser mayor a 0.");
     if (cab.moneda === "USD" && tipoCambioNum <= 0)
       return setErrorLinea("Cargá el tipo de cambio (USD → Gs.) en la cabecera.");
     const prod = productos.find((p) => p.id === nl.producto_id);
@@ -198,7 +203,9 @@ export default function NuevaCompraPage() {
         costo_unitario_input: nlCostoInput,
         costo_unitario_pyg: nlCostoPYG,
         iva_tipo: nl.iva_tipo,
-        precio_venta: nlPrecio,
+        // Para insumos sin precio cargado, guardamos el precio actual del producto
+        // (no inventamos uno). El backend no sobreescribe productos.precio_venta con 0.
+        precio_venta: nlPrecio > 0 ? nlPrecio : (prod.precio_venta ?? 0),
         subtotal: nlSubtotal,
         monto_iva: nlIva,
         total: nlTotal,
@@ -217,11 +224,13 @@ export default function NuevaCompraPage() {
     const id = e.target.value;
     const p = productos.find((x) => x.id === id);
     setProductoCreado(null);
+    const insumoNoVendible = !!p && p.es_insumo === true && p.es_vendible !== true;
     setNl((prev) => ({
       ...prev,
       producto_id: id,
       costo_unitario_input: p ? String(p.costo_promedio) : "",
-      precio_venta: p ? String(p.precio_venta) : "",
+      // Insumo no vendible: dejamos el precio vacío (es opcional).
+      precio_venta: !p || insumoNoVendible ? "" : String(p.precio_venta),
     }));
   }
 
@@ -612,12 +621,24 @@ export default function NuevaCompraPage() {
                     onChange={(v) => setNl((p) => ({ ...p, iva_tipo: v }))} />
                 </div>
                 <div>
-                  <label className={labelSmClass}>Precio venta (Gs.) <span className="text-red-500">*</span></label>
+                  <label className={labelSmClass}>
+                    {esInsumoNoVendible ? (
+                      <>Precio venta <span className="font-normal text-gray-400">(opcional, solo si se vende directamente)</span></>
+                    ) : (
+                      <>Precio venta (Gs.) <span className="text-red-500">*</span></>
+                    )}
+                  </label>
                   <MontoInput value={nl.precio_venta}
                     onChange={(n) => setNl((p) => ({ ...p, precio_venta: String(n) }))}
-                    placeholder="Ej: 25000" className={inputSmClass} decimals={false} />
+                    placeholder={esInsumoNoVendible ? "Opcional" : "Ej: 25000"} className={inputSmClass} decimals={false} />
                 </div>
               </div>
+
+              {esInsumoNoVendible && (
+                <p className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                  Este producto es materia prima. La compra actualizará stock y costo promedio; el precio de venta no es necesario.
+                </p>
+              )}
 
               {(nlSubtotal > 0 || nlMargen !== null) && (
                 <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-gray-500">
