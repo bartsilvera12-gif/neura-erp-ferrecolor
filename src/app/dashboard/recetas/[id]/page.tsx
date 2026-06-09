@@ -78,6 +78,8 @@ export default function EditarRecetaPage() {
   const [insumos, setInsumos] = useState<Producto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [savingHeader, setSavingHeader] = useState(false);
+  const [savedOk, setSavedOk] = useState(false);
 
   // form add item
   const [newInsumoId, setNewInsumoId] = useState("");
@@ -129,25 +131,33 @@ export default function EditarRecetaPage() {
   }, [insumosDisponibles, newInsumoId]);
 
   async function saveHeader() {
-    if (!receta) return;
+    if (!receta || savingHeader) return;
     setError(null);
-    const res = await fetchWithSupabaseSession(`/api/recetas/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        nombre: receta.nombre,
-        rendimiento_cantidad: receta.rendimiento_cantidad,
-        rendimiento_unidad: receta.rendimiento_unidad,
-        notas: receta.notas,
-        activa: receta.activa,
-      }),
-    });
-    const body = await res.json();
-    if (!res.ok || body?.success === false) {
-      setError(body?.error ?? "Error al guardar");
-      return;
+    setSavedOk(false);
+    setSavingHeader(true);
+    try {
+      const res = await fetchWithSupabaseSession(`/api/recetas/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nombre: receta.nombre,
+          rendimiento_cantidad: receta.rendimiento_cantidad,
+          rendimiento_unidad: receta.rendimiento_unidad,
+          notas: receta.notas,
+          activa: receta.activa,
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok || body?.success === false) {
+        setError(body?.error ?? "Error al guardar");
+        return;
+      }
+      await refresh();
+      setSavedOk(true);
+      setTimeout(() => setSavedOk(false), 2500);
+    } finally {
+      setSavingHeader(false);
     }
-    await refresh();
   }
 
   async function addItem() {
@@ -240,7 +250,7 @@ export default function EditarRecetaPage() {
 
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <ChefHat className="h-7 w-7 text-amber-600" />
+          <ChefHat className="h-7 w-7 text-[#4FAEB2]" />
           <h1 className="text-2xl font-semibold">
             {receta.nombre?.trim() || (receta.producto_nombre ? `Receta: ${receta.producto_nombre}` : "Receta")}
           </h1>
@@ -374,14 +384,9 @@ export default function EditarRecetaPage() {
             />
           </div>
         </div>
-        <div className="flex justify-end mt-3">
-          <button
-            onClick={saveHeader}
-            className="inline-flex items-center gap-1 rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700"
-          >
-            <Save className="h-4 w-4" /> Guardar cambios
-          </button>
-        </div>
+        <p className="mt-3 text-[11px] text-gray-400">
+          Los insumos se cargan abajo y se guardan al agregarlos. Usá <b>Guardar receta</b> (al final) para guardar estos datos.
+        </p>
       </div>
 
       {/* Items */}
@@ -528,13 +533,31 @@ export default function EditarRecetaPage() {
               <button
                 onClick={addItem}
                 disabled={addingItem || !newInsumoId || newCantidad <= 0}
-                className="md:col-span-5 inline-flex items-center justify-center gap-1 rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                className="md:col-span-5 inline-flex items-center justify-center gap-1 rounded-md bg-[#4FAEB2] px-3 py-2 text-sm font-medium text-white hover:bg-[#3F8E91] disabled:opacity-50"
               >
                 <Plus className="h-4 w-4" /> {addingItem ? "Agregando…" : "Agregar insumo"}
               </button>
             </div>
           )}
         </div>
+      </div>
+
+      {/* Barra de acción final */}
+      <div className="mt-6 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2">
+        {savedOk && <span className="text-sm text-emerald-600 sm:mr-auto">✓ Receta guardada</span>}
+        <Link
+          href="/dashboard/recetas"
+          className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
+        >
+          Volver a recetas
+        </Link>
+        <button
+          onClick={saveHeader}
+          disabled={savingHeader}
+          className="inline-flex items-center justify-center gap-1.5 rounded-md bg-[#4FAEB2] px-5 py-2 text-sm font-medium text-white hover:bg-[#3F8E91] disabled:opacity-50"
+        >
+          <Save className="h-4 w-4" /> {savingHeader ? "Guardando…" : "Guardar receta"}
+        </button>
       </div>
     </div>
   );
