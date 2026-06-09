@@ -1,4 +1,5 @@
 import { createServiceRoleClientWithDbSchema } from "@/lib/supabase/empresa-data-schema";
+import { convertirCantidad } from "@/lib/unidades/convert";
 
 /** Un faltante de stock detectado al validar la venta. */
 export interface FaltanteStock {
@@ -188,35 +189,92 @@ export async function createVentaTransaccionalPg(
     recetaByProducto.set(r.producto_id, { id: r.id, rendimiento: rend > 0 ? rend : 1 });
   }
 
-  // insumo_producto_id -> cantidad total a descontar en esta venta (agregada por todos los ítems).
+  // insumo_producto_id -> cantidad total a descontar en esta venta (EN LA UNIDAD DEL INSUMO).
   const insumoNeed = new Map<string, number>();
+  // Metadata de insumos (stock/costo/nombre/sku/unidad) para validar y registrar movimientos.
+  type InsumoMeta = { stock: number; costo: number; nombre: string; sku: string; unidad: string | null };
+  const insumoMeta = new Map<string, InsumoMeta>();
+  // Ítems cuya unidad es incompatible con la del insumo (no se convierten ni descuentan).
+  const insumosIncompatibles: string[] = [];
+
   if (recetaRows.length) {
     const recetaIds = recetaRows.map((r) => r.id);
     const itemsQ = await sb
       .from("receta_items")
-      .select("receta_id, insumo_producto_id, cantidad, merma_pct")
+      .select("receta_id, insumo_producto_id, cantidad, unidad_medida, merma_pct")
       .in("receta_id", recetaIds);
     if (itemsQ.error) throw new Error(itemsQ.error.message);
-    const itemsByReceta = new Map<string, Array<{ insumo_producto_id: string; cantidad: number; merma_pct: number }>>();
+    const itemsByReceta = new Map<string, Array<{ insumo_producto_id: string; cantidad: number; unidad_item: string | null; merma_pct: number }>>();
+    const insumoIdsSet = new Set<string>();
     for (const it of (itemsQ.data ?? []) as unknown as Array<{
       receta_id: string;
       insumo_producto_id: string;
       cantidad: number | string;
+      unidad_medida: string | null;
       merma_pct: number | string | null;
     }>) {
       const arr = itemsByReceta.get(it.receta_id) ?? [];
       arr.push({
         insumo_producto_id: it.insumo_producto_id,
         cantidad: Number(it.cantidad),
+        unidad_item: it.unidad_medida ?? null,
         merma_pct: Number(it.merma_pct ?? 0),
       });
       itemsByReceta.set(it.receta_id, arr);
+      insumoIdsSet.add(it.insumo_producto_id);
     }
+
+    // Cargar meta de insumos (incluida su unidad) ANTES de agregar, para poder convertir.
+    const insumoIds = [...insumoIdsSet];
+    if (insumoIds.length) {
+      const insQ = await sb
+        .from("productos")
+        .select("id, stock_actual, costo_promedio, nombre, sku, unidad_medida")
+        .eq("empresa_id", params.empresaId)
+        .in("id", insumoIds);
+      if (insQ.error) throw new Error(insQ.error.message);
+      const insRows = (insQ.data ?? []) as unknown as Array<{
+        id: string;
+        stock_actual: number | string;
+        costo_promedio: number | string;
+        nombre: string;
+        sku: string;
+        unidad_medida: string | null;
+      }>;
+      if (insRows.length !== insumoIds.length) {
+        const found = new Set(insRows.map((r) => r.id));
+        const faltan = insumoIds.filter((i) => !found.has(i));
+        throw new Error(`La receta referencia insumos inexistentes en esta empresa: ${faltan.join(", ")}`);
+      }
+      for (const r of insRows) {
+        insumoMeta.set(r.id, {
+          stock: Number(r.stock_actual),
+          costo: Number(r.costo_promedio),
+          nombre: r.nombre,
+          sku: r.sku,
+          unidad: r.unidad_medida ?? null,
+        });
+      }
+    }
+
+    // Agregar consumo CONVIRTIENDO la cantidad del ítem a la unidad del insumo.
     for (const [pid, qtySold] of qtyByProduct) {
       const rec = recetaByProducto.get(pid);
       if (!rec) continue;
       for (const ri of itemsByReceta.get(rec.id) ?? []) {
-        const consumo = (qtySold * ri.cantidad * (1 + ri.merma_pct)) / rec.rendimiento;
+        const meta = insumoMeta.get(ri.insumo_producto_id);
+        const unidadInsumo = meta?.unidad ?? null;
+        // Sin unidad declarada en el ítem o en el insumo → se asume misma unidad (sin conversión).
+        const cantConv = (ri.unidad_item == null || unidadInsumo == null)
+          ? ri.cantidad
+          : convertirCantidad(ri.cantidad, ri.unidad_item, unidadInsumo);
+        if (cantConv == null) {
+          // Unidad incompatible (familias distintas): no se descuenta para no corromper el stock.
+          const nombre = meta?.nombre ?? ri.insumo_producto_id;
+          if (!insumosIncompatibles.includes(nombre)) insumosIncompatibles.push(nombre);
+          continue;
+        }
+        const consumo = (qtySold * cantConv * (1 + ri.merma_pct)) / rec.rendimiento;
         if (!(consumo > 0)) continue;
         insumoNeed.set(ri.insumo_producto_id, (insumoNeed.get(ri.insumo_producto_id) ?? 0) + consumo);
       }
@@ -224,38 +282,8 @@ export async function createVentaTransaccionalPg(
   }
   // Redondeo a 6 decimales para evitar ruido de coma flotante (la columna es numeric sin escala).
   for (const [k, v] of insumoNeed) insumoNeed.set(k, Math.round(v * 1e6) / 1e6);
-
-  // Metadata de insumos (stock/costo/nombre/sku) para validar disponibilidad y registrar movimientos.
-  type InsumoMeta = { stock: number; costo: number; nombre: string; sku: string };
-  const insumoMeta = new Map<string, InsumoMeta>();
-  if (insumoNeed.size) {
-    const insumoIds = [...insumoNeed.keys()];
-    const insQ = await sb
-      .from("productos")
-      .select("id, stock_actual, costo_promedio, nombre, sku")
-      .eq("empresa_id", params.empresaId)
-      .in("id", insumoIds);
-    if (insQ.error) throw new Error(insQ.error.message);
-    const insRows = (insQ.data ?? []) as unknown as Array<{
-      id: string;
-      stock_actual: number | string;
-      costo_promedio: number | string;
-      nombre: string;
-      sku: string;
-    }>;
-    if (insRows.length !== insumoIds.length) {
-      const found = new Set(insRows.map((r) => r.id));
-      const faltan = insumoIds.filter((i) => !found.has(i));
-      throw new Error(`La receta referencia insumos inexistentes en esta empresa: ${faltan.join(", ")}`);
-    }
-    for (const r of insRows) {
-      insumoMeta.set(r.id, {
-        stock: Number(r.stock_actual),
-        costo: Number(r.costo_promedio),
-        nombre: r.nombre,
-        sku: r.sku,
-      });
-    }
+  if (insumosIncompatibles.length > 0) {
+    console.warn("[create-venta-pg] receta con unidades incompatibles (no se descuentan):", insumosIncompatibles.join(", "));
   }
 
   // 3) Validar stock. Se recolectan TODOS los faltantes (productos de reventa con receta

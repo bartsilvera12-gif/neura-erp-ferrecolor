@@ -7,6 +7,7 @@ import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session"
 import { ChefHat, ArrowLeft, Plus, Trash2, Save, Loader2 } from "lucide-react";
 import { NEURA_CLIENT_SCHEMA } from "@/lib/supabase/schema";
 import { formatUnidad } from "@/lib/unidades/format";
+import { unidadesCompatibles, familiaUnidad } from "@/lib/unidades/convert";
 
 /** Reserva monocliente: receta pertenece al producto; nombre interno oculto (autogenera). */
 const RECETA_SIMPLE = NEURA_CLIENT_SCHEMA === "reservacaacupe";
@@ -49,6 +50,7 @@ type Costeo = {
     stock_actual: number;
     subcosto: number;
     unidades_aporte: number | null;
+    unidad_incompatible?: boolean;
   }>;
 };
 type Producto = {
@@ -150,6 +152,15 @@ export default function EditarRecetaPage() {
 
   async function addItem() {
     if (!newInsumoId || newCantidad <= 0) return;
+    // Validar compatibilidad de unidad con el insumo (no inventamos densidades).
+    const insumoSel = insumosDisponibles.find((x) => x.id === newInsumoId);
+    const unidadInsumo = insumoSel?.unidad_medida ?? null;
+    if (newUnidad.trim() && unidadInsumo && !unidadesCompatibles(newUnidad, unidadInsumo)) {
+      const fam = familiaUnidad(unidadInsumo);
+      const sugerencia = fam === "masa" ? "Grs o Kg" : fam === "volumen" ? "Ml o Lts" : "Unidad";
+      setError(`La unidad seleccionada no es compatible con la unidad del insumo. Este insumo se controla en ${formatUnidad(unidadInsumo)}; usá ${sugerencia}.`);
+      return;
+    }
     setAddingItem(true);
     try {
       const res = await fetchWithSupabaseSession(`/api/recetas/${id}/items`, {
@@ -415,7 +426,11 @@ export default function EditarRecetaPage() {
                   <td className="py-2 text-gray-600 hidden md:table-cell">{formatUnidad(row.unidad_medida) || "—"}</td>
                   <td className="py-2 text-gray-600 hidden lg:table-cell">{(row.merma_pct * 100).toFixed(0)}%</td>
                   <td className="py-2 hidden md:table-cell">{fmtGs(row.costo_promedio)}<span className="text-[10px] text-gray-400">/{formatUnidad(row.unidad_medida) || "u"}</span></td>
-                  <td className="py-2 tabular-nums">{fmtGs(row.subcosto)}</td>
+                  <td className="py-2 tabular-nums">
+                    {row.unidad_incompatible
+                      ? <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-700 text-[10px] font-medium px-2 py-0.5" title="La unidad del ítem no es compatible con la del insumo; no se cuenta en el costo.">⚠ Unidad incompatible</span>
+                      : fmtGs(row.subcosto)}
+                  </td>
                   <td className="py-2 text-gray-600 hidden lg:table-cell tabular-nums">{Number(row.stock_actual).toLocaleString("es-PY")} <span className="text-xs text-gray-400">{formatUnidad(row.unidad_medida)}</span></td>
                   <td className="py-2 hidden lg:table-cell tabular-nums">
                     {row.unidades_aporte == null ? "—" : `${Math.floor(row.unidades_aporte * (receta.rendimiento_cantidad || 1)).toLocaleString("es-PY")} u.`}
@@ -501,7 +516,14 @@ export default function EditarRecetaPage() {
                 />
               </div>
               <p className="md:col-span-5 -mt-1 text-[11px] text-gray-400">
-                Ej: 1.500 G de avena para producir 10 paquetes. La merma % (desperdicio) aumenta el consumo real del insumo.
+                Ej: 1.500 Grs de avena para producir 10 paquetes. La merma % (desperdicio) aumenta el consumo real del insumo.
+                {(() => {
+                  const ins = insumosDisponibles.find((x) => x.id === newInsumoId);
+                  return ins?.unidad_medida ? <> Este insumo se controla en <b>{formatUnidad(ins.unidad_medida)}</b>.</> : null;
+                })()}
+              </p>
+              <p className="md:col-span-5 -mt-2 text-[11px] text-sky-600">
+                El sistema convierte automáticamente Kg↔Grs y Lts↔Ml para calcular el costo y descontar stock.
               </p>
               <button
                 onClick={addItem}
