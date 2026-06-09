@@ -113,6 +113,10 @@ export default function NuevaVentaPage() {
   const [confirmSinStockOpen, setConfirmSinStockOpen] = useState(false);
   // Panel post-venta: tras confirmar, ofrece abrir ticket y (si aplica) nota de remisión.
   const [postVenta, setPostVenta] = useState<{ id: string; numero: string; generaNota: boolean } | null>(null);
+  // Guard anti doble-submit: estado para UI (botón/spinner) + ref para bloqueo síncrono
+  // inmediato (React puede tardar en aplicar el estado; el ref corta el segundo disparo ya).
+  const [guardando, setGuardando] = useState(false);
+  const isSubmittingRef = useRef(false);
 
   // ── Condiciones de la venta ───────────────────────────────────────────────
   // Instancia dedicada: siempre Guaraníes.
@@ -477,53 +481,67 @@ export default function NuevaVentaPage() {
 
   /** Envía la venta. Con `permitirSinStock=true` autoriza vender aunque falte stock. */
   async function enviarVenta(permitirSinStock: boolean) {
-    const resultado = await saveVenta(
-      {
-        items,
-        moneda,
-        tipo_cambio:  tipoCambioNum,
-        subtotal:     totalSubtotal,
-        monto_iva:    totalIva,
-        total:        totalGeneral,
-        tipo_venta:   tipoVenta,
-        plazo_dias:   tipoVenta === "CREDITO" ? plazoDiasNum : undefined,
-        metodo_pago:  metodoPago,
-        cliente_id:   clienteId || null,
-        genera_nota_remision: !!clienteId && generaNotaRemision,
-      },
-      undefined,
-      {
-        entidad_bancaria_id: pagoEntidadId || null,
-        entidad_nombre_snapshot: entidades.find((e) => e.id === pagoEntidadId)?.nombre ?? null,
-        referencia: pagoReferencia.trim() || null,
-        titular: metodoPago === "transferencia" ? pagoTitular.trim() || null : null,
-        observacion: pagoObservacion.trim() || null,
-      },
-      { permitirSinStock }
-    );
+    // Guard duro contra doble submit: si ya hay una confirmación en vuelo, cortar
+    // inmediatamente. El ref se evalúa de forma síncrona (no espera al re-render de React),
+    // así que un segundo click/Enter casi simultáneo no puede disparar otra venta.
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
+    setGuardando(true);
+    try {
+      const resultado = await saveVenta(
+        {
+          items,
+          moneda,
+          tipo_cambio:  tipoCambioNum,
+          subtotal:     totalSubtotal,
+          monto_iva:    totalIva,
+          total:        totalGeneral,
+          tipo_venta:   tipoVenta,
+          plazo_dias:   tipoVenta === "CREDITO" ? plazoDiasNum : undefined,
+          metodo_pago:  metodoPago,
+          cliente_id:   clienteId || null,
+          genera_nota_remision: !!clienteId && generaNotaRemision,
+        },
+        undefined,
+        {
+          entidad_bancaria_id: pagoEntidadId || null,
+          entidad_nombre_snapshot: entidades.find((e) => e.id === pagoEntidadId)?.nombre ?? null,
+          referencia: pagoReferencia.trim() || null,
+          titular: metodoPago === "transferencia" ? pagoTitular.trim() || null : null,
+          observacion: pagoObservacion.trim() || null,
+        },
+        { permitirSinStock }
+      );
 
-    if (!resultado.success) {
-      // Falta stock sin autorizar → abrir modal de confirmación con el detalle.
-      if (resultado.faltantes && resultado.faltantes.length > 0) {
-        setFaltantes(resultado.faltantes);
-        setConfirmSinStockOpen(true);
+      if (!resultado.success) {
+        // Falta stock sin autorizar → abrir modal de confirmación con el detalle.
+        // (El guard se libera en el finally para permitir confirmar sin stock.)
+        if (resultado.faltantes && resultado.faltantes.length > 0) {
+          setFaltantes(resultado.faltantes);
+          setConfirmSinStockOpen(true);
+          return;
+        }
+        setErrorVenta(resultado.error);
         return;
       }
-      setErrorVenta(resultado.error);
-      return;
+      // Documentos de la venta. La nota de remisión se abre además del ticket
+      // SOLO si la venta la genera (cliente con usa_nota_remision o toggle activo).
+      const v = resultado.venta;
+      const generaNota = v.genera_nota_remision === true || !!v.nota_remision_numero;
+      const ticketUrl = `/api/ventas/${v.id}/ticket?mode=comandas&auto=1`;
+      const remisionUrl = `/api/ventas/${v.id}/ticket?tipo=remision&auto=1`;
+      // Intento de apertura automática (el ticket sale por el gesto de click; la
+      // segunda pestaña puede ser bloqueada por el navegador → fallback con botones).
+      try { window.open(ticketUrl, "_blank", "noopener"); } catch {}
+      if (generaNota) { try { window.open(remisionUrl, "_blank", "noopener"); } catch {} }
+      // Panel post-venta: botones siempre disponibles aunque el popup se bloquee.
+      // NOTA: abrir el ticket / la nota / el panel NO vuelve a llamar saveVenta.
+      setPostVenta({ id: v.id, numero: v.numero_control, generaNota });
+    } finally {
+      // Liberar el guard SIEMPRE: éxito, error o flujo de "confirmar sin stock".
+      isSubmittingRef.current = false;
+      setGuardando(false);
     }
-    // Documentos de la venta. La nota de remisión se abre además del ticket
-    // SOLO si la venta la genera (cliente con usa_nota_remision o toggle activo).
-    const v = resultado.venta;
-    const generaNota = v.genera_nota_remision === true || !!v.nota_remision_numero;
-    const ticketUrl = `/api/ventas/${v.id}/ticket?mode=comandas&auto=1`;
-    const remisionUrl = `/api/ventas/${v.id}/ticket?tipo=remision&auto=1`;
-    // Intento de apertura automática (el ticket sale por el gesto de click; la
-    // segunda pestaña puede ser bloqueada por el navegador → fallback con botones).
-    try { window.open(ticketUrl, "_blank", "noopener"); } catch {}
-    if (generaNota) { try { window.open(remisionUrl, "_blank", "noopener"); } catch {} }
-    // Panel post-venta: botones siempre disponibles aunque el popup se bloquee.
-    setPostVenta({ id: v.id, numero: v.numero_control, generaNota });
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -863,10 +881,11 @@ export default function NuevaVentaPage() {
             </button>
             <button
               type="submit"
-              disabled={!ventaValida}
+              disabled={!ventaValida || guardando}
+              aria-busy={guardando}
               className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-6 py-3 rounded-lg text-sm font-medium transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 min-h-[48px] w-full sm:w-auto"
             >
-              Confirmar venta
+              {guardando ? "Guardando…" : "Confirmar venta"}
             </button>
           </div>
 
@@ -990,8 +1009,8 @@ export default function NuevaVentaPage() {
               <button type="button" onClick={() => setConfirmSinStockOpen(false)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm hover:bg-slate-50">
                 Cancelar
               </button>
-              <button type="button" onClick={() => void confirmarVentaSinStock()} className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">
-                Confirmar venta de todos modos
+              <button type="button" disabled={guardando} aria-busy={guardando} onClick={() => void confirmarVentaSinStock()} className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                {guardando ? "Guardando…" : "Confirmar venta de todos modos"}
               </button>
             </div>
           </div>
