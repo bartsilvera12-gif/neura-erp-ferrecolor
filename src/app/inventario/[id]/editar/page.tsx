@@ -9,17 +9,18 @@ import type { MetodoValuacion } from "@/lib/inventario/types";
 import ProductImageUploader from "@/components/inventario/ProductImageUploader";
 import SelectFromList from "@/components/inventario/SelectFromList";
 import ProveedoresCostos from "@/components/inventario/ProveedoresCostos";
+import { ShoppingBag, Boxes, ClipboardList, type LucideIcon } from "lucide-react";
 
 // Opciones estándar de unidad de medida (UX simplificada gastro)
 const UNIDADES_OPCIONES = [
   "UNIDAD","KG","G","LT","ML","CAJA","BOLSA","PAQUETE","DOCENA","LATA","BOTELLA","PORCION","COMBO",
 ] as const;
 
-const TIPO_SUMMARY = {
-  reventa: { titulo: "Producto de reventa", descripcion: "Se compra y se vende tal cual. Controla stock y descuenta al vender.", icono: "🥤" },
-  menu:    { titulo: "Producto del menú",   descripcion: "Se vende en Ventas y genera pedido. No descuenta stock directo.",     icono: "🍕" },
-  materia: { titulo: "Materia prima / insumo", descripcion: "Se usa para recetas y costeo. No aparece como producto de venta.", icono: "🌾" },
-} as const;
+const TIPO_SUMMARY: Record<"reventa" | "menu" | "materia", { titulo: string; descripcion: string; Icon: LucideIcon; acento: string }> = {
+  reventa: { titulo: "Producto de reventa", descripcion: "Se compra y se vende tal cual. Controla stock y descuenta al vender.", Icon: ShoppingBag, acento: "text-sky-600" },
+  menu:    { titulo: "Producto del menú",   descripcion: "Se vende en Ventas y genera pedido. No descuenta stock directo.",     Icon: ClipboardList, acento: "text-amber-600" },
+  materia: { titulo: "Materia prima / insumo", descripcion: "Se usa para recetas y costeo. No aparece como producto de venta.", Icon: Boxes, acento: "text-emerald-600" },
+};
 
 interface CatRow { id: string; nombre: string }
 interface UbiRow { id: string; nombre: string; tipo: string }
@@ -75,9 +76,24 @@ export default function EditarProductoPage() {
   // Tipo gastro inferido a partir de los flags (para UX simplificada)
   type TipoGastro = "reventa" | "menu" | "materia";
   const [tipoGastro, setTipoGastro] = useState<TipoGastro>("reventa");
+  // Si el producto tiene una receta asociada (para advertir al cambiar el tipo).
+  const [tieneReceta, setTieneReceta] = useState(false);
 
   // Configuración gastronómica
   const [controlaStock, setControlaStock] = useState(true);
+
+  /** Cambia el tipo de producto y aplica los flags correctos (igual que en Nuevo producto). */
+  function aplicarTipoGastro(tipo: TipoGastro) {
+    setTipoGastro(tipo);
+    if (tipo === "reventa") {
+      setEsVendible(true); setEsInsumo(false); setControlaStock(true);
+    } else if (tipo === "menu") {
+      setEsVendible(true); setEsInsumo(false); setControlaStock(false);
+    } else {
+      // materia prima / insumo
+      setEsVendible(false); setEsInsumo(true); setControlaStock(false);
+    }
+  }
   const [valorizado, setValorizado] = useState(true);
   const [unidadCompra, setUnidadCompra] = useState("");
   const [unidadReceta, setUnidadReceta] = useState("");
@@ -212,6 +228,21 @@ export default function EditarProductoPage() {
       if (!cancelled) setCargando(false);
     });
     return () => { cancelled = true; };
+  }, [id]);
+
+  // ¿El producto tiene receta asociada? (para advertir al cambiar el tipo)
+  useEffect(() => {
+    if (!id) return;
+    let cancel = false;
+    fetch("/api/recetas", { credentials: "include", cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (cancel) return;
+        const recs = (j?.data?.recetas ?? j?.data ?? []) as Array<{ producto_id?: string }>;
+        setTieneReceta(Array.isArray(recs) && recs.some((r) => r.producto_id === id));
+      })
+      .catch(() => { /* la advertencia es informativa, no bloquea */ });
+    return () => { cancel = true; };
   }, [id]);
 
   function handleChange(
@@ -363,8 +394,8 @@ export default function EditarProductoPage() {
     );
   }
 
-  const summary = TIPO_SUMMARY[tipoGastro];
-  const showStock = tipoGastro === "reventa";
+  // Reventa y Materia prima mantienen stock visible; el Menú no descuenta stock propio.
+  const showStock = tipoGastro === "reventa" || tipoGastro === "materia";
   const showPrecioVenta = tipoGastro !== "materia";
 
   return (
@@ -374,15 +405,43 @@ export default function EditarProductoPage() {
         <p className="text-gray-600">Modifica los datos del producto</p>
       </div>
 
-      <div className="bg-white rounded-xl border border-amber-200 shadow-sm p-5 max-w-5xl">
-        <div className="flex items-start gap-4">
-          <div className="text-3xl">{summary.icono}</div>
-          <div className="flex-1 min-w-0">
-            <div className="text-base font-semibold text-slate-900">{summary.titulo}</div>
-            <div className="text-sm text-slate-600 mt-0.5">{summary.descripcion}</div>
-          </div>
-          <div className="text-xs text-gray-400 shrink-0 italic">Cambiar tipo: editar flags</div>
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 max-w-5xl">
+        <p className="text-xs uppercase tracking-wide font-semibold text-gray-500 mb-3">Tipo de producto</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {(["reventa", "materia", "menu"] as TipoGastro[]).map((t) => {
+            const s = TIPO_SUMMARY[t];
+            const activo = tipoGastro === t;
+            const Icon = s.Icon;
+            return (
+              <button
+                key={t}
+                type="button"
+                onClick={() => aplicarTipoGastro(t)}
+                className={`text-left rounded-lg border-2 p-3 transition-all ${
+                  activo ? "border-[#4FAEB2] bg-[#4FAEB2]/[0.06] shadow-sm" : "border-slate-200 hover:border-slate-300"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Icon className={`w-5 h-5 ${activo ? s.acento : "text-slate-400"}`} />
+                  <span className="text-sm font-semibold text-slate-900">{s.titulo}</span>
+                </div>
+                <p className="mt-1.5 text-xs text-slate-500 leading-snug">{s.descripcion}</p>
+              </button>
+            );
+          })}
         </div>
+
+        {/* Advertencia: el producto tiene receta y se lo saca de Menú */}
+        {tieneReceta && tipoGastro !== "menu" && (
+          <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <span className="mt-0.5">⚠</span>
+            <span>
+              Este producto tiene una <strong>receta asociada</strong>. Al cambiarlo a
+              <strong> {tipoGastro === "reventa" ? "Reventa" : "Materia prima"}</strong>, la receta deja de aplicarse al vender
+              (no se borra). Revisá Recetas si querés ajustarla.
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-xl shadow p-6 max-w-5xl">

@@ -7,17 +7,18 @@ import MontoInput from "@/components/ui/MontoInput";
 import SelectFromList from "@/components/inventario/SelectFromList";
 import { productoExiste, saveProducto } from "@/lib/inventario/storage";
 import type { MetodoValuacion } from "@/lib/inventario/types";
+import { ShoppingBag, Boxes, ClipboardList, type LucideIcon } from "lucide-react";
 
 // Opciones estándar de unidad de medida para gastro
 const UNIDADES_OPCIONES = [
   "UNIDAD","KG","G","LT","ML","CAJA","BOLSA","PAQUETE","DOCENA","LATA","BOTELLA","PORCION","COMBO",
 ] as const;
 
-const TIPO_SUMMARY = {
-  reventa: { titulo: "Producto de reventa", descripcion: "Se compra y se vende tal cual. Controla stock y descuenta al vender.", icono: "🥤" },
-  menu:    { titulo: "Producto del menú",   descripcion: "Se vende en Ventas y genera pedido. No descuenta stock directo.",     icono: "🍕" },
-  materia: { titulo: "Materia prima / insumo", descripcion: "Se usa para recetas y costeo. No aparece como producto de venta.", icono: "🌾" },
-} as const;
+const TIPO_SUMMARY: Record<"reventa" | "menu" | "materia", { titulo: string; descripcion: string; Icon: LucideIcon; acento: string }> = {
+  reventa: { titulo: "Producto de reventa", descripcion: "Se compra y se vende tal cual. Controla stock y descuenta al vender.", Icon: ShoppingBag, acento: "text-sky-600" },
+  menu:    { titulo: "Producto del menú",   descripcion: "Se vende en Ventas y genera pedido. No descuenta stock directo.",     Icon: ClipboardList, acento: "text-amber-600" },
+  materia: { titulo: "Materia prima / insumo", descripcion: "Se usa para recetas y costeo. No aparece como producto de venta.", Icon: Boxes, acento: "text-emerald-600" },
+};
 
 interface CatRow { id: string; nombre: string }
 interface UbiRow { id: string; nombre: string; tipo: string }
@@ -413,7 +414,8 @@ export default function NuevoProductoPage() {
             {
               tipo: "reventa" as const,
               titulo: "Producto de reventa",
-              icono: "🥤",
+              Icon: ShoppingBag,
+              iconColor: "text-sky-600",
               ejemplo: "Gaseosas, agua, jugos, postres comprados",
               descripcion: "Se compra y se vende tal cual. Controla stock y descuenta al vender.",
               acento: "border-sky-300 bg-sky-50/40 hover:border-sky-500",
@@ -421,7 +423,8 @@ export default function NuevoProductoPage() {
             {
               tipo: "menu" as const,
               titulo: "Producto del menú",
-              icono: "🍕",
+              Icon: ClipboardList,
+              iconColor: "text-amber-600",
               ejemplo: "Pizzas, lomitos, hamburguesas, combos",
               descripcion: "Producto preparado por el local. No descuenta stock directo (usá receta para costeo).",
               acento: "border-amber-300 bg-amber-50/40 hover:border-amber-500",
@@ -429,7 +432,8 @@ export default function NuevoProductoPage() {
             {
               tipo: "materia" as const,
               titulo: "Materia prima / insumo",
-              icono: "🌾",
+              Icon: Boxes,
+              iconColor: "text-emerald-600",
               ejemplo: "Harina, queso, salsa, carne, envases",
               descripcion: "Insumo para recetas. Sólo se usa para costear productos del menú.",
               acento: "border-emerald-300 bg-emerald-50/40 hover:border-emerald-500",
@@ -441,7 +445,7 @@ export default function NuevoProductoPage() {
               onClick={() => aplicarTipoGastro(opt.tipo)}
               className={`text-left rounded-xl border-2 ${opt.acento} p-5 transition-all hover:shadow-md`}
             >
-              <div className="text-3xl mb-2">{opt.icono}</div>
+              <opt.Icon className={`w-7 h-7 mb-2 ${opt.iconColor}`} />
               <div className="text-base font-semibold text-slate-900">{opt.titulo}</div>
               <div className="mt-1 text-xs italic text-slate-500">Ej: {opt.ejemplo}</div>
               <div className="mt-3 text-sm text-slate-700">{opt.descripcion}</div>
@@ -472,9 +476,9 @@ export default function NuevoProductoPage() {
         <h1 className="text-3xl font-bold text-gray-800">Nuevo producto</h1>
       </div>
 
-      <div className="bg-white rounded-xl border border-amber-200 shadow-sm p-5 max-w-5xl">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 max-w-5xl">
         <div className="flex items-start gap-4">
-          <div className="text-3xl">{summary.icono}</div>
+          <summary.Icon className={`w-7 h-7 shrink-0 ${summary.acento}`} />
           <div className="flex-1 min-w-0">
             <div className="text-base font-semibold text-slate-900">{summary.titulo}</div>
             <div className="text-sm text-slate-600 mt-0.5">{summary.descripcion}</div>
