@@ -157,6 +157,10 @@ export async function PATCH(
     if (body.precio_mayorista !== undefined) patch.precio_mayorista = toNumberOrNull(body.precio_mayorista);
     if (body.cantidad_minima_mayorista !== undefined) patch.cantidad_minima_mayorista = toNumberOrNull(body.cantidad_minima_mayorista);
     if (body.precio_distribuidor !== undefined) patch.precio_distribuidor = toNumberOrNull(body.precio_distribuidor);
+    if (body.modo_receta !== undefined) {
+      const mr = body.modo_receta;
+      patch.modo_receta = mr === "produccion_previa" ? "produccion_previa" : "preparado_al_vender";
+    }
 
     if (Object.keys(patch).length === 0) {
       const { data: existing, error: errGet } = await sb

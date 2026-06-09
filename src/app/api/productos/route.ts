@@ -175,6 +175,9 @@ export async function POST(request: NextRequest) {
     insertPayload.precio_mayorista = toNumberOrNull(body.precio_mayorista);
     insertPayload.cantidad_minima_mayorista = toNumberOrNull(body.cantidad_minima_mayorista);
     insertPayload.precio_distribuidor = toNumberOrNull(body.precio_distribuidor);
+    if (body.modo_receta === "produccion_previa" || body.modo_receta === "preparado_al_vender") {
+      insertPayload.modo_receta = body.modo_receta;
+    }
 
     const ins = await sb.from("productos").insert(insertPayload).select(PRODUCTO_COLS).single();
     if (ins.error) {
