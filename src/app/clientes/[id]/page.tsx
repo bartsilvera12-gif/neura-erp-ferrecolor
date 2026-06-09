@@ -58,6 +58,10 @@ import {
   type TributarioFormState,
 } from "@/components/clientes/ClientePerfilTributarioForm";
 import { ClienteDatosSifenReceptorForm } from "@/components/clientes/ClienteDatosSifenReceptorForm";
+import { NEURA_CLIENT_SCHEMA } from "@/lib/supabase/schema";
+
+/** Instancia monocliente Reserva: formulario/detalle de clientes simplificado (sin campos SaaS/Neura). */
+const SIMPLE_CLIENTE = NEURA_CLIENT_SCHEMA === "reservacaacupe";
 // ── Estilos ────────────────────────────────────────────────────────────────────
 
 const inputClass =
@@ -1102,7 +1106,9 @@ export default function ClienteDetailPage() {
               },
               { label: "Creado por", value: cliente.created_by_nombre?.trim() || "—" },
             ] as { label: string; value: ReactNode }[]
-          ).map((item) => (
+          )
+            .filter((item) => !SIMPLE_CLIENTE || !["Origen", "Tipo servicio", "Plan activo", "Vendedor"].includes(item.label))
+            .map((item) => (
             <div key={item.label} className="px-5 py-3">
               <p className="text-xs text-gray-400">{item.label}</p>
               <div className="text-sm font-semibold text-gray-700 mt-0.5">{item.value}</div>
@@ -1474,6 +1480,7 @@ export default function ClienteDetailPage() {
                   </div>
                 </div>
 
+                {!SIMPLE_CLIENTE && (
                 <div>
                   <label className={labelClass}>Tipo de servicio</label>
                   <select
@@ -1491,6 +1498,7 @@ export default function ClienteDetailPage() {
                     ))}
                   </select>
                 </div>
+                )}
 
                 {form.tipo_cliente === "empresa" && (
                   <div>
@@ -1568,6 +1576,7 @@ export default function ClienteDetailPage() {
                   </div>
                 </div>
 
+                {!SIMPLE_CLIENTE && (
                 <ClienteDatosSifenReceptorForm
                   value={{
                     sifen_receptor_manual: form.sifen_receptor_manual,
@@ -1634,6 +1643,7 @@ export default function ClienteDetailPage() {
                     });
                   }}
                 />
+                )}
               </section>
 
               {/* Digital */}
@@ -1659,7 +1669,7 @@ export default function ClienteDetailPage() {
               <section className="space-y-4">
                 <SectionTitle>Datos comerciales</SectionTitle>
 
-                {suscripcionActiva && (
+                {!SIMPLE_CLIENTE && suscripcionActiva && (
                   <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/90">
                     <p className="text-xs font-semibold text-emerald-800 uppercase tracking-wide">Plan mensual activo</p>
                     <p className="text-sm text-emerald-950 mt-1">
@@ -1694,7 +1704,7 @@ export default function ClienteDetailPage() {
                       <option value="30 DÍAS">30 días</option>
                       <option value="60 DÍAS">60 días</option>
                       <option value="90 DÍAS">90 días</option>
-                      <option value="MENSUAL">Mensual</option>
+                      {!SIMPLE_CLIENTE && <option value="MENSUAL">Mensual</option>}
                     </select>
                   </div>
                   <div>
@@ -1715,6 +1725,7 @@ export default function ClienteDetailPage() {
                   </div>
                 </div>
 
+                {!SIMPLE_CLIENTE && (
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className={labelClass}>Vendedor responsable (usuario ERP)</label>
@@ -1742,6 +1753,7 @@ export default function ClienteDetailPage() {
                     <input type="text" name="vendedor_asignado" value={form.vendedor_asignado} onChange={handleChange} className={`${inputClass} uppercase`} />
                   </div>
                 </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -1804,7 +1816,7 @@ export default function ClienteDetailPage() {
                 )}
 
                 {/* Campos de suscripción (solo cuando condicion_pago = MENSUAL y no tiene suscripciones) */}
-                {form.condicion_pago === "MENSUAL" && (
+                {!SIMPLE_CLIENTE && form.condicion_pago === "MENSUAL" && (
                   <div className="mt-6 p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4">
                     <SectionTitle>Configuración de suscripción</SectionTitle>
                     {suscripciones.length > 0 ? (

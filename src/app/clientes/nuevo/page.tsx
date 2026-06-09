@@ -26,6 +26,10 @@ import { ClienteDatosSifenReceptorForm } from "@/components/clientes/ClienteDato
 import type { ClienteTipoServicioRow } from "@/lib/clientes/tipo-servicio-catalogo";
 import { filasTiposDesdeSistemaEstatico, fetchTiposFormCliente } from "@/lib/clientes/fetch-tipos-servicio-form";
 import type { Plan } from "@/lib/planes/types";
+import { NEURA_CLIENT_SCHEMA } from "@/lib/supabase/schema";
+
+/** Instancia monocliente Reserva: formulario de clientes simplificado (sin campos SaaS/Neura). */
+const SIMPLE_CLIENTE = NEURA_CLIENT_SCHEMA === "reservacaacupe";
 
 // ── Estilos ────────────────────────────────────────────────────────────────────
 
@@ -453,6 +457,7 @@ function NuevoClienteForm() {
               </div>
             )}
 
+            {!SIMPLE_CLIENTE && (
             <div>
               <label className={labelClass}>Tipo de servicio</label>
               <select
@@ -469,6 +474,7 @@ function NuevoClienteForm() {
                 ))}
               </select>
             </div>
+            )}
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
@@ -614,6 +620,7 @@ function NuevoClienteForm() {
               </div>
             </div>
 
+            {!SIMPLE_CLIENTE && (
             <ClienteDatosSifenReceptorForm
               value={{
                 sifen_receptor_manual: form.sifen_receptor_manual,
@@ -680,13 +687,14 @@ function NuevoClienteForm() {
                 });
               }}
             />
+            )}
           </section>
 
           {/* ── Datos comerciales ────────────────────────────────────────── */}
           <section className="space-y-4">
             <SectionTitle>Datos comerciales</SectionTitle>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className={`grid gap-4 ${SIMPLE_CLIENTE ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-3"}`}>
               <div>
                 <label className={labelClass}>Condición de pago</label>
                 <select
@@ -700,7 +708,7 @@ function NuevoClienteForm() {
                   <option value="30 DÍAS">30 días</option>
                   <option value="60 DÍAS">60 días</option>
                   <option value="90 DÍAS">90 días</option>
-                  <option value="MENSUAL">Mensual</option>
+                  {!SIMPLE_CLIENTE && <option value="MENSUAL">Mensual</option>}
                 </select>
               </div>
               <div>
@@ -715,6 +723,7 @@ function NuevoClienteForm() {
                   <option value="USD">Dólares (USD)</option>
                 </select>
               </div>
+              {!SIMPLE_CLIENTE && (
               <div>
                 <label className={labelClass}>Vendedor responsable (usuario ERP)</label>
                 <select
@@ -736,6 +745,8 @@ function NuevoClienteForm() {
                   <p className="mt-1 text-xs text-slate-500">No hay usuarios activos disponibles para asignar.</p>
                 ) : null}
               </div>
+              )}
+              {!SIMPLE_CLIENTE && (
               <div>
                 <label className={labelClass}>Vendedor asignado (texto libre)</label>
                 <input
@@ -747,9 +758,11 @@ function NuevoClienteForm() {
                   className={`${inputClass} uppercase`}
                 />
               </div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {!SIMPLE_CLIENTE && (
               <div>
                 <label className={labelClass}>Origen del cliente</label>
                 <select
@@ -764,6 +777,7 @@ function NuevoClienteForm() {
                   <option value="VENTA">Venta</option>
                 </select>
               </div>
+              )}
               <div>
                 <label className={labelClass}>Estado inicial</label>
                 <select
@@ -778,6 +792,7 @@ function NuevoClienteForm() {
               </div>
             </div>
 
+            {!SIMPLE_CLIENTE && (
             <div className="mt-6 p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4">
               <SectionTitle>Plan</SectionTitle>
               <div>
@@ -803,6 +818,7 @@ function NuevoClienteForm() {
                 </select>
               </div>
             </div>
+            )}
 
             {/* Campos factura inicial Contado */}
             {form.condicion_pago === "CONTADO" && (
