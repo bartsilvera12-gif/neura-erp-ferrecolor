@@ -190,6 +190,21 @@ const MENU_STRUCTURE: MenuItem[] = [
   },
 ];
 
+/**
+ * Agrupamiento VISUAL del menú por familias. Solo reordena/agrupa lo que ya existe en
+ * MENU_STRUCTURE; no cambia slugs, rutas, acceso ni permisos. Cada `keys` referencia
+ * `MenuItem.key`. Los ítems sin familia caen en "Otros" (no se ocultan).
+ */
+const MENU_FAMILIES: { id: string; titulo: string; keys: string[] }[] = [
+  { id: "inicio", titulo: "Inicio", keys: ["dashboard"] },
+  { id: "comercial", titulo: "Comercial", keys: ["clientes", "crm", "gestion-clientes", "ventas", "presupuestos", "comisiones", "planes"] },
+  { id: "finanzas", titulo: "Finanzas", keys: ["pagos", "gastos", "notas_credito", "reportes"] },
+  { id: "operaciones", titulo: "Operaciones", keys: ["inventario", "compras", "recetas", "proyectos"] },
+  { id: "omnicanal", titulo: "Omnicanal", keys: ["conversaciones", "conversaciones-finalizadas", "historial-omnicanal", "monitoreo", "campanas"] },
+  { id: "marketing", titulo: "Marketing y Automatización", keys: ["marketing", "marketing_ops", "sorteos"] },
+  { id: "administracion", titulo: "Administración", keys: ["usuarios", "configuracion"] },
+];
+
 function modulosSyntheticFromMenu(): ModuloEmpresa[] {
   return MENU_STRUCTURE.map((item) => ({
     id: item.slug,
@@ -359,6 +374,8 @@ export default function Sidebar() {
     sorteos: true,
     compras: true,
   });
+  // Familias del menú colapsables (agrupamiento visual). Abiertas por defecto.
+  const [expandedFamilies, setExpandedFamilies] = useState<Record<string, boolean>>({});
   // cargando arranca en false si ya hidratamos desde cache; el spinner solo
   // aparece en el primer login real, no al volver a la pestaña.
   const [cargando, setCargando] = useState<boolean>(
@@ -580,6 +597,28 @@ export default function Sidebar() {
     );
   }, [favoritos, menuSearchQuery, modulos, esSuperAdmin, inactiveSlugsSet, strictAllowlist]);
 
+  // Agrupar los ítems visibles del menú principal por familias (solo visual).
+  const seccionesMenu = useMemo(() => {
+    const byKey = new Map(mainItemsFiltered.map((it) => [it.key, it]));
+    const usados = new Set<string>();
+    const secciones: { id: string; titulo: string; items: MenuItem[] }[] = [];
+    for (const fam of MENU_FAMILIES) {
+      const items = fam.keys
+        .map((k) => byKey.get(k))
+        .filter((it): it is MenuItem => it !== undefined);
+      items.forEach((it) => usados.add(it.key));
+      if (items.length > 0) secciones.push({ id: fam.id, titulo: fam.titulo, items });
+    }
+    const otros = mainItemsFiltered.filter((it) => !usados.has(it.key));
+    if (otros.length > 0) secciones.push({ id: "otros", titulo: "Otros", items: otros });
+    return secciones;
+  }, [mainItemsFiltered]);
+
+  const familiaExpandida = (id: string) => expandedFamilies[id] ?? true; // abiertas por defecto
+  const toggleFamilia = (id: string) =>
+    setExpandedFamilies((prev) => ({ ...prev, [id]: !(prev[id] ?? true) }));
+  const forzarExpandirFamilias = normalizeMenuSearch(menuSearchQuery).length > 0;
+
   const anyMenuVisible =
     favoritosItemsFiltered.length > 0 ||
     mainItemsFiltered.length > 0 ||
@@ -730,15 +769,13 @@ export default function Sidebar() {
           </div>
         )}
 
-        {/* Menú principal */}
-        <div className="space-y-0.5">
-          {!collapsed && mainItemsFiltered.length > 0 && (
-            <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500">General</p>
-          )}
-          {cargando ? (
-            <div className="px-3 py-2 text-sm text-slate-500 animate-pulse">Cargando…</div>
-          ) : (
-            mainItemsFiltered.map((item) => (
+        {/* Menú principal agrupado por familias (solo visual) */}
+        {cargando ? (
+          <div className="px-3 py-2 text-sm text-slate-500 animate-pulse">Cargando…</div>
+        ) : collapsed ? (
+          // Colapsado (solo iconos): lista plana, sin títulos de familia.
+          <div className="space-y-0.5">
+            {mainItemsFiltered.map((item) => (
               <NavItem
                 key={item.key}
                 item={item}
@@ -751,9 +788,43 @@ export default function Sidebar() {
                 expanded={expandedItems[item.key] ?? false}
                 onToggleExpand={() => toggleExpand(item.key)}
               />
-            ))
-          )}
-        </div>
+            ))}
+          </div>
+        ) : (
+          seccionesMenu.map((seccion) => {
+            const abierta = familiaExpandida(seccion.id) || forzarExpandirFamilias;
+            return (
+              <div key={seccion.id} className="mb-3">
+                <button
+                  type="button"
+                  onClick={() => toggleFamilia(seccion.id)}
+                  className="mb-1 flex w-full items-center justify-between rounded px-3 py-1 text-xs font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:text-slate-300"
+                >
+                  <span>{seccion.titulo}</span>
+                  {abierta ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                </button>
+                {abierta && (
+                  <div className="space-y-0.5">
+                    {seccion.items.map((item) => (
+                      <NavItem
+                        key={item.key}
+                        item={item}
+                        itemId={slugToId(item.slug)}
+                        isActive={isActive(item.slug, item.href)}
+                        isFavorito={favoritos.includes(slugToId(item.slug))}
+                        onToggleFavorito={handleToggleFavorito}
+                        hasAccess={hasAccess(item.slug)}
+                        collapsed={collapsed}
+                        expanded={expandedItems[item.key] ?? false}
+                        onToggleExpand={() => toggleExpand(item.key)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
 
         {/* Admin */}
         {esSuperAdmin && adminEmpresasMatchesQuery(menuSearchQuery) && (
