@@ -2,8 +2,8 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 /**
- * Hostnames que sirven el sitio público estático.
- * Configurable vía SITIO_HOST_REGEX (mismo valor que en next.config.ts).
+ * Hostnames que sirven el sitio publico estatico (HTML en public/sitio/).
+ * Configurable via SITIO_HOST_REGEX. Default: ferreteriarepublica.com y subdominio www.
  */
 const SITIO_HOST_REGEX = new RegExp(
   `^${process.env.SITIO_HOST_REGEX ?? "(www\\.)?ferreteriarepublica\\.com"}$`
@@ -16,17 +16,46 @@ function isSitioHost(host: string | null): boolean {
 }
 
 /**
- * Refresca la sesión Supabase en cookies antes de Route Handlers / RSC.
- * Solo NEXT_PUBLIC_SUPABASE_URL + NEXT_PUBLIC_SUPABASE_ANON_KEY (sin db.schema en getUser).
- *
- * Si el request entra por el host del sitio público, se devuelve next() sin tocar Supabase:
- * los rewrites de next.config.ts mandan a public/sitio/.
+ * Paths que NO se reescriben a /sitio/* aunque el host sea del sitio publico.
+ * El sitio puede hacer fetch a /api/sitio/* desde su mismo dominio sin CORS.
+ */
+function isPassthroughPath(pathname: string): boolean {
+  return (
+    pathname.startsWith("/api/") ||
+    pathname.startsWith("/_next/") ||
+    pathname === "/favicon.ico"
+  );
+}
+
+/**
+ * Rewrites por hostname.
+ *  - host del sitio + "/"          -> /sitio/index.html
+ *  - host del sitio + "/catalogo"  -> /sitio/catalogo.html
+ *  - host del sitio + "/<asset>"   -> /sitio/<asset>  (resuelve assets relativos del HTML)
+ *  - host del sitio + "/api/*"     -> passthrough (sin rewrite)
+ *  - cualquier otro host           -> ERP (refresh sesion Supabase, comportamiento previo)
  */
 export async function middleware(request: NextRequest) {
-  if (isSitioHost(request.headers.get("host"))) {
-    return NextResponse.next({ request });
+  const host = request.headers.get("host");
+  if (isSitioHost(host)) {
+    const { pathname } = request.nextUrl;
+
+    if (isPassthroughPath(pathname)) {
+      return NextResponse.next({ request });
+    }
+
+    const url = request.nextUrl.clone();
+    if (pathname === "/") {
+      url.pathname = "/sitio/index.html";
+    } else if (pathname === "/catalogo" || pathname === "/catalogo/") {
+      url.pathname = "/sitio/catalogo.html";
+    } else if (!pathname.startsWith("/sitio/")) {
+      url.pathname = `/sitio${pathname}`;
+    }
+    return NextResponse.rewrite(url);
   }
 
+  // ===== ERP: comportamiento original (refresh sesion Supabase) =====
   let supabaseResponse = NextResponse.next({ request });
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -57,7 +86,7 @@ export async function middleware(request: NextRequest) {
 
 /**
  * Excluir `/api/webhooks/*`: Meta hace GET sin cookies para verificar el webhook;
- * no debe pasar por refresh de sesión Supabase (y queda listo para proxies estrictos).
+ * no debe pasar por refresh de sesion Supabase (y queda listo para proxies estrictos).
  */
 export const config = {
   matcher: [
