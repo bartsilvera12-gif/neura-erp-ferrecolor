@@ -56,6 +56,13 @@ export async function middleware(request: NextRequest) {
   }
 
   // ===== ERP: comportamiento original (refresh sesion Supabase) =====
+  // Para assets estaticos del ERP, evitar el refresh Supabase (no hace falta y
+  // ahorra latencia). Como el matcher ya no excluye imagenes (necesarias para
+  // los rewrites del sitio), hacemos el filtro aca.
+  if (/\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff2?|ttf)$/i.test(request.nextUrl.pathname)) {
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -86,10 +93,13 @@ export async function middleware(request: NextRequest) {
 
 /**
  * Excluir `/api/webhooks/*`: Meta hace GET sin cookies para verificar el webhook;
- * no debe pasar por refresh de sesion Supabase (y queda listo para proxies estrictos).
+ * no debe pasar por refresh de sesion Supabase.
+ *
+ * IMPORTANTE: ya no excluimos imagenes/css/js del matcher porque el sitio publico
+ * (host ferreteriarepublica.com.py) necesita que los assets pasen por el middleware
+ * para rewrite /assets/* -> /sitio/assets/*. Los hosts del ERP tienen early-return
+ * para assets estaticos dentro del middleware (ver arriba) para no perder perf.
  */
 export const config = {
-  matcher: [
-    "/((?!api/webhooks|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
-  ],
+  matcher: ["/((?!api/webhooks|_next/static|_next/image|favicon.ico).*)"],
 };
