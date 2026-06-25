@@ -137,6 +137,21 @@
         </sc-for>
       </div>
       </sc-if>
+
+      <!-- Paginacion (solo si total > pageSize) -->
+      <sc-if value="{{ hasPagination }}" hint-placeholder-val="{{ false }}">
+        <div style="margin-top:46px;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;">
+          <button onClick="{{ gotoPrev }}" style="{{ prevStyle }}">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M15 18l-6-6 6-6"/></svg>
+            Anterior
+          </button>
+          <span style="{{ pageInfoStyle }}">{{ pageLabel }}</span>
+          <button onClick="{{ gotoNext }}" style="{{ nextStyle }}">
+            Siguiente
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+      </sc-if>
       <sc-if value="{{ noResults }}" hint-placeholder-val="{{ false }}">
         <div style="text-align:center;padding:60px 20px;background:#fff;border-radius:18px;border:1px solid #E7EAF0;">
           <div style="font-size:17px;font-weight:700;color:#15213b;margin-bottom:6px;">Sin resultados</div>
@@ -192,7 +207,9 @@ class Component extends DCLogic {
   state = {
     filter: 'Todos', detail: null, search: '', filterOpen: false, catMenuOpen: false, catSearch: '',
     // Datos cargados desde /api/sitio/productos y /api/sitio/categorias.
-    dbProducts: [], dbCategorias: [], loading: true, loadError: null
+    dbProducts: [], dbCategorias: [], loading: true, loadError: null,
+    // Paginacion server-side (25 productos por pagina)
+    page: 1, pageSize: 25, total: 0
   };
   get wa() { return (this.props.numeroWhatsapp || '595981000000').replace(/[^0-9]/g, ''); }
   fmt(n) { return 'Gs. ' + String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
@@ -221,16 +238,31 @@ class Component extends DCLogic {
     });
   }
 
-  // Cargar productos + categorias del ERP. Se llama desde componentDidMount.
+  // Cargar productos paginados + categorias del ERP.
+  // Lee filtro, busqueda y pagina del state; arma URL con offset y limit.
   async cargarDatos() {
     try {
+      const st = this.state;
+      const url = new URL('/api/sitio/productos', location.origin);
+      url.searchParams.set('limit', String(st.pageSize));
+      url.searchParams.set('offset', String((st.page - 1) * st.pageSize));
+      if (st.search) url.searchParams.set('q', st.search);
+      if (st.filter && st.filter !== 'Todos') {
+        const cat = (st.dbCategorias || []).find(c => c.nombre === st.filter);
+        if (cat) url.searchParams.set('categoria', cat.id);
+      }
+      // Categorias se cargan 1 vez solo; despues no se refetchean.
+      const needCats = !(st.dbCategorias && st.dbCategorias.length);
       const [pr, cr] = await Promise.all([
-        fetch('/api/sitio/productos?limit=500').then(r => r.json()),
-        fetch('/api/sitio/categorias').then(r => r.json())
+        fetch(url.toString()).then(r => r.json()),
+        needCats
+          ? fetch('/api/sitio/categorias').then(r => r.json())
+          : Promise.resolve({ categorias: st.dbCategorias })
       ]);
       this.setState({
         dbProducts: Array.isArray(pr.productos) ? pr.productos : [],
         dbCategorias: Array.isArray(cr.categorias) ? cr.categorias : [],
+        total: Number(pr.total) || 0,
         loading: false,
         loadError: null
       });
@@ -239,10 +271,45 @@ class Component extends DCLogic {
     }
   }
 
+  // Helpers de paginacion
+  setPage(n) {
+    const max = Math.max(1, Math.ceil(this.state.total / this.state.pageSize));
+    const safe = Math.max(1, Math.min(max, n));
+    if (safe === this.state.page) return;
+    this.setState({ page: safe, loading: true }, () => {
+      this.cargarDatos();
+      // Scroll al inicio del grid
+      const el = document.querySelector('[data-grid]');
+      if (el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 80, behavior: 'smooth' });
+    });
+  }
+  nextPage() { this.setPage(this.state.page + 1); }
+  prevPage() { this.setPage(this.state.page - 1); }
+
+  // Llamado cuando cambia el filtro de categoria: reset a pagina 1 + refetch
+  onFilterChange(f) {
+    if (f === this.state.filter) return;
+    this.setState({ filter: f, page: 1, loading: true }, () => this.cargarDatos());
+  }
+  // Debounce simple para search (350ms)
+  onSearchInput(e) {
+    const v = e.target.value;
+    this.setState({ search: v });
+    clearTimeout(this._searchT);
+    this._searchT = setTimeout(() => {
+      this.setState({ page: 1, loading: true }, () => this.cargarDatos());
+    }, 350);
+  }
+  clearSearchAndReload() {
+    clearTimeout(this._searchT);
+    this.setState({ search: '', page: 1, loading: true }, () => this.cargarDatos());
+  }
+
   openDetail(id) { this.setState({ detail: id }); }
   closeDetail() { this.setState({ detail: null }); }
   pickCat(c) {
-    this.setState({ filter: c, catMenuOpen: false, catSearch: '' });
+    this.setState({ catMenuOpen: false, catSearch: '' });
+    this.onFilterChange(c);
     setTimeout(() => {
       const el = document.querySelector('[data-grid]');
       if (el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 80, behavior: 'smooth' });
@@ -281,16 +348,8 @@ class Component extends DCLogic {
     };
     const waBase = (msg) => 'https://wa.me/' + this.wa + '?text=' + encodeURIComponent(msg);
 
-    const f = st.filter;
-    const q = this.norm(st.search).trim();
-    const tokens = q ? q.split(/\s+/) : [];
-    const products = this.catalog().filter(p => {
-      const okFilter = (f === 'Todos') || (f === 'Ofertas' ? p.badge === 'Oferta' : p.cat === f);
-      if (!okFilter) return false;
-      if (!tokens.length) return true;
-      const hay = this.norm(p.name + ' ' + p.cat + ' ' + p.attr + ' ' + (p.desc || ''));
-      return tokens.every(t => hay.includes(t));
-    }).map(p => {
+    // Productos vienen paginados/filtrados del server (no se filtra client-side).
+    const products = this.catalog().map(p => {
       const b = (badgeMap[p.badge] || badgeMap['Stock']);
       return {
         id: p.id, name: p.name, cat: p.cat, attr: p.attr,
@@ -300,9 +359,23 @@ class Component extends DCLogic {
         open: () => this.openDetail(p.id)
       };
     });
-    const resultLabel = q || f !== 'Todos'
-      ? products.length + (products.length === 1 ? ' resultado' : ' resultados')
-      : products.length + ' productos';
+    // Paginacion
+    const total = st.total || 0;
+    const pageSize = st.pageSize || 25;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const safePage = Math.min(Math.max(1, st.page || 1), totalPages);
+    const fromIdx = total === 0 ? 0 : (safePage - 1) * pageSize + 1;
+    const toIdx = Math.min(safePage * pageSize, total);
+    const resultLabel = total === 0
+      ? (st.loading ? 'Cargando productos...' : 'Sin productos')
+      : 'Mostrando ' + fromIdx + '-' + toIdx + ' de ' + total;
+    const hasPrev = safePage > 1;
+    const hasNext = safePage < totalPages;
+    const pageBtnStyle = (enabled) => 'display:inline-flex;align-items:center;gap:6px;height:42px;padding:0 18px;border-radius:11px;border:1.5px solid ' +
+      (enabled ? '#E97932' : '#E2E7EF') + ';background:' + (enabled ? '#fff' : '#F6F7FA') +
+      ';color:' + (enabled ? '#E97932' : '#A4ACBA') + ';font-weight:700;font-size:14px;cursor:' +
+      (enabled ? 'pointer' : 'not-allowed') + ';font-family:Montserrat;transition:all .2s;';
+    const pageInfoStyle = 'font-size:13.5px;color:#697287;font-weight:600;font-family:Montserrat;padding:0 18px;';
 
     const filterDefs = ['Todos', 'Herramientas', 'Electricidad', 'Plomería', 'Pinturas', 'Adhesivos', 'Ofertas'];
     const filters = filterDefs.map(label => {
@@ -310,7 +383,7 @@ class Component extends DCLogic {
       const style = 'display:flex;align-items:center;justify-content:space-between;gap:14px;width:100%;text-align:left;cursor:pointer;border:none;background:' +
         (active ? 'rgba(233,121,50,.1)' : 'transparent') + ';color:' + (active ? '#E97932' : '#27324c') +
         ';font-weight:' + (active ? '700' : '600') + ';font-size:14px;padding:11px 16px;border-radius:10px;font-family:Montserrat;transition:background .15s;';
-      return { label, style, active, set: () => this.setState({ filter: label, filterOpen: false }) };
+      return { label, style, active, set: () => { this.setState({ filterOpen: false }); this.onFilterChange(label); } };
     });
     const filterLabel = st.filter === 'Todos' ? 'Filtrar por rubro' : st.filter;
     const fo = st.filterOpen;
@@ -364,10 +437,10 @@ class Component extends DCLogic {
 
     return {
       products, resultLabel, filters,
-      hasResults: products.length > 0, noResults: products.length === 0,
+      hasResults: products.length > 0, noResults: products.length === 0 && !st.loading,
       search: st.search, hasSearch: !!st.search,
-      onSearch: (e) => this.setState({ search: e.target.value }),
-      clearSearch: () => this.setState({ search: '' }),
+      onSearch: (e) => this.onSearchInput(e),
+      clearSearch: () => this.clearSearchAndReload(),
       toggleFilter: () => this.setState(s => ({ filterOpen: !s.filterOpen })),
       filterLabel, filterBtnStyle, filterCaretStyle, filterMenuStyle,
       catMenuItems, catMenuEmpty, catCaretStyle, catMenuStyle, catSearch: st.catSearch,
@@ -375,7 +448,16 @@ class Component extends DCLogic {
       toggleCatMenu: () => this.setState(s => ({ catMenuOpen: !s.catMenuOpen })),
       goOfertas: () => this.pickCat('Ofertas'),
       detail, detailOpen, detailWrapStyle, closeDetail: () => this.closeDetail(),
-      waContact: waBase('Hola Ferretería República! Quiero hacer una consulta.')
+      waContact: waBase('Hola Ferretería República! Quiero hacer una consulta.'),
+      // Paginacion
+      hasPagination: total > pageSize,
+      pageLabel: 'Página ' + safePage + ' de ' + totalPages,
+      hasPrev, hasNext,
+      prevStyle: pageBtnStyle(hasPrev),
+      nextStyle: pageBtnStyle(hasNext),
+      pageInfoStyle,
+      gotoPrev: () => { if (hasPrev) this.prevPage(); },
+      gotoNext: () => { if (hasNext) this.nextPage(); }
     };
   }
 }
