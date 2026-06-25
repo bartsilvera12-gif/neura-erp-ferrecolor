@@ -87,6 +87,8 @@ export default function NuevoProductoPage() {
 
   // Configuración gastronómica
   const [controlaStock, setControlaStock] = useState(true);
+  // Producto destacado: aparece en seccion "Productos destacados" del sitio publico.
+  const [destacado, setDestacado] = useState(false);
   const [valorizado, setValorizado] = useState(true);
   const [unidadCompra, setUnidadCompra] = useState("");
   const [unidadReceta, setUnidadReceta] = useState("");
@@ -340,6 +342,7 @@ export default function NuevoProductoPage() {
           es_vendible: esVendible,
           es_insumo: esInsumo,
           controla_stock: controlaStock,
+          destacado: destacado,
           valorizado: valorizado,
           unidad_compra: unidadCompra.trim() || null,
           unidad_receta: unidadReceta.trim() || null,
@@ -950,6 +953,24 @@ export default function NuevoProductoPage() {
                   <span className="font-medium">Controla stock / Producto inventariado</span>
                   <span className="block text-xs text-gray-500 mt-0.5">
                     Si está activo, no se podrá vender sin stock suficiente. Desactivá esto para servicios o productos no inventariados (ej. mano de obra, corte).
+                  </span>
+                </span>
+              </label>
+            </div>
+
+            {/* Producto destacado — aparece en home del sitio publico */}
+            <div className="mt-5 pt-4 border-t border-gray-100">
+              <label className="inline-flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={destacado}
+                  onChange={(e) => setDestacado(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                />
+                <span>
+                  <span className="font-medium">Producto destacado en el sitio</span>
+                  <span className="block text-xs text-gray-500 mt-0.5">
+                    Si está activo, aparece en la sección &quot;Productos destacados&quot; de la home pública (máximo 8).
                   </span>
                 </span>
               </label>

@@ -31,6 +31,8 @@ export interface Producto {
   es_insumo?: boolean;
   /** Si false, no descuenta stock (ajustes/servicios). */
   controla_stock?: boolean;
+  /** Si true, aparece en la sección "Productos destacados" del sitio público. */
+  destacado?: boolean;
   /** Si false, no entra en valuación (combos/promos). */
   valorizado?: boolean;
   /** Unidad usada al comprar (ej. "Bolsa 25kg"). */

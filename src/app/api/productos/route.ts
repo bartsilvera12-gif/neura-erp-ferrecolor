@@ -14,7 +14,7 @@ const PRODUCTO_COLS =
   "unidad_medida, metodo_valuacion, activo, created_at, updated_at, " +
   "codigo_barras, codigo_barras_interno, imagen_path, imagen_url, " +
   "categoria_principal_id, ubicacion_principal_id, proveedor_principal_id, " +
-  "es_vendible, es_insumo, controla_stock, valorizado, unidad_compra, unidad_receta, " +
+  "es_vendible, es_insumo, controla_stock, destacado, valorizado, unidad_compra, unidad_receta, " +
   "factor_compra_receta, tiempo_prep_minutos, descripcion, precio_mayorista, cantidad_minima_mayorista, precio_distribuidor, modo_receta";
 
 function toNumber(v: unknown): unknown {
@@ -112,6 +112,7 @@ export async function POST(request: NextRequest) {
     const esVendible = typeof body.es_vendible === "boolean" ? body.es_vendible : undefined;
     const esInsumo = typeof body.es_insumo === "boolean" ? body.es_insumo : undefined;
     const controlaStock = typeof body.controla_stock === "boolean" ? body.controla_stock : undefined;
+    const destacado = typeof body.destacado === "boolean" ? body.destacado : undefined;
     const valorizado = typeof body.valorizado === "boolean" ? body.valorizado : undefined;
     const unidadCompra =
       typeof body.unidad_compra === "string"
@@ -165,6 +166,7 @@ export async function POST(request: NextRequest) {
     if (esVendible !== undefined) insertPayload.es_vendible = esVendible;
     if (esInsumo !== undefined) insertPayload.es_insumo = esInsumo;
     if (controlaStock !== undefined) insertPayload.controla_stock = controlaStock;
+    if (destacado !== undefined) insertPayload.destacado = destacado;
     if (valorizado !== undefined) insertPayload.valorizado = valorizado;
     if (unidadCompra !== undefined) insertPayload.unidad_compra = unidadCompra;
     if (unidadReceta !== undefined) insertPayload.unidad_receta = unidadReceta;

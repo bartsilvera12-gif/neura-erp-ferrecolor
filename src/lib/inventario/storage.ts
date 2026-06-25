@@ -36,6 +36,7 @@ interface ProductoRow {
   es_vendible?: boolean | null;
   es_insumo?: boolean | null;
   controla_stock?: boolean | null;
+  destacado?: boolean | null;
   valorizado?: boolean | null;
   unidad_compra?: string | null;
   unidad_receta?: string | null;
@@ -89,6 +90,7 @@ function rowToProducto(row: ProductoRow): Producto {
     es_vendible: row.es_vendible ?? true,
     es_insumo: row.es_insumo ?? false,
     controla_stock: row.controla_stock ?? true,
+    destacado: row.destacado ?? false,
     valorizado: row.valorizado ?? true,
     unidad_compra: row.unidad_compra ?? null,
     unidad_receta: row.unidad_receta ?? null,
@@ -212,6 +214,7 @@ export async function saveProducto(
     es_vendible: typeof datos.es_vendible === "boolean" ? datos.es_vendible : true,
     es_insumo: typeof datos.es_insumo === "boolean" ? datos.es_insumo : false,
     controla_stock: typeof datos.controla_stock === "boolean" ? datos.controla_stock : true,
+    destacado: typeof datos.destacado === "boolean" ? datos.destacado : false,
     valorizado: typeof datos.valorizado === "boolean" ? datos.valorizado : true,
     unidad_compra: datos.unidad_compra ?? null,
     unidad_receta: datos.unidad_receta ?? null,
@@ -281,6 +284,7 @@ export async function updateProducto(
   if (typeof datos.es_vendible === "boolean") body.es_vendible = datos.es_vendible;
   if (typeof datos.es_insumo === "boolean") body.es_insumo = datos.es_insumo;
   if (typeof datos.controla_stock === "boolean") body.controla_stock = datos.controla_stock;
+  if (typeof datos.destacado === "boolean") body.destacado = datos.destacado;
   if (typeof datos.valorizado === "boolean") body.valorizado = datos.valorizado;
   if (datos.unidad_compra !== undefined) body.unidad_compra = datos.unidad_compra ?? null;
   if (datos.unidad_receta !== undefined) body.unidad_receta = datos.unidad_receta ?? null;

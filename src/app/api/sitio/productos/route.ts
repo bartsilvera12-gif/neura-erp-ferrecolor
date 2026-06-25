@@ -23,6 +23,7 @@ const SITIO_EMPRESA_ID =
  * Query params (todos opcionales):
  *  - categoria=<uuid>  Filtra por categoria_principal_id
  *  - q=<text>          Busqueda case-insensitive en nombre
+ *  - destacado=1       Solo productos marcados como destacados (home)
  *  - limit, offset     Paginacion
  *
  * Cada producto incluye `categoria` con { id, nombre } via embed PostgREST
@@ -42,6 +43,9 @@ export async function GET(request: NextRequest) {
 
   const categoria = searchParams.get("categoria");
   const search = searchParams.get("q")?.trim();
+  const destacado = ["1", "true", "yes"].includes(
+    (searchParams.get("destacado") ?? "").toLowerCase()
+  );
 
   const supabase = createServiceRoleClient();
 
@@ -49,7 +53,7 @@ export async function GET(request: NextRequest) {
     .from("productos")
     .select(
       `id, nombre, sku, precio_venta, imagen_url, descripcion,
-       unidad_medida, stock_actual, categoria_principal_id,
+       unidad_medida, stock_actual, categoria_principal_id, destacado,
        categoria:categoria_principal_id ( id, nombre )`,
       { count: "exact" }
     )
@@ -63,6 +67,9 @@ export async function GET(request: NextRequest) {
   }
   if (search) {
     query = query.ilike("nombre", `%${search}%`);
+  }
+  if (destacado) {
+    query = query.eq("destacado", true);
   }
 
   const { data, error, count } = await query;

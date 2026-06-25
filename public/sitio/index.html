@@ -871,11 +871,12 @@ class Component extends DCLogic {
     dbProducts: [], dbCategorias: [], loading: true, loadError: null
   };
 
-  // Carga productos + categorias del ERP. Se llama en componentDidMount.
+  // Carga productos destacados (max 8) + categorias del ERP.
+  // Para la home solo necesitamos 8 destacados, no la lista completa.
   async cargarDatos() {
     try {
       const [pr, cr] = await Promise.all([
-        fetch('/api/sitio/productos?limit=500').then(r => r.json()),
+        fetch('/api/sitio/productos?destacado=1&limit=8').then(r => r.json()),
         fetch('/api/sitio/categorias').then(r => r.json())
       ]);
       this.setState({
