@@ -125,7 +125,9 @@ const MENU_STRUCTURE: MenuItem[] = [
     href: "/dashboard/proyectos",
     icon: Utensils,
   },
-  { key: "recetas", slug: "recetas", label: "Recetas", href: "/dashboard/recetas", icon: ChefHat },
+  // Recetas ocultado: ERP de ferretería solo opera con productos de reventa.
+  // El modulo sigue existiendo en codigo (/dashboard/recetas) por si se reactiva.
+  // { key: "recetas", slug: "recetas", label: "Recetas", href: "/dashboard/recetas", icon: ChefHat },
   { key: "inventario", slug: "inventario", label: "Inventario", href: "/inventario", icon: Package, children: [
     { label: "Productos", href: "/inventario" },
     { label: "Movimientos", href: "/inventario/movimientos" },
