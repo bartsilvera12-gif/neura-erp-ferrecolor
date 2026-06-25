@@ -124,8 +124,8 @@ export default function Header() {
               style={{ boxShadow: "0 0 0 3px rgba(79, 174, 178, 0.25)" }}
             >
               <Image
-                src="/brand/reservacaacupe-logo.png"
-                alt="Reserva Ecológica Caacupé"
+                src="/brand/ferreteriarepublica-logo.png"
+                alt="Ferretería República"
                 width={72}
                 height={72}
                 sizes="36px"
