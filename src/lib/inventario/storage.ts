@@ -16,6 +16,9 @@ interface ProductoRow {
   sku: string;
   costo_promedio: number;
   precio_venta: number;
+  precio_mayorista?: number | string | null;
+  cantidad_minima_mayorista?: number | string | null;
+  precio_distribuidor?: number | string | null;
   stock_actual: number;
   stock_minimo: number;
   unidad_medida: string;
@@ -39,6 +42,7 @@ interface ProductoRow {
   factor_compra_receta?: string | number | null;
   tiempo_prep_minutos?: number | null;
   descripcion?: string | null;
+  modo_receta?: string | null;
 }
 
 interface MovimientoRow {
@@ -68,6 +72,9 @@ function rowToProducto(row: ProductoRow): Producto {
     sku: row.sku,
     costo_promedio: Number(row.costo_promedio),
     precio_venta: Number(row.precio_venta),
+    precio_mayorista: row.precio_mayorista != null ? Number(row.precio_mayorista) : null,
+    cantidad_minima_mayorista: row.cantidad_minima_mayorista != null ? Number(row.cantidad_minima_mayorista) : null,
+    precio_distribuidor: row.precio_distribuidor != null ? Number(row.precio_distribuidor) : null,
     stock_actual: Number(row.stock_actual),
     stock_minimo: Number(row.stock_minimo),
     unidad_medida: row.unidad_medida,
@@ -88,6 +95,7 @@ function rowToProducto(row: ProductoRow): Producto {
     factor_compra_receta: row.factor_compra_receta != null ? Number(row.factor_compra_receta) : 1,
     tiempo_prep_minutos: row.tiempo_prep_minutos != null ? Number(row.tiempo_prep_minutos) : 0,
     descripcion: row.descripcion ?? null,
+    modo_receta: row.modo_receta ?? "preparado_al_vender",
   };
 }
 
@@ -186,6 +194,9 @@ export async function saveProducto(
     sku: datos.sku,
     costo_promedio: datos.costo_promedio,
     precio_venta: datos.precio_venta,
+    precio_mayorista: datos.precio_mayorista ?? null,
+    cantidad_minima_mayorista: datos.cantidad_minima_mayorista ?? null,
+    precio_distribuidor: datos.precio_distribuidor ?? null,
     stock_actual: datos.stock_actual ?? 0,
     stock_minimo: datos.stock_minimo ?? 0,
     unidad_medida: datos.unidad_medida || "Unidad",
@@ -253,6 +264,9 @@ export async function updateProducto(
   if (datos.sku !== undefined) body.sku = datos.sku;
   if (datos.costo_promedio !== undefined) body.costo_promedio = datos.costo_promedio;
   if (datos.precio_venta !== undefined) body.precio_venta = datos.precio_venta;
+  if (datos.precio_mayorista !== undefined) body.precio_mayorista = datos.precio_mayorista ?? null;
+  if (datos.cantidad_minima_mayorista !== undefined) body.cantidad_minima_mayorista = datos.cantidad_minima_mayorista ?? null;
+  if (datos.precio_distribuidor !== undefined) body.precio_distribuidor = datos.precio_distribuidor ?? null;
   if (datos.stock_actual !== undefined) body.stock_actual = datos.stock_actual;
   if (datos.stock_minimo !== undefined) body.stock_minimo = datos.stock_minimo;
   if (datos.unidad_medida !== undefined) body.unidad_medida = datos.unidad_medida;
@@ -275,6 +289,7 @@ export async function updateProducto(
   if (typeof datos.tiempo_prep_minutos === "number" && datos.tiempo_prep_minutos >= 0)
     body.tiempo_prep_minutos = datos.tiempo_prep_minutos;
   if (datos.descripcion !== undefined) body.descripcion = datos.descripcion;
+  if (datos.modo_receta !== undefined) body.modo_receta = datos.modo_receta;
 
   const res = await fetch(`/api/productos/${encodeURIComponent(id)}`, {
     method: "PATCH",

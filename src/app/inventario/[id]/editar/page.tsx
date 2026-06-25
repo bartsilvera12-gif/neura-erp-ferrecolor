@@ -8,17 +8,19 @@ import { getProducto, productoExiste, updateProducto } from "@/lib/inventario/st
 import type { MetodoValuacion } from "@/lib/inventario/types";
 import ProductImageUploader from "@/components/inventario/ProductImageUploader";
 import SelectFromList from "@/components/inventario/SelectFromList";
+import ProveedoresCostos from "@/components/inventario/ProveedoresCostos";
+import { ShoppingBag, Boxes, ClipboardList, type LucideIcon } from "lucide-react";
 
 // Opciones estándar de unidad de medida (UX simplificada gastro)
 const UNIDADES_OPCIONES = [
   "UNIDAD","KG","G","LT","ML","CAJA","BOLSA","PAQUETE","DOCENA","LATA","BOTELLA","PORCION","COMBO",
 ] as const;
 
-const TIPO_SUMMARY = {
-  reventa: { titulo: "Producto de reventa", descripcion: "Se compra y se vende tal cual. Controla stock y descuenta al vender.", icono: "🥤" },
-  menu:    { titulo: "Producto del menú",   descripcion: "Se vende en Ventas y genera pedido. No descuenta stock directo.",     icono: "🍕" },
-  materia: { titulo: "Materia prima / insumo", descripcion: "Se usa para recetas y costeo. No aparece como producto de venta.", icono: "🌾" },
-} as const;
+const TIPO_SUMMARY: Record<"reventa" | "menu" | "materia", { titulo: string; descripcion: string; Icon: LucideIcon; acento: string }> = {
+  reventa: { titulo: "Producto de reventa", descripcion: "Se compra y se vende tal cual. Controla stock y descuenta al vender.", Icon: ShoppingBag, acento: "text-sky-600" },
+  menu:    { titulo: "Producto del menú",   descripcion: "Se vende en Ventas y genera pedido. No descuenta stock directo.",     Icon: ClipboardList, acento: "text-amber-600" },
+  materia: { titulo: "Materia prima / insumo", descripcion: "Se usa para recetas y costeo. No aparece como producto de venta.", Icon: Boxes, acento: "text-emerald-600" },
+};
 
 interface CatRow { id: string; nombre: string }
 interface UbiRow { id: string; nombre: string; tipo: string }
@@ -43,6 +45,9 @@ export default function EditarProductoPage() {
     costo_promedio: "",
     markup: "",
     precio_venta: "",
+    precio_mayorista: "",
+    cantidad_minima_mayorista: "",
+    precio_distribuidor: "",
     stock_actual: "",
     stock_minimo: "",
     unidad_medida: "",
@@ -53,6 +58,8 @@ export default function EditarProductoPage() {
   const [codigoOriginal, setCodigoOriginal] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [generandoCodigo, setGenerandoCodigo] = useState(false);
+  const [generandoSku, setGenerandoSku] = useState(false);
+  const [skuPatrones, setSkuPatrones] = useState<{ prefix: string; siguiente: string }[]>([]);
 
   // Relaciones
   const [categoriaId, setCategoriaId] = useState<string | null>(null);
@@ -69,9 +76,25 @@ export default function EditarProductoPage() {
   // Tipo gastro inferido a partir de los flags (para UX simplificada)
   type TipoGastro = "reventa" | "menu" | "materia";
   const [tipoGastro, setTipoGastro] = useState<TipoGastro>("reventa");
+  // Si el producto tiene una receta asociada (para advertir al cambiar el tipo).
+  const [tieneReceta, setTieneReceta] = useState(false);
+  const [modoReceta, setModoReceta] = useState<"preparado_al_vender" | "produccion_previa">("preparado_al_vender");
 
   // Configuración gastronómica
   const [controlaStock, setControlaStock] = useState(true);
+
+  /** Cambia el tipo de producto y aplica los flags correctos (igual que en Nuevo producto). */
+  function aplicarTipoGastro(tipo: TipoGastro) {
+    setTipoGastro(tipo);
+    if (tipo === "reventa") {
+      setEsVendible(true); setEsInsumo(false); setControlaStock(true);
+    } else if (tipo === "menu") {
+      setEsVendible(true); setEsInsumo(false); setControlaStock(false);
+    } else {
+      // materia prima / insumo
+      setEsVendible(false); setEsInsumo(true); setControlaStock(false);
+    }
+  }
   const [valorizado, setValorizado] = useState(true);
   const [unidadCompra, setUnidadCompra] = useState("");
   const [unidadReceta, setUnidadReceta] = useState("");
@@ -101,25 +124,53 @@ export default function EditarProductoPage() {
     return () => { cancel = true; };
   }, []);
 
-  async function handleGenerarCodigoInterno() {
+  useEffect(() => {
+    let cancel = false;
+    fetch(`/api/productos/sku-sugerencias?tipo=${tipoGastro}`, { credentials: "include", cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => { if (!cancel && j?.success) setSkuPatrones(j.data?.patrones ?? []); })
+      .catch(() => {});
+    return () => { cancel = true; };
+  }, [tipoGastro]);
+
+  async function handleGenerarSku() {
+    if (generandoSku) return;
+    setGenerandoSku(true);
+    setErrorDuplicado(null);
+    try {
+      const res = await fetch(`/api/productos/sku-sugerencias?tipo=${tipoGastro}`, { credentials: "include", cache: "no-store" });
+      const json = await res.json();
+      if (res.ok && json?.success && json.data?.sugerido) {
+        setForm((prev) => ({ ...prev, sku: json.data.sugerido as string }));
+        setSkuPatrones(json.data.patrones ?? []);
+      }
+    } catch { /* no bloquea */ } finally {
+      setGenerandoSku(false);
+    }
+  }
+
+  function handleSelectPatron(e: React.ChangeEvent<HTMLSelectElement>) {
+    const sig = e.target.value;
+    if (sig) setForm((prev) => ({ ...prev, sku: sig }));
+    e.target.value = "";
+  }
+
+  async function handleGenerarCodigoBarras() {
     if (generandoCodigo) return;
     setGenerandoCodigo(true);
     setErrorDuplicado(null);
     setErrorGeneral(null);
     try {
-      const res = await fetch("/api/productos/codigo-interno", {
-        method: "POST",
-        credentials: "include",
-      });
+      const res = await fetch("/api/productos/codigo-barras", { method: "POST", credentials: "include" });
       const json = await res.json();
       if (res.ok && json?.success && json.data?.codigo) {
         setForm((prev) => ({
           ...prev,
           codigo_barras: json.data.codigo as string,
-          codigo_barras_interno: true,
+          codigo_barras_interno: false,
         }));
       } else {
-        setErrorGeneral(json?.error ?? "No se pudo generar el código.");
+        setErrorGeneral(json?.error ?? "No se pudo generar el código de barras.");
       }
     } catch (err) {
       setErrorGeneral(err instanceof Error ? err.message : "Error de red");
@@ -144,6 +195,9 @@ export default function EditarProductoPage() {
         costo_promedio: String(p.costo_promedio),
         markup: markup.toFixed(2),
         precio_venta: String(p.precio_venta),
+        precio_mayorista: p.precio_mayorista != null ? String(p.precio_mayorista) : "",
+        cantidad_minima_mayorista: p.cantidad_minima_mayorista != null ? String(p.cantidad_minima_mayorista) : "",
+        precio_distribuidor: p.precio_distribuidor != null ? String(p.precio_distribuidor) : "",
         stock_actual: String(p.stock_actual),
         stock_minimo: String(p.stock_minimo),
         unidad_medida: p.unidad_medida,
@@ -161,6 +215,7 @@ export default function EditarProductoPage() {
       setEsVendible(esVend);
       setEsInsumo(esIns);
       setControlaStock(ctrlStock);
+      setModoReceta(p.modo_receta === "produccion_previa" ? "produccion_previa" : "preparado_al_vender");
       setDescripcion(p.descripcion ?? "");
       setValorizado(p.valorizado ?? true);
       setUnidadCompra(p.unidad_compra ?? "");
@@ -177,19 +232,29 @@ export default function EditarProductoPage() {
     return () => { cancelled = true; };
   }, [id]);
 
+  // ¿El producto tiene receta asociada? (para advertir al cambiar el tipo)
+  useEffect(() => {
+    if (!id) return;
+    let cancel = false;
+    fetch("/api/recetas", { credentials: "include", cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (cancel) return;
+        const recs = (j?.data?.recetas ?? j?.data ?? []) as Array<{ producto_id?: string }>;
+        setTieneReceta(Array.isArray(recs) && recs.some((r) => r.producto_id === id));
+      })
+      .catch(() => { /* la advertencia es informativa, no bloquea */ });
+    return () => { cancel = true; };
+  }, [id]);
+
   function handleChange(
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) {
     setErrorDuplicado(null);
     setErrorGeneral(null);
     if (e.target.name === "codigo_barras") {
-      const next = e.target.value;
-      // Si el codigo cambia respecto al original guardado, deja de ser "interno".
-      setForm((prev) => ({
-        ...prev,
-        codigo_barras: next,
-        codigo_barras_interno: next === (codigoOriginal ?? "") ? prev.codigo_barras_interno : false,
-      }));
+      // El código de barras siempre es real/escaneable (no interno).
+      setForm((prev) => ({ ...prev, codigo_barras: e.target.value, codigo_barras_interno: false }));
       return;
     }
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -250,17 +315,6 @@ export default function EditarProductoPage() {
 
     try {
       const codigoIngresado = form.codigo_barras.trim();
-      // Validar: si cambio el codigo y empieza con INT- pero NO fue generado por el sistema,
-      // rechazar (prefijo reservado).
-      if (
-        codigoIngresado &&
-        codigoIngresado !== codigoOriginal &&
-        /^INT-/i.test(codigoIngresado) &&
-        !form.codigo_barras_interno
-      ) {
-        showErr('El prefijo "INT-" está reservado para códigos internos generados por el sistema. Usá otro código o dejá el actual.');
-        return;
-      }
 
       // Pre-chequeo de duplicado: tolerante a fallos de red — si la consulta falla,
       // seguimos. El backend igual valida unicidad en el PATCH.
@@ -281,6 +335,9 @@ export default function EditarProductoPage() {
         sku: form.sku.trim().toUpperCase(),
         costo_promedio: parseFloat(form.costo_promedio) || 0,
         precio_venta: parseFloat(form.precio_venta) || 0,
+        precio_mayorista: form.precio_mayorista.trim() !== "" ? parseFloat(form.precio_mayorista) || null : null,
+        cantidad_minima_mayorista: form.cantidad_minima_mayorista.trim() !== "" ? parseFloat(form.cantidad_minima_mayorista) || null : null,
+        precio_distribuidor: form.precio_distribuidor.trim() !== "" ? parseFloat(form.precio_distribuidor) || null : null,
         stock_actual: parseInt(form.stock_actual) || 0,
         stock_minimo: parseInt(form.stock_minimo) || 0,
         unidad_medida: form.unidad_medida.trim().toUpperCase() || "UNIDAD",
@@ -297,12 +354,12 @@ export default function EditarProductoPage() {
         factor_compra_receta: Math.max(parseFloat(factorCompraReceta) || 1, 0.0001),
         tiempo_prep_minutos: Math.max(parseInt(tiempoPrepMinutos) || 0, 0),
         descripcion: descripcion.trim() || null,
+        // Modo de receta solo aplica a Menú con receta; en otros tipos se mantiene el default.
+        modo_receta: tipoGastro === "menu" && tieneReceta ? modoReceta : "preparado_al_vender",
       };
       if (cambioCodigo) {
         updatePayload.codigo_barras = codigoIngresado || null;
-        updatePayload.codigo_barras_interno =
-          codigoIngresado.length > 0 &&
-          (form.codigo_barras_interno === true || /^INT-/i.test(codigoIngresado));
+        updatePayload.codigo_barras_interno = false; // los códigos de barras son reales (no internos)
       }
 
       console.log("[inventario/editar] sending PATCH", { id, payloadKeys: Object.keys(updatePayload) });
@@ -341,8 +398,8 @@ export default function EditarProductoPage() {
     );
   }
 
-  const summary = TIPO_SUMMARY[tipoGastro];
-  const showStock = tipoGastro === "reventa";
+  // Reventa y Materia prima mantienen stock visible; el Menú no descuenta stock propio.
+  const showStock = tipoGastro === "reventa" || tipoGastro === "materia";
   const showPrecioVenta = tipoGastro !== "materia";
 
   return (
@@ -352,15 +409,87 @@ export default function EditarProductoPage() {
         <p className="text-gray-600">Modifica los datos del producto</p>
       </div>
 
-      <div className="bg-white rounded-xl border border-amber-200 shadow-sm p-5 max-w-5xl">
-        <div className="flex items-start gap-4">
-          <div className="text-3xl">{summary.icono}</div>
-          <div className="flex-1 min-w-0">
-            <div className="text-base font-semibold text-slate-900">{summary.titulo}</div>
-            <div className="text-sm text-slate-600 mt-0.5">{summary.descripcion}</div>
-          </div>
-          <div className="text-xs text-gray-400 shrink-0 italic">Cambiar tipo: editar flags</div>
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 max-w-5xl">
+        <p className="text-xs uppercase tracking-wide font-semibold text-gray-500 mb-3">Tipo de producto</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {(["reventa", "materia", "menu"] as TipoGastro[]).map((t) => {
+            const s = TIPO_SUMMARY[t];
+            const activo = tipoGastro === t;
+            const Icon = s.Icon;
+            return (
+              <button
+                key={t}
+                type="button"
+                onClick={() => aplicarTipoGastro(t)}
+                className={`text-left rounded-lg border-2 p-3 transition-all ${
+                  activo ? "border-[#4FAEB2] bg-[#4FAEB2]/[0.06] shadow-sm" : "border-slate-200 hover:border-slate-300"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Icon className={`w-5 h-5 ${activo ? s.acento : "text-slate-400"}`} />
+                  <span className="text-sm font-semibold text-slate-900">{s.titulo}</span>
+                </div>
+                <p className="mt-1.5 text-xs text-slate-500 leading-snug">{s.descripcion}</p>
+              </button>
+            );
+          })}
         </div>
+
+        {/* Advertencia: el producto tiene receta y se lo saca de Menú */}
+        {tieneReceta && tipoGastro !== "menu" && (
+          <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <span className="mt-0.5">⚠</span>
+            <span>
+              Este producto tiene una <strong>receta asociada</strong>. Al cambiarlo a
+              <strong> {tipoGastro === "reventa" ? "Reventa" : "Materia prima"}</strong>, la receta deja de aplicarse al vender
+              (no se borra). Revisá Recetas si querés ajustarla.
+            </span>
+          </div>
+        )}
+
+        {/* Modo de receta: solo para Menú con receta asociada */}
+        {tipoGastro === "menu" && tieneReceta && (
+          <div className="mt-4 border-t border-slate-100 pt-4">
+            <p className="text-xs uppercase tracking-wide font-semibold text-gray-500 mb-1">Modo de receta</p>
+            <p className="text-xs text-slate-500 mb-3">
+              Define cuándo se descuenta la materia prima de este producto.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {([
+                {
+                  v: "preparado_al_vender" as const,
+                  titulo: "Se prepara al vender",
+                  desc: "Al vender se descuenta la materia prima (no controla stock propio). Ideal para platos al momento.",
+                },
+                {
+                  v: "produccion_previa" as const,
+                  titulo: "Producción previa (fabricar y stockear)",
+                  desc: "Se fabrica antes; la venta descuenta el stock del producto terminado, no la materia prima.",
+                },
+              ]).map((opt) => {
+                const activo = modoReceta === opt.v;
+                return (
+                  <button
+                    key={opt.v}
+                    type="button"
+                    onClick={() => setModoReceta(opt.v)}
+                    className={`text-left rounded-lg border-2 p-3 transition-all ${
+                      activo ? "border-[#4FAEB2] bg-[#4FAEB2]/[0.06] shadow-sm" : "border-slate-200 hover:border-slate-300"
+                    }`}
+                  >
+                    <span className="text-sm font-semibold text-slate-900">{opt.titulo}</span>
+                    <p className="mt-1.5 text-xs text-slate-500 leading-snug">{opt.desc}</p>
+                  </button>
+                );
+              })}
+            </div>
+            {modoReceta === "produccion_previa" && (
+              <p className="mt-2 text-xs text-[#4FAEB2]">
+                Usá el botón <strong>Fabricar</strong> en el detalle de la receta para producir y cargar stock.
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-xl shadow p-6 max-w-5xl">
@@ -406,19 +535,43 @@ export default function EditarProductoPage() {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div>
               <label className={labelClass}>
-                SKU{tipoGastro === "reventa" ? "" : <span className="text-xs font-normal text-gray-400 ml-1">(opcional)</span>}
+                SKU interno{tipoGastro === "reventa" ? "" : <span className="text-xs font-normal text-gray-400 ml-1">(opcional)</span>}
               </label>
-              <input
-                type="text"
-                name="sku"
-                value={form.sku}
-                onChange={handleChange}
-                className={`${inputClass} uppercase`}
-                required={tipoGastro === "reventa"}
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  name="sku"
+                  value={form.sku}
+                  onChange={handleChange}
+                  placeholder="Ej: REV-0001"
+                  className={`${inputClass} uppercase flex-1`}
+                  required={tipoGastro === "reventa"}
+                />
+                <button
+                  type="button"
+                  onClick={handleGenerarSku}
+                  disabled={generandoSku}
+                  className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-[#3F8E91] hover:bg-[#4FAEB2]/5 disabled:opacity-50"
+                >
+                  {generandoSku ? "…" : "Generar SKU"}
+                </button>
+              </div>
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                <select
+                  onChange={handleSelectPatron}
+                  defaultValue=""
+                  className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600 outline-none focus:ring-2 focus:ring-[#0EA5E9]"
+                >
+                  <option value="">Usar patrón existente…</option>
+                  {skuPatrones.map((p) => (
+                    <option key={p.prefix} value={p.siguiente}>{p.prefix} → {p.siguiente}</option>
+                  ))}
+                </select>
+                <span className="text-[11px] text-gray-400">Código interno editable. Podés ajustar el número final.</span>
+              </div>
             </div>
             <div className={tipoGastro === "menu" ? "hidden" : ""}>
               <label className={labelClass}>Unidad de medida</label>
@@ -446,40 +599,34 @@ export default function EditarProductoPage() {
           </div>
 
           {/* Codigo de barras */}
-          <div>
-            <label className={labelClass}>
-              Código de barras
-              {form.codigo_barras_interno && form.codigo_barras && form.codigo_barras === codigoOriginal && (
-                <span className="ml-2 align-middle text-[10px] uppercase tracking-wider bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded">
-                  Interno
-                </span>
-              )}
-            </label>
-            <input
-              type="text"
-              name="codigo_barras"
-              value={form.codigo_barras}
-              onChange={handleChange}
-              placeholder="Escaneá o escribí — dejá vacío para autogenerar"
-              className={inputClass}
-              autoComplete="off"
-            />
-            {!form.codigo_barras.trim() && (
-              <div className="mt-2">
-                <button
-                  type="button"
-                  onClick={handleGenerarCodigoInterno}
-                  disabled={generandoCodigo}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-sky-700 hover:text-sky-900 border border-sky-200 hover:bg-sky-50 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
-                    <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v4.242a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V2.929a.75.75 0 0 0-1.5 0v2.431l-.31-.31A7 7 0 0 0 3.239 8.188a.75.75 0 1 0 1.448.389A5.5 5.5 0 0 1 13.89 6.11l.311.31h-2.432a.75.75 0 0 0 0 1.5h4.243a.75.75 0 0 0 .53-.219Z" clipRule="evenodd" />
-                  </svg>
-                  {generandoCodigo ? "Generando..." : "Generar código interno"}
-                </button>
-                <span className="ml-2 text-xs text-gray-400">(opcional)</span>
-              </div>
-            )}
+          <div className="border-t border-slate-100 pt-5">
+            <label className={labelClass}>Código de barras</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                name="codigo_barras"
+                value={form.codigo_barras}
+                onChange={handleChange}
+                placeholder="Escaneá, escribí o generá (EAN-13)"
+                className={`${inputClass} flex-1`}
+                inputMode="numeric"
+                autoComplete="off"
+              />
+              <button
+                type="button"
+                onClick={handleGenerarCodigoBarras}
+                disabled={generandoCodigo}
+                className="shrink-0 inline-flex items-center gap-1.5 text-xs font-medium text-sky-700 hover:text-sky-900 border border-sky-200 hover:bg-sky-50 px-3 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                  <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v4.242a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V2.929a.75.75 0 0 0-1.5 0v2.431l-.31-.31A7 7 0 0 0 3.239 8.188a.75.75 0 1 0 1.448.389A5.5 5.5 0 0 1 13.89 6.11l.311.31h-2.432a.75.75 0 0 0 0 1.5h4.243a.75.75 0 0 0 .53-.219Z" clipRule="evenodd" />
+                </svg>
+                {generandoCodigo ? "Generando…" : "Generar código de barras"}
+              </button>
+            </div>
+            <p className="mt-1.5 text-xs text-gray-400">
+              Código escaneable para lector o etiqueta (EAN-13). Debe ser único. (opcional)
+            </p>
           </div>
 
           {/* Imagen del producto */}
@@ -670,10 +817,12 @@ export default function EditarProductoPage() {
           </div>
 
           <div>
-            <p className="text-xs text-gray-400 mb-3 uppercase tracking-wide font-semibold">Precios</p>
-            <div className="grid grid-cols-3 gap-6">
+            <p className="text-xs text-gray-400 mb-3 uppercase tracking-wide font-semibold">
+              {showPrecioVenta ? "Precios" : "Costo de adquisición"}
+            </p>
+            <div className={`grid grid-cols-1 gap-6 ${showPrecioVenta ? "sm:grid-cols-3" : ""}`}>
               <div>
-                <label className={labelClass}>Costo promedio (Gs.)</label>
+                <label className={labelClass}>{showPrecioVenta ? "Costo promedio (Gs.)" : "Costo promedio / adquisición (Gs.)"}</label>
                 <MontoInput
                   value={form.costo_promedio}
                   onChange={handleCostoChange}
@@ -682,6 +831,7 @@ export default function EditarProductoPage() {
                   required
                 />
               </div>
+              {showPrecioVenta && (
               <div>
                 <label className={labelClass}>Markup s/costo (%)</label>
                 <input
@@ -693,6 +843,7 @@ export default function EditarProductoPage() {
                   step="0.01"
                 />
               </div>
+              )}
               <div className={showPrecioVenta ? "" : "hidden"}>
                 <label className={labelClass}>Precio de venta (Gs.)</label>
                 <MontoInput
@@ -704,7 +855,46 @@ export default function EditarProductoPage() {
                 />
               </div>
             </div>
-            {tieneAmbos && markupCalc !== null && margenVentaCalc !== null && (
+            {showPrecioVenta && (
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className={labelClass}>Precio mayorista (Gs.) <span className="text-gray-400 font-normal">(opcional)</span></label>
+                  <MontoInput
+                    value={form.precio_mayorista}
+                    onChange={(n) => setForm((prev) => ({ ...prev, precio_mayorista: String(n) }))}
+                    placeholder="Ej: 22000"
+                    className={inputClass}
+                    decimals={false}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Cantidad mínima mayorista <span className="text-gray-400 font-normal">(opcional)</span></label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={form.cantidad_minima_mayorista}
+                    onChange={(e) => setForm((prev) => ({ ...prev, cantidad_minima_mayorista: e.target.value }))}
+                    placeholder="Ej: 10"
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Precio distribuidor (Gs.) <span className="text-gray-400 font-normal">(opcional)</span></label>
+                  <MontoInput
+                    value={form.precio_distribuidor}
+                    onChange={(n) => setForm((prev) => ({ ...prev, precio_distribuidor: String(n) }))}
+                    placeholder="Ej: 18000"
+                    className={inputClass}
+                    decimals={false}
+                  />
+                </div>
+                <p className="sm:col-span-2 text-xs text-gray-400">
+                  Precios por canal: en Ventas el cajero elige Minorista, Mayorista o Distribuidor. El precio distribuidor es comercial (no es el costo).
+                </p>
+              </div>
+            )}
+            {showPrecioVenta && tieneAmbos && markupCalc !== null && margenVentaCalc !== null && (
               <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className={`border rounded-lg px-4 py-3 ${esPerdida ? "bg-red-50 border-red-200" : "bg-blue-50 border-blue-100"}`}>
                   <p className={`text-xs font-medium mb-1 ${esPerdida ? "text-red-500" : "text-blue-500"}`}>Markup</p>
@@ -722,7 +912,7 @@ export default function EditarProductoPage() {
             )}
           </div>
 
-          <div className={`grid grid-cols-2 gap-6 ${showStock ? "" : "hidden"}`}>
+          <div className={`grid grid-cols-1 sm:grid-cols-2 gap-6 ${showStock ? "" : "hidden"}`}>
             <div>
               <label className={labelClass}>Stock actual</label>
               <input
@@ -785,6 +975,8 @@ export default function EditarProductoPage() {
           </div>
         </form>
       </div>
+
+      {id && <ProveedoresCostos productoId={id} />}
     </div>
   );
 }

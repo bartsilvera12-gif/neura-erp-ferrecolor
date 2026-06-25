@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import EdgeScrollArea from "@/components/ui/EdgeScrollArea";
 import { FancySelect } from "@/components/ui/FancySelect";
+import MobileFab from "@/components/ui/MobileFab";
 import { getVentas } from "@/lib/ventas/storage";
+import PedidosPendientesCaja from "./PedidosPendientesCaja";
+import { esMismoDiaAsuncion } from "@/lib/fecha/asuncion";
 import type { Venta, TipoVenta, TipoIvaVenta } from "@/lib/ventas/types";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -46,14 +49,11 @@ const ivaLabel: Record<TipoIvaVenta, string> = {
 // ── Métricas del día ──────────────────────────────────────────────────────────
 
 function esDeHoy(iso: string): boolean {
+  // Compara por día calendario de Paraguay (America/Asuncion), no por el TZ del
+  // runtime: una venta hecha de noche PY se guarda con fecha UTC del día siguiente
+  // y con `getDate()` local se contaría/descartaría mal.
   try {
-    const fecha = new Date(iso);
-    const hoy   = new Date();
-    return (
-      fecha.getFullYear() === hoy.getFullYear() &&
-      fecha.getMonth()    === hoy.getMonth()    &&
-      fecha.getDate()     === hoy.getDate()
-    );
+    return esMismoDiaAsuncion(iso);
   } catch {
     return false;
   }
@@ -204,9 +204,11 @@ export default function VentasPage() {
             Zentra · Operaciones
           </p>
         </div>
-        <h1 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Ventas</h1>
-        <p className="mt-0.5 text-xs text-slate-500">Registro de ventas y salidas de inventario</p>
+        <h1 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Caja</h1>
+        <p className="mt-0.5 text-xs text-slate-500">Cobro, facturación y cierre de pedidos</p>
       </div>
+
+      <PedidosPendientesCaja />
 
       {/* ── Métricas del día ──────────────────────────────────────────────────── */}
       <div>
@@ -214,6 +216,7 @@ export default function VentasPage() {
           Resumen de hoy —{" "}
           {new Date().toLocaleDateString("es-PY", {
             weekday: "long", day: "numeric", month: "long", year: "numeric",
+            timeZone: "America/Asuncion",
           })}
         </p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -246,9 +249,9 @@ export default function VentasPage() {
       </div>
 
       {/* ── Tabla de ventas ───────────────────────────────────────────────────── */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm ring-1 ring-[#4FAEB2]/15 p-6">
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-[#4FAEB2]/15 sm:p-5 lg:p-6">
 
-        <div className="flex justify-between items-center mb-5">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-xl font-semibold">Órdenes de venta</h2>
           <Link
             href="/ventas/nueva"
@@ -265,7 +268,7 @@ export default function VentasPage() {
             placeholder="Buscar por número, producto o SKU..."
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
-            className={`${inputFilterClass} min-w-64`}
+            className={`${inputFilterClass} min-w-0 flex-1 sm:min-w-64`}
           />
           <FancySelect
             value={filtroTipo}
@@ -305,19 +308,20 @@ export default function VentasPage() {
           </span>
         </div>
 
-        {/* Tabla */}
+        {/* Tabla — min-w fuerza scroll horizontal en mobile; columnas secundarias
+            (Items, Cant total, IVA, Pago) se ocultan progresivamente. */}
         <EdgeScrollArea>
-          <table className="w-full text-left text-sm">
+          <table className="w-full min-w-[760px] lg:min-w-0 text-left text-sm">
             <thead>
               <tr className="bg-slate-50 text-slate-600 text-sm font-semibold">
                 <th className="py-3 pr-4 font-medium">Número</th>
                 <th className="py-3 pr-4 font-medium">Productos</th>
-                <th className="py-3 pr-4 font-medium text-center">Ítems</th>
-                <th className="py-3 pr-4 font-medium text-right">Cant. total</th>
-                <th className="py-3 pr-4 font-medium">IVA</th>
+                <th className="hidden py-3 pr-4 text-center font-medium lg:table-cell">Ítems</th>
+                <th className="py-3 pr-4 font-medium text-right hidden lg:table-cell">Cant. total</th>
+                <th className="py-3 pr-4 font-medium hidden lg:table-cell">IVA</th>
                 <th className="py-3 pr-4 font-medium text-right">Total</th>
-                <th className="py-3 pr-4 font-medium">Tipo</th>
-                <th className="py-3 pr-4 font-medium">Pago</th>
+                <th className="hidden py-3 pr-4 font-medium lg:table-cell">Tipo</th>
+                <th className="hidden py-3 pr-4 font-medium lg:table-cell">Pago</th>
                 <th className="py-3 pr-4 font-medium">Fecha</th>
                 <th className="py-3 font-medium text-center">Ticket</th>
               </tr>
@@ -342,15 +346,15 @@ export default function VentasPage() {
                       <td className="py-4 pr-4 align-middle">
                         <ResumenProductos v={v} />
                       </td>
-                      <td className="py-4 pr-4 text-center align-middle">
+                      <td className="hidden py-4 pr-4 text-center align-middle lg:table-cell">
                         <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-xs font-semibold text-gray-600">
                           {v.items.length}
                         </span>
                       </td>
-                      <td className="py-4 pr-4 text-right tabular-nums text-gray-700 align-middle">
+                      <td className="py-4 pr-4 text-right tabular-nums text-gray-700 align-middle hidden lg:table-cell">
                         {cantTotal}
                       </td>
-                      <td className="py-4 pr-4 align-middle">
+                      <td className="py-4 pr-4 align-middle hidden lg:table-cell">
                         <span className="px-2 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700">
                           {ivaResumen(v)}
                         </span>
@@ -358,14 +362,14 @@ export default function VentasPage() {
                       <td className="py-4 pr-4 text-right tabular-nums font-semibold text-gray-800 align-middle">
                         {formatGs(v.total)}
                       </td>
-                      <td className="py-4 pr-4 align-middle">
+                      <td className="hidden py-4 pr-4 align-middle lg:table-cell">
                         <span className={`px-2 py-1 rounded-full text-xs font-semibold ${tipoVentaBadge[v.tipo_venta]}`}>
                           {v.tipo_venta === "CONTADO"
                             ? "Contado"
                             : `Crédito ${v.plazo_dias ?? ""}d`}
                         </span>
                       </td>
-                      <td className="py-4 pr-4 align-middle text-xs text-gray-600">
+                      <td className="hidden py-4 pr-4 align-middle text-xs text-gray-600 lg:table-cell">
                         {v.metodo_pago === "tarjeta" ? "Tarjeta"
                           : v.metodo_pago === "transferencia" ? "Transfer."
                           : v.metodo_pago === "efectivo" ? "Efectivo"
@@ -375,15 +379,28 @@ export default function VentasPage() {
                         {formatFecha(v.fecha)}
                       </td>
                       <td className="py-4 text-center align-middle">
-                        <a
-                          href={`/api/ventas/${v.id}/ticket?mode=comandas`}
-                          target="_blank"
-                          rel="noopener"
-                          className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition-colors"
-                          title="Abrir comandas + ticket cliente"
-                        >
-                          Imprimir
-                        </a>
+                        <div className="inline-flex items-center gap-1.5">
+                          <a
+                            href={`/api/ventas/${v.id}/ticket?mode=comandas`}
+                            target="_blank"
+                            rel="noopener"
+                            className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition-colors"
+                            title="Abrir comandas + ticket cliente"
+                          >
+                            Imprimir
+                          </a>
+                          {v.genera_nota_remision && (
+                            <a
+                              href={`/api/ventas/${v.id}/ticket?tipo=remision`}
+                              target="_blank"
+                              rel="noopener"
+                              className="inline-flex items-center justify-center rounded-md border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100 transition-colors"
+                              title="Nota de remisión (documento no fiscal)"
+                            >
+                              Nota de remisión
+                            </a>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -395,6 +412,8 @@ export default function VentasPage() {
 
       </div>
 
+      {/* FAB mobile: acceso 1-tap a "+ Nueva venta" desde cualquier scroll position */}
+      <MobileFab href="/ventas/nueva" label="Nueva venta" />
     </div>
   );
 }

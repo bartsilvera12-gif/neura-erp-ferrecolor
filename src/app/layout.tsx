@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans, Geist_Mono } from "next/font/google";
 import AppShell from "../components/AppShell";
 import { ThemeProvider } from "../components/ThemeProvider";
@@ -17,8 +17,14 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Neura ERP",
-  description: "Sistema de gestión empresarial de Neura",
+  title: "Reserva Ecológica Caacupé",
+  description: "Sistema de gestión Zentra — Reserva Ecológica Caacupé",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

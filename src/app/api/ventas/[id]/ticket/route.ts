@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
+import { membreteA4, membreteTicket } from "@/lib/documentos/membrete";
 
 /**
  * GET /api/ventas/[id]/ticket?w=58|80&mode=comandas&auto=1
@@ -17,7 +18,22 @@ import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
  * No toca SIFEN, no genera XML, no usa timbrado.
  */
 
-const NEGOCIO = "EN LO DE MARI";
+/**
+ * Nombre del negocio en el ticket. Orden de preferencia:
+ *   1) process.env.NEURA_CLIENT_NAME (instancia dedicada monocliente)
+ *   2) empresas.nombre_empresa de la empresa de la venta
+ *   3) fallback seguro
+ * Nunca se hardcodea otra marca.
+ */
+const NEGOCIO_FALLBACK = "Reserva Ecológica Caacupé";
+
+function resolveNegocio(nombreEmpresa?: string | null): string {
+  const env = (process.env.NEURA_CLIENT_NAME ?? "").trim();
+  if (env) return env;
+  const e = (nombreEmpresa ?? "").trim();
+  if (e) return e;
+  return NEGOCIO_FALLBACK;
+}
 
 // ── Clasificación PIZZERÍA / PLANCHA ───────────────────────────────────────
 // Primary: categoría hija del producto. Fallback: prefijo de SKU.
@@ -116,6 +132,9 @@ interface VentaRow {
   total: number | string;
   observaciones: string | null;
   metodo_pago: string | null;
+  cliente_id: string | null;
+  genera_nota_remision: boolean | null;
+  nota_remision_numero: string | null;
 }
 
 interface ItemRow {
@@ -147,6 +166,7 @@ function renderCopia(opts: {
   brief: PedidoBrief | null;
   fontPx: number;
   isLast: boolean;
+  negocio: string;
 }): string {
   const { tipo, venta, items, brief, fontPx, isLast } = opts;
   const showPrices = tipo === "cliente";
@@ -216,7 +236,7 @@ function renderCopia(opts: {
     : `<div class="footer-cocina">${formatFecha(venta.fecha)}</div>`;
 
   return `<section class="paper ${isLast ? "last" : ""}">
-    ${headerCocina || `<h1>${NEGOCIO}</h1>`}
+    ${headerCocina || membreteTicket()}
     <div class="meta">
       ${escapeHtml(venta.numero_control)}<br>
       ${formatFecha(venta.fecha)}
@@ -232,6 +252,88 @@ function renderCopia(opts: {
   </section>`;
 }
 
+// ── Nota de remisión (documento NO fiscal) ─────────────────────────────────
+
+interface ClienteRemision {
+  nombre: string | null;
+  ruc: string | null;
+  documento: string | null;
+  direccion: string | null;
+  ciudad: string | null;
+}
+
+/** HTML imprimible de Nota de Remisión. Por defecto NO muestra precios (solo productos y cantidades). */
+function renderNotaRemision(opts: {
+  negocio: string;
+  venta: VentaRow;
+  items: Array<ItemRow & { unidad: string }>;
+  cliente: ClienteRemision | null;
+}): string {
+  const { negocio, venta, items, cliente } = opts;
+  const numeroNota = venta.nota_remision_numero || "—";
+  const filas = items
+    .map(
+      (it) => `<tr>
+        <td class="cant">${Number(it.cantidad)}</td>
+        <td class="uni">${escapeHtml(it.unidad || "UNIDAD")}</td>
+        <td class="desc">${escapeHtml(it.producto_nombre)}<span class="sku">${escapeHtml(it.sku)}</span></td>
+      </tr>`
+    )
+    .join("");
+  const cli = cliente
+    ? [
+        `<div><strong>${escapeHtml(cliente.nombre || "—")}</strong></div>`,
+        cliente.ruc ? `<div>RUC: ${escapeHtml(cliente.ruc)}</div>` : "",
+        !cliente.ruc && cliente.documento ? `<div>Documento: ${escapeHtml(cliente.documento)}</div>` : "",
+        cliente.direccion ? `<div>Dirección: ${escapeHtml(cliente.direccion)}</div>` : "",
+        cliente.ciudad ? `<div>Ciudad: ${escapeHtml(cliente.ciudad)}</div>` : "",
+      ].filter(Boolean).join("")
+    : `<div>—</div>`;
+  const obs = venta.observaciones ? `<div class="obs"><strong>Observación:</strong> ${escapeHtml(venta.observaciones)}</div>` : "";
+
+  return `<!doctype html>
+<html lang="es"><head><meta charset="utf-8" />
+<title>Nota de remisión ${escapeHtml(numeroNota)} — ${escapeHtml(negocio)}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: ui-sans-serif, system-ui, Arial, sans-serif; color:#111; background:#f1f1f1; margin:0; padding:24px; }
+  .doc { background:#fff; max-width:720px; margin:0 auto; padding:28px 32px; box-shadow:0 1px 6px rgba(0,0,0,.12); }
+  h1 { font-size:18px; text-align:center; letter-spacing:1px; margin:0 0 2px; }
+  .titulo { text-align:center; font-weight:800; font-size:15px; border:2px solid #111; padding:6px; margin:12px 0 16px; letter-spacing:2px; }
+  .row { display:flex; justify-content:space-between; gap:24px; font-size:13px; margin-bottom:14px; }
+  .box { flex:1; border:1px solid #ddd; border-radius:8px; padding:10px 12px; }
+  .box h3 { margin:0 0 6px; font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#666; }
+  table { width:100%; border-collapse:collapse; font-size:13px; margin-top:8px; }
+  th,td { border:1px solid #ddd; padding:6px 8px; text-align:left; vertical-align:top; }
+  th { background:#f6f6f6; font-size:11px; text-transform:uppercase; letter-spacing:.5px; }
+  td.cant, td.uni, th.cant, th.uni { text-align:center; width:64px; white-space:nowrap; }
+  td.desc .sku { display:block; font-size:11px; color:#888; font-family:ui-monospace,monospace; }
+  .obs { font-size:12px; margin-top:12px; }
+  .legal { margin-top:18px; font-size:11px; color:#555; border-top:1px dashed #bbb; padding-top:10px; }
+  @media print { body { background:#fff; padding:0; } .doc { box-shadow:none; max-width:none; } }
+</style></head>
+<body><div class="doc">
+  ${membreteA4()}
+  <div class="titulo">NOTA DE REMISIÓN</div>
+  <div class="row">
+    <div class="box"><h3>Documento</h3>
+      <div><strong>N°:</strong> ${escapeHtml(numeroNota)}</div>
+      <div><strong>Fecha:</strong> ${escapeHtml(formatFecha(venta.fecha))}</div>
+      <div><strong>Venta:</strong> ${escapeHtml(venta.numero_control)}</div>
+    </div>
+    <div class="box"><h3>Cliente</h3>${cli}</div>
+  </div>
+  <table>
+    <thead><tr><th class="cant">Cant.</th><th class="uni">Unidad</th><th>Descripción</th></tr></thead>
+    <tbody>${filas}</tbody>
+  </table>
+  ${obs}
+  <div class="legal">Documento no fiscal. Emitido para acompañar la entrega de mercaderías.</div>
+</div>
+<script>try{ if (new URL(location.href).searchParams.get('auto')==='1') window.print(); }catch(e){}</script>
+</body></html>`;
+}
+
 // ── Handler ────────────────────────────────────────────────────────────────
 
 export async function GET(request: NextRequest, ctxParams: { params: Promise<{ id: string }> }) {
@@ -241,6 +343,7 @@ export async function GET(request: NextRequest, ctxParams: { params: Promise<{ i
   const widthMm = wParam === "58" ? 58 : 80;
   const fontPx = widthMm === 58 ? 11 : 12;
   const modeComandas = url.searchParams.get("mode") === "comandas";
+  const esRemision = url.searchParams.get("tipo") === "remision" || url.searchParams.get("mode") === "remision";
 
   const ctx = await getTenantSupabaseFromAuth(request);
   if (!ctx) return new NextResponse("No autorizado", { status: 401 });
@@ -249,13 +352,27 @@ export async function GET(request: NextRequest, ctxParams: { params: Promise<{ i
   // Venta
   const vQ = await ctx.supabase
     .from("ventas")
-    .select("id, numero_control, fecha, subtotal, monto_iva, total, observaciones, metodo_pago")
+    .select("id, numero_control, fecha, subtotal, monto_iva, total, observaciones, metodo_pago, cliente_id, genera_nota_remision, nota_remision_numero")
     .eq("id", id)
     .eq("empresa_id", empresaId)
     .maybeSingle();
   if (vQ.error) return new NextResponse(`Error: ${vQ.error.message}`, { status: 500 });
   if (!vQ.data) return new NextResponse("Venta no encontrada", { status: 404 });
   const venta = vQ.data as unknown as VentaRow;
+
+  // Nombre del negocio para el encabezado (env → empresa → fallback). Nunca hardcode.
+  let nombreEmpresa: string | null = null;
+  try {
+    const eQ = await ctx.supabase
+      .from("empresas")
+      .select("nombre_empresa")
+      .eq("id", empresaId)
+      .maybeSingle();
+    nombreEmpresa = (eQ.data as { nombre_empresa?: string | null } | null)?.nombre_empresa ?? null;
+  } catch {
+    nombreEmpresa = null;
+  }
+  const negocio = resolveNegocio(nombreEmpresa);
 
   // Items
   const iQ = await ctx.supabase
@@ -265,6 +382,47 @@ export async function GET(request: NextRequest, ctxParams: { params: Promise<{ i
     .eq("empresa_id", empresaId);
   if (iQ.error) return new NextResponse(`Error items: ${iQ.error.message}`, { status: 500 });
   const itemsRaw = (iQ.data ?? []) as unknown as ItemRow[];
+
+  // ── Nota de remisión: documento separado (no fiscal). Solo productos + cantidades.
+  if (esRemision) {
+    // Unidades de medida por producto.
+    const prodIds = [...new Set(itemsRaw.map((i) => i.producto_id))];
+    const unidadByProd = new Map<string, string>();
+    if (prodIds.length > 0) {
+      const uQ = await ctx.supabase
+        .from("productos")
+        .select("id, unidad_medida")
+        .eq("empresa_id", empresaId)
+        .in("id", prodIds);
+      for (const r of (uQ.data ?? []) as Array<{ id: string; unidad_medida: string | null }>) {
+        unidadByProd.set(r.id, r.unidad_medida ?? "UNIDAD");
+      }
+    }
+    // Cliente (si la venta tiene cliente_id).
+    let clienteRem: ClienteRemision | null = null;
+    if (venta.cliente_id) {
+      const cQ = await ctx.supabase
+        .from("clientes")
+        .select("empresa, nombre, nombre_contacto, ruc, documento, direccion, ciudad")
+        .eq("id", venta.cliente_id)
+        .eq("empresa_id", empresaId)
+        .maybeSingle();
+      const c = cQ.data as Record<string, string | null> | null;
+      if (c) {
+        const s = (v: string | null | undefined) => (typeof v === "string" && v.trim() ? v.trim() : null);
+        clienteRem = {
+          nombre: s(c.empresa) || s(c.nombre_contacto) || s(c.nombre),
+          ruc: s(c.ruc),
+          documento: s(c.documento),
+          direccion: s(c.direccion),
+          ciudad: s(c.ciudad),
+        };
+      }
+    }
+    const itemsRem = itemsRaw.map((it) => ({ ...it, unidad: unidadByProd.get(it.producto_id) ?? "UNIDAD" }));
+    const htmlRem = renderNotaRemision({ negocio, venta, items: itemsRem, cliente: clienteRem });
+    return new NextResponse(htmlRem, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } });
+  }
 
   // Pedido cocina (opcional) — busca card de Pedidos vinculada a esta venta.
   let brief: PedidoBrief | null = null;
@@ -346,7 +504,7 @@ export async function GET(request: NextRequest, ctxParams: { params: Promise<{ i
 
   const seccionesHtml = copias
     .map((tipo, idx) =>
-      renderCopia({ tipo, venta, items, brief, fontPx, isLast: idx === copias.length - 1 })
+      renderCopia({ tipo, venta, items, brief, fontPx, isLast: idx === copias.length - 1, negocio })
     )
     .join("");
 
@@ -354,7 +512,7 @@ export async function GET(request: NextRequest, ctxParams: { params: Promise<{ i
 <html lang="es">
 <head>
 <meta charset="utf-8" />
-<title>Ticket ${escapeHtml(venta.numero_control)} — ${NEGOCIO}</title>
+<title>Ticket ${escapeHtml(venta.numero_control)} — ${escapeHtml(negocio)}</title>
 <style>
   :root { color-scheme: light; }
   * { box-sizing: border-box; }

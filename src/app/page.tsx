@@ -1,7 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
+// MobileDashboard se renderiza solo en mobile (md:hidden). El dashboard desktop
+// que vive en este mismo archivo queda intacto.
+import MobileDashboard from "@/app/_components/MobileDashboard";
+import CobranzasResumenCards from "@/components/cobros/CobranzasResumenCards";
 import { getConfig } from "@/lib/config/storage";
 import { getUsuarios } from "@/lib/usuarios/storage";
 import type { ConfigGlobal } from "@/lib/config/types";
@@ -39,21 +44,21 @@ import {
   isDashboardTabSlug,
   type DashboardTabSlug,
 } from "@/lib/dashboard/resolve-effective-dashboard-views";
-// NOTA DE PERFORMANCE: recharts pesa ~90 KB gzipped y entra al bundle inicial.
-// No se puede usar next/dynamic directo en estos componentes porque LineChart
-// hace introspeccion de children por tipo (rompe si los envolves en dynamic()).
-// TODO: extraer el chart de la seccion financiera a un archivo aparte
-// (p.ej. src/app/_components/ChartCobradoPorDia.tsx) y dynamic-importar ESE archivo.
-// Eso saca recharts del bundle inicial sin romper la introspeccion.
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+// recharts (~90 KB gzipped) extraido a archivo aparte y dynamic-importado.
+// Razones:
+//  - El chart solo se ve cuando el user entra al tab "Financiero" del dashboard.
+//  - LineChart hace introspeccion de children por tipo — por eso NO se puede
+//    dynamic() directo a los componentes individuales (rompe los ejes).
+//    Solucion: dynamic() al chart completo como unidad cerrada.
+//  - ssr:false porque el chart no aporta SEO y evita un round-trip server.
+//  - loading: placeholder con la misma altura para que no haya layout shift.
+const ChartCobradoPorDia = dynamic(
+  () => import("@/app/_components/ChartCobradoPorDia"),
+  {
+    ssr: false,
+    loading: () => <div className="h-full w-full animate-pulse rounded-lg bg-slate-100" />,
+  },
+);
 
 // ── ZENTRA (solo dashboard / esta página) ─────────────────────────────────────
 // Paleta turquesa #4FAEB2 (rediseño 2026). Shell BLANCO con detalles turquesa
@@ -606,7 +611,12 @@ function etiquetaPlanServicioCliente(
   return "—";
 }
 
-function DashComercial({
+// memo evita re-render de este sub-dashboard cuando cambia algo en el padre
+// que no afecta a sus props (ej: usuario abre dropdown del header, cambia tab,
+// se actualizan KPIs de otra seccion). Los datos del comercial son grandes
+// (prospectos+clientes+facturas+notasCredito+suscripciones) y los useMemo
+// internos solo se cachean si el componente no re-renderea.
+const DashComercial = memo(function DashComercial({
   prospectos,
   clientes,
   mapNombreTipoServicio,
@@ -971,7 +981,7 @@ function DashComercial({
       </motion.div>
     </div>
   );
-}
+});
 
 // ── Dashboard Financiero ──────────────────────────────────────────────────────
 
@@ -1042,7 +1052,9 @@ function composicionFacturacionPorModalidad(facturasPeriodo: FacturaRaw[]) {
   };
 }
 
-function DashFinanciero({
+// memo: el sub-dashboard financiero hace muchos useMemo internos sobre facturas
+// y pagos. Sin memo, cualquier render del padre (ej: cambio de tab) los invalidaba.
+const DashFinanciero = memo(function DashFinanciero({
   facturas, pagos, clientes, ventas, periodo, config, mapNombreTipoServicio,
 }: {
   facturas:  FacturaRaw[];
@@ -1351,59 +1363,13 @@ function DashFinanciero({
           <p className="mt-6 text-sm text-slate-500">Sin rango de fechas válido.</p>
         ) : (
           <div className="mt-5 h-[300px] w-full min-w-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={cobradoPorDiaSerie} margin={{ top: 8, right: 12, left: 4, bottom: 0 }}>
-                <CartesianGrid stroke="#e2e8f0" vertical={false} />
-                <XAxis
-                  dataKey="fecha"
-                  tick={{ fill: "#64748b", fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={{ stroke: "#cbd5e1" }}
-                  tickFormatter={(ymd: string) => {
-                    if (!ymd || ymd.length < 10) return ymd;
-                    return `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}`;
-                  }}
-                  minTickGap={28}
-                />
-                <YAxis
-                  tick={{ fill: "#64748b", fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={{ stroke: "#cbd5e1" }}
-                  tickFormatter={(v: number) => formatGsM(Number(v))}
-                  width={52}
-                />
-                <Tooltip
-                  cursor={{ stroke: "rgba(37,99,235,0.25)", strokeWidth: 1 }}
-                  content={({ active, payload }) => {
-                    if (!active || !payload?.length) return null;
-                    const row = payload[0].payload as {
-                      fecha: string;
-                      monto: number;
-                      count: number;
-                    };
-                    return (
-                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 shadow-lg">
-                        <p className="font-medium text-slate-500">{formatFecha(row.fecha)}</p>
-                        <p className="mt-1.5 text-sm font-semibold tabular-nums text-slate-900">
-                          Gs. {formatGs(row.monto)}
-                        </p>
-                        <p className="mt-1 text-[11px] text-slate-500">
-                          {row.count} pago{row.count === 1 ? "" : "s"}
-                        </p>
-                      </div>
-                    );
-                  }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="monto"
-                  stroke={finAccent}
-                  strokeWidth={2.5}
-                  dot={false}
-                  activeDot={{ r: 5, fill: finAccent, stroke: "#fff", strokeWidth: 2 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <ChartCobradoPorDia
+              data={cobradoPorDiaSerie}
+              accentColor={finAccent}
+              formatGs={formatGs}
+              formatGsM={formatGsM}
+              formatFecha={formatFecha}
+            />
           </div>
         )}
       </div>
@@ -1605,11 +1571,13 @@ function DashFinanciero({
       </div>
     </div>
   );
-}
+});
 
 // ── Dashboard Inventario ─────────────────────────────────────────────────────
 
-function DashInventario({
+// memo: dashboard de inventario hace filter/reduce sobre productos en cada render.
+// Sin memo, cualquier cambio en el padre re-ejecutaba esos calculos.
+const DashInventario = memo(function DashInventario({
   productos,
   compras,
 }: {
@@ -1763,11 +1731,13 @@ function DashInventario({
 
     </div>
   );
-}
+});
 
 // ── Dashboard Ventas ──────────────────────────────────────────────────────────
 
-function DashVentas({
+// memo: ventas + productos pueden ser arrays grandes; los filter/reduce internos
+// solo se cachean si no re-renderea el componente entero.
+const DashVentas = memo(function DashVentas({
   ventas,
   productos,
   periodo,
@@ -1949,7 +1919,7 @@ function DashVentas({
 
     </div>
   );
-}
+});
 
 // ── Página principal ──────────────────────────────────────────────────────────
 
@@ -2197,8 +2167,26 @@ export default function DashboardPage() {
   }
 
   return (
-    <div
-      className="zentra-dashboard-shell space-y-8 rounded-2xl border border-slate-200 px-4 py-8 sm:px-6 md:px-8"
+    <>
+      {/* MOBILE (< md=768px): dashboard rediseñado especialmente para mobile.
+          Touch-first, KPIs apilados, acciones rápidas grandes, alertas, cards
+          en vez de tablas. Layout COMPLETAMENTE distinto al desktop. */}
+      <div className="lg:hidden">
+        <MobileDashboard
+          clientes={clientes}
+          facturas={facturas}
+          pagos={pagos}
+          productos={productos}
+          ventas={ventas}
+          gastos={gastos}
+          notasCredito={notasCredito}
+        />
+      </div>
+
+      {/* DESKTOP (>= md=768px): dashboard original con todos los sub-tabs,
+          gráficos, tablas. Intacto, cero cambios. */}
+      <div
+      className="hidden lg:block zentra-dashboard-shell space-y-8 rounded-2xl border border-slate-200 px-4 py-8 sm:px-6 md:px-8"
       style={{ color: Z.muted }}
     >
       <header className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
@@ -2306,15 +2294,18 @@ export default function DashboardPage() {
       )}
 
       {tab === "financiero" && (
-        <DashFinanciero
-          facturas={facturas}
-          pagos={pagos}
-          clientes={clientes}
-          ventas={ventas}
-          periodo={periodo}
-          config={config}
-          mapNombreTipoServicio={mapNombreTipoServicio}
-        />
+        <div className="space-y-6">
+          <CobranzasResumenCards />
+          <DashFinanciero
+            facturas={facturas}
+            pagos={pagos}
+            clientes={clientes}
+            ventas={ventas}
+            periodo={periodo}
+            config={config}
+            mapNombreTipoServicio={mapNombreTipoServicio}
+          />
+        </div>
       )}
 
       {tab === "inventario" && (
@@ -2333,5 +2324,6 @@ export default function DashboardPage() {
       )}
 
     </div>
+    </>
   );
 }

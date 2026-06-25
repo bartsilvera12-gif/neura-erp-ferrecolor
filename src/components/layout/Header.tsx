@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Bell, ChevronDown, LogOut, Menu } from "lucide-react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
@@ -78,7 +79,6 @@ export default function Header() {
   const fallbackEmail = clean(usuario?.email);
   const displayName = nombreReal || fallbackEmail || "Usuario";
   const dropdownName = nombreReal || "Usuario";
-  const avatarInitial = (nombreReal || fallbackEmail || "Usuario").charAt(0).toUpperCase();
   const displayRole = roleLabel(usuario?.rol);
 
   return (
@@ -90,14 +90,14 @@ export default function Header() {
       <button
         type="button"
         onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
-        className="rounded-lg p-2 text-slate-600 transition-colors hover:bg-slate-100 hover:text-[#3F8E91] md:hidden"
+        className="rounded-lg p-2 text-slate-600 transition-colors hover:bg-slate-100 hover:text-[#3F8E91] lg:hidden"
         aria-label="Abrir menú"
       >
         <Menu className="h-5 w-5" />
       </button>
 
       {/* Spacer en desktop para empujar el resto a la derecha */}
-      <div className="hidden md:block md:flex-1" />
+      <div className="hidden lg:block lg:flex-1" />
 
       <div className="flex items-center gap-2">
         {/* Notificaciones */}
@@ -120,10 +120,18 @@ export default function Header() {
             className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 shadow-sm transition-all hover:border-[#4FAEB2]/60"
           >
             <div
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#4FAEB2] to-[#3F8E91] text-white"
+              className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-black"
               style={{ boxShadow: "0 0 0 3px rgba(79, 174, 178, 0.25)" }}
             >
-              <span className="text-sm font-bold">{avatarInitial}</span>
+              <Image
+                src="/brand/reservacaacupe-logo.png"
+                alt="Reserva Ecológica Caacupé"
+                width={72}
+                height={72}
+                sizes="36px"
+                className="h-full w-full object-contain p-0.5"
+                priority
+              />
             </div>
             <div className="hidden text-left sm:block">
               <p className="max-w-[180px] truncate text-sm font-semibold text-slate-900">{displayName}</p>

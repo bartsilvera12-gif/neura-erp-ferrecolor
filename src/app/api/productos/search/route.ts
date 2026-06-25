@@ -11,6 +11,8 @@ interface ProductoSearchHit {
   codigo_barras: string | null;
   codigo_barras_interno: boolean;
   precio_venta: number;
+  precio_mayorista: number;
+  precio_distribuidor: number | null;
   costo_promedio: number;
   stock_actual: number;
   stock_minimo: number;
@@ -24,6 +26,7 @@ interface ProductoSearchHit {
   ubicacion_tipo: string | null;
   es_vendible: boolean;
   controla_stock: boolean;
+  modo_receta: string;
 }
 
 const DEFAULT_LIMIT = 30;
@@ -60,10 +63,10 @@ export async function GET(request: NextRequest) {
       .from("productos")
       .select(
         "id, nombre, sku, codigo_barras, codigo_barras_interno, " +
-          "precio_venta, costo_promedio, stock_actual, stock_minimo, " +
+          "precio_venta, precio_mayorista, precio_distribuidor, costo_promedio, stock_actual, stock_minimo, " +
           "unidad_medida, metodo_valuacion, imagen_path, imagen_url, " +
           "categoria_principal_id, proveedor_principal_id, ubicacion_principal_id, " +
-          "es_vendible, controla_stock, activo"
+          "es_vendible, controla_stock, modo_receta, activo"
       )
       .eq("empresa_id", empresaId)
       .eq("activo", true)
@@ -87,6 +90,8 @@ export async function GET(request: NextRequest) {
       codigo_barras: (r.codigo_barras as string | null) ?? null,
       codigo_barras_interno: r.codigo_barras_interno === true,
       precio_venta: Number(r.precio_venta ?? 0),
+      precio_mayorista: Number(r.precio_mayorista ?? 0),
+      precio_distribuidor: r.precio_distribuidor != null ? Number(r.precio_distribuidor) : null,
       costo_promedio: Number(r.costo_promedio ?? 0),
       stock_actual: Number(r.stock_actual ?? 0),
       stock_minimo: Number(r.stock_minimo ?? 0),
@@ -96,6 +101,7 @@ export async function GET(request: NextRequest) {
       imagen_url: (r.imagen_url as string | null) ?? null,
       es_vendible: r.es_vendible !== false,
       controla_stock: r.controla_stock !== false,
+      modo_receta: typeof r.modo_receta === "string" ? r.modo_receta : "preparado_al_vender",
     }));
 
     // Firmar URLs solo para los primeros 20 visibles (optimización).
@@ -113,6 +119,8 @@ export async function GET(request: NextRequest) {
       codigo_barras: r.codigo_barras,
       codigo_barras_interno: r.codigo_barras_interno,
       precio_venta: r.precio_venta,
+      precio_mayorista: r.precio_mayorista,
+      precio_distribuidor: r.precio_distribuidor,
       costo_promedio: r.costo_promedio,
       stock_actual: r.stock_actual,
       stock_minimo: r.stock_minimo,
@@ -126,6 +134,7 @@ export async function GET(request: NextRequest) {
       ubicacion_tipo: null,
       es_vendible: r.es_vendible,
       controla_stock: r.controla_stock,
+      modo_receta: r.modo_receta,
     }));
 
     return NextResponse.json(successResponse({ items: hits, count: hits.length, q }));

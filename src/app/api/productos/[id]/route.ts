@@ -11,10 +11,15 @@ const PRODUCTO_COLS =
   "codigo_barras, codigo_barras_interno, imagen_path, imagen_url, " +
   "categoria_principal_id, ubicacion_principal_id, proveedor_principal_id, " +
   "es_vendible, es_insumo, controla_stock, valorizado, unidad_compra, unidad_receta, " +
-  "factor_compra_receta, tiempo_prep_minutos, descripcion";
+  "factor_compra_receta, tiempo_prep_minutos, descripcion, precio_mayorista, cantidad_minima_mayorista, precio_distribuidor, modo_receta";
 
 function toNumber(v: unknown): unknown {
   return typeof v === "string" ? Number(v) : v;
+}
+function toNumberOrNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 function rowToApi(r: Record<string, unknown>): Record<string, unknown> {
   return {
@@ -24,6 +29,9 @@ function rowToApi(r: Record<string, unknown>): Record<string, unknown> {
     stock_actual: toNumber(r.stock_actual),
     stock_minimo: toNumber(r.stock_minimo),
     factor_compra_receta: toNumber(r.factor_compra_receta),
+    precio_mayorista: r.precio_mayorista != null ? toNumber(r.precio_mayorista) : null,
+    cantidad_minima_mayorista: r.cantidad_minima_mayorista != null ? toNumber(r.cantidad_minima_mayorista) : null,
+    precio_distribuidor: r.precio_distribuidor != null ? toNumber(r.precio_distribuidor) : null,
   };
 }
 
@@ -146,6 +154,13 @@ export async function PATCH(
       patch.tiempo_prep_minutos = Math.floor(body.tiempo_prep_minutos);
     if (body.descripcion !== undefined)
       patch.descripcion = body.descripcion == null ? null : String(body.descripcion).trim() || null;
+    if (body.precio_mayorista !== undefined) patch.precio_mayorista = toNumberOrNull(body.precio_mayorista);
+    if (body.cantidad_minima_mayorista !== undefined) patch.cantidad_minima_mayorista = toNumberOrNull(body.cantidad_minima_mayorista);
+    if (body.precio_distribuidor !== undefined) patch.precio_distribuidor = toNumberOrNull(body.precio_distribuidor);
+    if (body.modo_receta !== undefined) {
+      const mr = body.modo_receta;
+      patch.modo_receta = mr === "produccion_previa" ? "produccion_previa" : "preparado_al_vender";
+    }
 
     if (Object.keys(patch).length === 0) {
       const { data: existing, error: errGet } = await sb
