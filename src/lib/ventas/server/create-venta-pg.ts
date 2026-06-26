@@ -1,5 +1,10 @@
 import { createServiceRoleClientWithDbSchema } from "@/lib/supabase/empresa-data-schema";
 import { convertirCantidad } from "@/lib/unidades/convert";
+import {
+  PRESENTACION_COLS,
+  mapPresentacion,
+} from "@/lib/inventario/presentaciones-server";
+import type { ProductoPresentacion } from "@/lib/inventario/presentaciones-types";
 
 /** Un faltante de stock detectado al validar la venta. */
 export interface FaltanteStock {
@@ -30,14 +35,25 @@ export interface CreateVentaItemInput {
   producto_id: string;
   producto_nombre: string;
   sku: string;
+  /**
+   * Cantidad en la presentacion elegida. Ej: 2 (cajas), 10 (unidades).
+   * El stock se descuenta usando `cantidad * presentacion.cantidad_base`.
+   */
   cantidad: number;
   precio_venta_original: number;
+  /** Precio POR PRESENTACION (lo que cobra el cajero por 1 caja, 1 unidad, etc). */
   precio_venta: number;
   tipo_iva: "EXENTA" | "5%" | "10%";
   tipo_precio: "minorista" | "mayorista" | "distribuidor" | "costo";
   subtotal: number;
   monto_iva: number;
   total_linea: number;
+  /**
+   * Opcional. Si no se manda, se usa la presentacion default activa del
+   * producto. Si el producto tampoco tiene default (no deberia tras el
+   * backfill), se asume cantidad_base = 1 (compatibilidad legacy).
+   */
+  presentacion_id?: string | null;
 }
 
 export interface CreateVentaPedidoCocinaInput {
@@ -119,12 +135,104 @@ export async function createVentaTransaccionalPg(
     throw new Error("Los totales no coinciden con los ítems; revisá el carrito.");
   }
 
-  const qtyByProduct = new Map<string, number>();
-  for (const it of items) {
-    qtyByProduct.set(it.producto_id, (qtyByProduct.get(it.producto_id) ?? 0) + it.cantidad);
+  const sb = createServiceRoleClientWithDbSchema(params.schema);
+
+  // ---------------------------------------------------------------------
+  // Resolver presentaciones para cada item ANTES de validar stock.
+  //
+  // Diseño:
+  // - `line.cantidad` es la cantidad EN LA PRESENTACION (ej. 2 cajas).
+  // - Stock, validacion, decremento y movimientos usan `cantidad_total_base`
+  //   = cantidad * presentacion.cantidad_base.
+  // - Si la linea no trae presentacion_id, se busca la default activa del
+  //   producto. Si no existe ninguna (no deberia tras el backfill), se asume
+  //   cantidad_base = 1 (compat legacy: la cantidad ES la unidad base).
+  // ---------------------------------------------------------------------
+  const productoIds = [...new Set(items.map((i) => i.producto_id))];
+  const explicitPresIds = items.map((i) => i.presentacion_id).filter((x): x is string => !!x);
+
+  // 1) Defaults activos por producto (para items sin presentacion_id).
+  const defaultsByProd = new Map<string, ProductoPresentacion>();
+  if (productoIds.length > 0) {
+    const dq = await sb
+      .from("producto_presentaciones")
+      .select(PRESENTACION_COLS)
+      .eq("empresa_id", params.empresaId)
+      .eq("activo", true)
+      .eq("es_default", true)
+      .in("producto_id", productoIds);
+    if (dq.error) throw new Error(dq.error.message);
+    for (const r of (dq.data ?? []) as Record<string, unknown>[]) {
+      const p = mapPresentacion(r);
+      defaultsByProd.set(p.producto_id, p);
+    }
+  }
+  // 2) Presentaciones explicitas por id.
+  const explicitByPres = new Map<string, ProductoPresentacion>();
+  if (explicitPresIds.length > 0) {
+    const eq = await sb
+      .from("producto_presentaciones")
+      .select(PRESENTACION_COLS)
+      .eq("empresa_id", params.empresaId)
+      .in("id", explicitPresIds);
+    if (eq.error) throw new Error(eq.error.message);
+    for (const r of (eq.data ?? []) as Record<string, unknown>[]) {
+      const p = mapPresentacion(r);
+      explicitByPres.set(p.id, p);
+    }
   }
 
-  const sb = createServiceRoleClientWithDbSchema(params.schema);
+  // 3) Para cada line: { snapshot, cantidad_total_base }. Indexado por
+  //    posicion para mantener orden y permitir multiples lineas del mismo
+  //    producto con presentaciones distintas (ej. 1 caja + 3 unidades).
+  type LineResolved = {
+    presentacionId: string | null;
+    presentacionNombre: string | null;
+    presentacionCantBase: number;
+    cantidadTotalBase: number;
+  };
+  const lineResolved: LineResolved[] = items.map((it) => {
+    let pres: ProductoPresentacion | null = null;
+    if (it.presentacion_id) {
+      pres = explicitByPres.get(it.presentacion_id) ?? null;
+      if (!pres) {
+        throw new Error(
+          `La presentación elegida para "${it.producto_nombre}" no existe o fue removida.`
+        );
+      }
+      if (pres.producto_id !== it.producto_id) {
+        throw new Error(
+          `La presentación no corresponde al producto "${it.producto_nombre}".`
+        );
+      }
+      if (!pres.activo) {
+        throw new Error(
+          `La presentación "${pres.nombre}" de "${it.producto_nombre}" está inactiva.`
+        );
+      }
+    } else {
+      pres = defaultsByProd.get(it.producto_id) ?? null;
+    }
+    // Compat legacy: producto sin ninguna presentacion (no deberia pasar).
+    const cantBase = pres ? pres.cantidad_base : 1;
+    return {
+      presentacionId: pres ? pres.id : null,
+      presentacionNombre: pres ? pres.nombre : null,
+      presentacionCantBase: cantBase,
+      cantidadTotalBase: it.cantidad * cantBase,
+    };
+  });
+
+  // qtyByProduct acumula en UNIDADES BASE para validacion de stock,
+  // explosion de recetas y decremento — todo el downstream piensa en base.
+  const qtyByProduct = new Map<string, number>();
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    qtyByProduct.set(
+      it.producto_id,
+      (qtyByProduct.get(it.producto_id) ?? 0) + lineResolved[i].cantidadTotalBase
+    );
+  }
 
   // 1) Cliente
   if (params.clienteId) {
@@ -424,34 +532,45 @@ export async function createVentaTransaccionalPg(
   };
 
   try {
-    // 6) Insertar items (bulk)
-    const itemsRows = items.map((line) => ({
-      empresa_id: params.empresaId,
-      venta_id: ventaId,
-      producto_id: line.producto_id,
-      producto_nombre: line.producto_nombre,
-      sku: line.sku,
-      cantidad: line.cantidad,
-      precio_venta_original: line.precio_venta_original,
-      precio_venta: line.precio_venta,
-      tipo_iva: line.tipo_iva,
-      tipo_precio: line.tipo_precio,
-      subtotal: line.subtotal,
-      monto_iva: line.monto_iva,
-      total_linea: line.total_linea,
-    }));
+    // 6) Insertar items (bulk). Cada item guarda el SNAPSHOT de la
+    //    presentacion usada (id, nombre, cantidad_base) y la cantidad total
+    //    en unidades base que se descuento. Esto permite que reportes
+    //    historicos sigan funcionando aunque la presentacion cambie despues.
+    const itemsRows = items.map((line, i) => {
+      const lr = lineResolved[i];
+      return {
+        empresa_id: params.empresaId,
+        venta_id: ventaId,
+        producto_id: line.producto_id,
+        producto_nombre: line.producto_nombre,
+        sku: line.sku,
+        cantidad: line.cantidad,
+        precio_venta_original: line.precio_venta_original,
+        precio_venta: line.precio_venta,
+        tipo_iva: line.tipo_iva,
+        tipo_precio: line.tipo_precio,
+        subtotal: line.subtotal,
+        monto_iva: line.monto_iva,
+        total_linea: line.total_linea,
+        presentacion_id: lr.presentacionId,
+        presentacion_nombre: lr.presentacionNombre,
+        presentacion_cantidad_base: lr.presentacionCantBase,
+        cantidad_total_base: lr.cantidadTotalBase,
+      };
+    });
     const insItems = await sb.from("ventas_items").insert(itemsRows);
     if (insItems.error) throw new Error(insItems.error.message);
 
     // 7) Descuento de stock + movimientos solo para productos con controla_stock=true SIN receta.
-    for (const line of items) {
+    //    El decremento usa cantidad_total_base (cantidad de presentaciones * cantidad_base),
+    //    no la cantidad cruda. Asi 1 caja de 1000 unidades resta 1000 del stock real.
+    for (let i = 0; i < items.length; i++) {
+      const line = items[i];
+      const lr = lineResolved[i];
       const p = stockMap.get(line.producto_id)!;
       if (recetaByProducto.has(line.producto_id)) continue;
-      // produccion_previa: descuenta su propio stock del terminado aunque controla_stock=false.
       if (!p.controlaStock && p.modo !== "produccion_previa") continue;
-      // El stock nunca baja de 0: si se vendió sin stock, queda en 0 (la cantidad real
-      // vendida queda registrada en el movimiento SALIDA, así no se pierde trazabilidad).
-      const nuevoStock = Math.max(0, p.stock - line.cantidad);
+      const nuevoStock = Math.max(0, p.stock - lr.cantidadTotalBase);
       const upd = await sb
         .from("productos")
         .update({ stock_actual: nuevoStock })
@@ -466,7 +585,9 @@ export async function createVentaTransaccionalPg(
         producto_nombre: line.producto_nombre,
         producto_sku: line.sku,
         tipo: "SALIDA",
-        cantidad: line.cantidad,
+        // El movimiento registra la cantidad real en unidades base que salio
+        // del stock. La presentacion vendida se ve en ventas_items.
+        cantidad: lr.cantidadTotalBase,
         costo_unitario: p.costo,
         origen: "venta",
         referencia: numeroControl,

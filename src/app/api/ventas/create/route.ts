@@ -43,6 +43,9 @@ function asItems(body: unknown): CreateVentaItemInput[] | null {
       subtotal: Number(r.subtotal),
       monto_iva: Number(r.monto_iva),
       total_linea: Number(r.total_linea),
+      // Opcional: si la UI mando una presentacion explicita (Caja, Paquete...),
+      // se usa para resolver cantidad_total_base. Sin presentacion → default.
+      presentacion_id: r.presentacion_id ? String(r.presentacion_id) : null,
     });
   }
   if (out.some((i) => !i.producto_id || !(i.cantidad > 0))) return null;

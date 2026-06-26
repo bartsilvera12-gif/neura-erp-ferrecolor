@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import MontoInput from "@/components/ui/MontoInput";
+import PresentacionesEditor from "@/components/inventario/PresentacionesEditor";
 import { getProducto, productoExiste, updateProducto } from "@/lib/inventario/storage";
 import type { MetodoValuacion } from "@/lib/inventario/types";
 import ProductImageUploader from "@/components/inventario/ProductImageUploader";
@@ -776,6 +777,15 @@ export default function EditarProductoPage() {
                 </span>
               </label>
             </div>
+
+            {/* Presentaciones de venta (caja/unidad/etc.) */}
+            {id && (
+              <PresentacionesEditor
+                productoId={String(id)}
+                unidadBase={form.unidad_medida || "Unidad"}
+                precioBase={parseFloat(form.precio_venta) || 0}
+              />
+            )}
 
             {/* Descuento promocional (oferta) */}
             <div className="mt-5 pt-4 border-t border-gray-100">

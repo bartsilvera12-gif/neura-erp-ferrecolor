@@ -291,6 +291,27 @@ export async function POST(request: NextRequest) {
     const row = ins.data as unknown as Record<string, unknown>;
     const productoId = String(row.id);
 
+    // Sembrar presentacion default "Unidad" cantidad_base=1. Best-effort:
+    // si falla, el producto se crea igual. El sidebar de presentaciones en
+    // editar producto la ofrece crear si no existe. Mantiene la invariante
+    // de que cada producto tiene al menos una presentacion activa.
+    try {
+      const { ensureDefaultPresentacion } = await import(
+        "@/lib/inventario/presentaciones-server"
+      );
+      await ensureDefaultPresentacion(
+        sb,
+        empresaId,
+        productoId,
+        typeof row.unidad_medida === "string" ? row.unidad_medida : null
+      );
+    } catch (e) {
+      console.error(
+        "[/api/productos POST] ensureDefaultPresentacion",
+        e instanceof Error ? e.message : e
+      );
+    }
+
     // Movimiento de inventario inicial — solo si controla_stock=true Y stock>0
     let movWarning: string | null = null;
     const controlaStockFinal = row.controla_stock !== false;
