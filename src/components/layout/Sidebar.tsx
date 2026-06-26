@@ -154,6 +154,7 @@ const MENU_STRUCTURE: MenuItem[] = [
     children: [
       { label: "Facturación", href: "/configuracion/facturacion" },
       { label: "Equipos y supervisión", href: "/configuracion/omnicanal-equipos" },
+      { label: "Ofertas del home", href: "/configuracion/ofertas-home" },
     ],
   },
   // Items ocultos en ferreteria (no aplican / duplicados):

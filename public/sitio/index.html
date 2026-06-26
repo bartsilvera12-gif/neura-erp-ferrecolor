@@ -868,7 +868,7 @@ class Component extends DCLogic {
     view: 'home', catalogFilter: 'Todos', catalogSearch: '',
     searchDrop: false, filtersOpen: false, mobileCatOpen: false,
     // Datos cargados desde /api/sitio/productos y /api/sitio/categorias
-    dbProducts: [], dbCategorias: [], dbOfertas: [], loading: true, loadError: null
+    dbProducts: [], dbCategorias: [], dbOfertas: [], countdownEnd: null, loading: true, loadError: null
   };
 
   // Helpers de descuento promocional (inline porque support.js no soporta imports).
@@ -896,26 +896,29 @@ class Component extends DCLogic {
     return Math.round((base - this._discEffPrice(p, now)) / base * 100);
   }
 
-  // Carga: 8 destacados + categorias + 3 ofertas activas (para sección Ofertas).
+  // Carga: 8 destacados + categorias + banner ofertas (3 productos + countdown
+  // configurables desde el ERP en /configuracion/ofertas-home).
   async cargarDatos() {
     try {
-      const [pr, cr, ofRes] = await Promise.all([
+      const [pr, cr, ofHome] = await Promise.all([
         fetch('/api/sitio/productos?destacado=1&limit=8').then(r => r.json()),
         fetch('/api/sitio/categorias').then(r => r.json()),
-        fetch('/api/sitio/productos?en_oferta=1&limit=12').then(r => r.json())
+        fetch('/api/sitio/ofertas-home').then(r => r.json())
       ]);
-      // Filtro client-side de ofertas: el server filtra por discount_type+value,
-      // aca filtramos por ventana temporal (reloj del cliente).
-      const now = Date.now();
-      const ofertasActivas = (Array.isArray(ofRes.productos) ? ofRes.productos : [])
-        .filter(p => this._discActive(p, now))
-        .slice(0, 3);
+      const ofertasProds = Array.isArray(ofHome.productos) ? ofHome.productos : [];
+      const countdownEnd = ofHome.countdownEnd || null;
       this.setState({
         dbProducts: Array.isArray(pr.productos) ? pr.productos : [],
         dbCategorias: Array.isArray(cr.categorias) ? cr.categorias : [],
-        dbOfertas: ofertasActivas,
+        dbOfertas: ofertasProds,
+        countdownEnd,
         loading: false, loadError: null
       });
+      // Reiniciar el timer con el nuevo end (si lo hay).
+      if (countdownEnd) {
+        const t = Date.parse(countdownEnd);
+        if (!isNaN(t)) this._end = t;
+      }
     } catch (e) {
       this.setState({ loading: false, loadError: String(e && e.message ? e.message : e) });
     }
@@ -937,6 +940,8 @@ class Component extends DCLogic {
     this._onDocClick = (e) => { if (this.state.catMenuOpen && !e.target.closest('[data-catdd]')) this.setState({ catMenuOpen: false }); };
     document.addEventListener('click', this._onDocClick);
 
+    // Default placeholder por si no llego aun el endpoint; cargarDatos() lo
+    // sobrescribe con el countdownEnd real del ERP.
     this._end = Date.now() + 1000 * 60 * 60 * 35 + 1000 * 47;
     const p = n => String(n).padStart(2, '0');
     this._tick = () => {
@@ -1503,7 +1508,8 @@ class Component extends DCLogic {
       // ofertasOn antes era un toggle de props. Ahora se deriva: hay seccion
       // Ofertas solo si tenemos productos con descuento activo en el ERP.
       ofertasOn: hasOfertas,
-      countdownOn: this.props.mostrarCountdown ?? true,
+      // Countdown solo se muestra si el ERP tiene una fecha futura configurada.
+      countdownOn: !!(st.countdownEnd && Date.parse(st.countdownEnd) > Date.now()),
       toast: st.toast, toastName: st.toastName,
       homeViewStyle, catalogViewStyle,
       catalogSearch: st.catalogSearch,
