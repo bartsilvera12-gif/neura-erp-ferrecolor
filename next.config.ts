@@ -21,6 +21,15 @@ const nextConfig: NextConfig = {
     optimizePackageImports: ["lucide-react", "recharts"],
   },
 
+  // TypeScript check ya se hace localmente con `tsc --noEmit` antes de cada
+  // commit (verificado). En Coolify el "Running TypeScript" step del build
+  // consume MUCHA RAM (~2GB) y mata el contenedor por OOM. Skipear aca evita
+  // ese kill y el deploy llega a produccion. Si en el futuro Coolify tiene mas
+  // memoria, este flag puede sacarse para defensa en profundidad.
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+
   // Headers HTTP para caching agresivo de assets estaticos generados por Next
   // (fingerprinted, immutable por hash). El navegador los cachea 1 ano.
   // Reduce dramaticamente requests al server en navegaciones siguientes
