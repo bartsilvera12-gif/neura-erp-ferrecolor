@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Pencil, Power, Upload, X, ImageIcon, Plus } from "lucide-react";
+import { Pencil, Power, Upload, X, ImageIcon, Plus, ArrowLeft, Package } from "lucide-react";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import ImportExcelButton from "@/components/ui/ImportExcelButton";
 import { useIsAdmin } from "@/lib/auth/use-is-admin";
@@ -251,9 +251,13 @@ export default function CategoriasProductosPage() {
           />
           <Link
             href="/inventario"
-            className="text-sm text-sky-700 hover:text-sky-900 underline"
+            className="group inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:border-[#4FAEB2] hover:bg-[#4FAEB2]/5 hover:text-[#3F8E91] hover:shadow-[0_2px_8px_-2px_rgba(79,174,178,0.25)]"
           >
-            ← Volver a Inventario
+            <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
+            <span>Inventario</span>
+            <span className="hidden sm:inline-flex h-5 w-5 items-center justify-center rounded-md bg-slate-100 text-slate-500 transition-colors group-hover:bg-[#4FAEB2]/15 group-hover:text-[#3F8E91]">
+              <Package className="h-3 w-3" />
+            </span>
           </Link>
         </div>
       </div>
