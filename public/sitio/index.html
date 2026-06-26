@@ -966,9 +966,16 @@ class Component extends DCLogic {
       if (raw) this.setState({ cart: JSON.parse(raw) || {} });
     } catch (e) {}
     // Si llegamos con ?cart=1 (link desde el carrito del catalogo), abrir drawer.
+    // Limpiamos el query de la URL para que un refresh no vuelva a abrir el
+    // drawer (replaceState no agrega entrada al historial).
     try {
       const sp = new URLSearchParams(window.location.search);
-      if (sp.get('cart') === '1') this.setState({ cartOpen: true });
+      if (sp.get('cart') === '1') {
+        this.setState({ cartOpen: true });
+        sp.delete('cart');
+        const clean = window.location.pathname + (sp.toString() ? '?' + sp.toString() : '') + window.location.hash;
+        window.history.replaceState(null, '', clean);
+      }
     } catch (e) {}
     // Disparar carga de productos + categorias del ERP (no bloquea render).
     this.cargarDatos();
