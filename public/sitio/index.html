@@ -1378,6 +1378,13 @@ class Component extends DCLogic {
   goTo(id) {
     const wasInCatalog = this.state.view === 'catalog';
     this.setState({ menuOpen: false, cartOpen: false, catMenuOpen: false, view: 'home' });
+    // Si veniamos del catalogo, sincronizar la URL a '/' para que al refrescar
+    // el navegador la pagina se quede en el home (antes la URL quedaba en
+    // '/catalogo' y el componentDidMount detectaba el path y volvia al
+    // catalogo en cada F5).
+    if (wasInCatalog) {
+      try { window.history.pushState({ view: 'home' }, '', '/'); } catch (e) {}
+    }
     setTimeout(() => {
       const el = document.getElementById(id);
       if (!el) return;
