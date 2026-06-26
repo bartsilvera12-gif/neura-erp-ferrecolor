@@ -1597,10 +1597,40 @@ class Component extends DCLogic {
     const subtotal = Object.values(st.cart).reduce((a, c) => a + c.price * c.qty, 0);
     const hasItems = cartItems.length > 0;
 
-    const lines = ['Hola Ferretería República! Quiero hacer este pedido:'];
-    Object.values(st.cart).forEach(c => lines.push('• ' + c.qty + 'x ' + c.name + ' — ' + fmt(c.price * c.qty)));
-    lines.push('Subtotal: ' + fmt(subtotal));
-    const waOrderHref = waBase(lines.join('\n'));
+    // Mensaje de pedido para WhatsApp con formato legible item-por-item.
+    // Cada producto numerado con codigo + precio unit + cantidad + total.
+    // Total final destacado entre lineas y mensaje de cierre.
+    const storeName = this.props.nombreTienda || 'Ferretería República';
+    const orderItems = Object.values(st.cart);
+    // El SKU vive en el attr ("UNIDAD · CA832001"). Lo extraemos del segmento
+    // final, dejando solo unidad de medida si no hay '·'.
+    const extractSku = (attr) => {
+      if (!attr) return '';
+      const parts = String(attr).split(' · ').map(s => s.trim()).filter(Boolean);
+      return parts.length > 1 ? parts[parts.length - 1] : '';
+    };
+    const orderLines = [];
+    orderLines.push('Hola ' + storeName + ' 👋');
+    orderLines.push('Quiero realizar el siguiente pedido:');
+    orderLines.push('');
+    orderLines.push('🧾 Detalle del pedido:');
+    orderLines.push('');
+    orderItems.forEach((c, i) => {
+      const sku = extractSku(c.attr);
+      const qtyLabel = c.qty + (c.qty === 1 ? ' unidad' : ' unidades');
+      orderLines.push((i + 1) + '. ' + c.name);
+      if (sku) orderLines.push('   Código: ' + sku);
+      orderLines.push('   Precio unitario: ' + fmt(c.price));
+      orderLines.push('   Cantidad: ' + qtyLabel);
+      orderLines.push('   Total producto: ' + fmt(c.price * c.qty));
+      orderLines.push('');
+    });
+    orderLines.push('━━━━━━━━━━━━━━');
+    orderLines.push('Total del pedido: ' + fmt(subtotal));
+    orderLines.push('━━━━━━━━━━━━━━');
+    orderLines.push('');
+    orderLines.push('Por favor, confirmar disponibilidad y forma de pago. Gracias.');
+    const waOrderHref = waBase(orderLines.join('\n'));
 
     const headerStyle = 'position:fixed;top:0;left:0;right:0;z-index:100;background:' +
       (st.scrolled
