@@ -87,7 +87,13 @@ export async function GET(request: NextRequest) {
 
     let query = ctx.supabase
       .from("productos")
-      .select(PRODUCTO_COLS, { count: "exact" })
+      .select(PRODUCTO_COLS, {
+        // count: "planned" usa pg_stats en vez de COUNT(*) exacto.
+        // En tablas grandes (16k+ productos) baja el TTFB de ~1.5s a <100ms.
+        // El total es aproximado (ej. "16.869" puede mostrarse como "16.880"),
+        // suficiente para mostrar paginacion en la UI.
+        count: "planned",
+      })
       .eq("empresa_id", ctx.auth.empresa_id)
       .eq("activo", true);
 
