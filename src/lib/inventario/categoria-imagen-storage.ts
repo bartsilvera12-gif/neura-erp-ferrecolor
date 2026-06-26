@@ -19,7 +19,7 @@ export const ALLOWED_CATEGORIA_IMAGE_EXT: Record<string, string> = {
   "image/png": "png",
   "image/webp": "webp",
 };
-export const MAX_CATEGORIA_IMAGE_BYTES = 3 * 1024 * 1024; // 3 MB
+export const MAX_CATEGORIA_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 let bucketEnsured = false;
 

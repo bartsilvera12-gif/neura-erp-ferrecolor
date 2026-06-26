@@ -18,7 +18,7 @@ import {
  * devuelve. Si ya habia imagen, la sobreescribe (mismo path por categoria).
  *
  * Form: { file: File }
- * Limites: 3 MB, jpg/png/webp.
+ * Limites: 10 MB, jpg/png/webp.
  */
 export async function POST(
   request: NextRequest,

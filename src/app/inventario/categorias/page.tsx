@@ -68,8 +68,8 @@ export default function CategoriasProductosPage() {
       setEError("Formato no permitido. Usá JPG, PNG o WebP.");
       return;
     }
-    if (f.size > 3 * 1024 * 1024) {
-      setEError("Archivo demasiado grande (máx. 3 MB).");
+    if (f.size > 10 * 1024 * 1024) {
+      setEError("Archivo demasiado grande (máx. 10 MB).");
       return;
     }
     if (eImagenPendingPreview) URL.revokeObjectURL(eImagenPendingPreview);
@@ -503,7 +503,7 @@ export default function CategoriasProductosPage() {
                       </button>
                     )}
                     <p className="text-[11px] text-slate-400 leading-tight">
-                      JPG, PNG o WebP — máx. 3 MB. Se muestra en el home del
+                      JPG, PNG o WebP — máx. 10 MB. Se muestra en el home del
                       sitio público.
                     </p>
                   </div>
