@@ -56,19 +56,68 @@ async function existsId(
   return (data ?? []).length > 0;
 }
 
+/**
+ * GET /api/productos
+ *
+ * Devuelve productos del tenant. Soporta paginacion + filtros server-side:
+ *  - q=<text>          Busqueda case-insensitive sobre nombre o sku
+ *  - categoria=<uuid>  Filtra por categoria_principal_id.
+ *                      Valor especial "__sin__" -> productos sin categoria.
+ *  - limit=<n>         Tamano de pagina (default 25, max 500). 0 = sin limite.
+ *  - offset=<n>        Offset de paginacion.
+ *
+ * Response: { productos: [...], total: number, limit, offset }
+ */
 export async function GET(request: NextRequest) {
   try {
     const ctx = await getTenantSupabaseFromAuth(request);
     if (!ctx) return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
-    const { data, error } = await ctx.supabase
+    const { searchParams } = new URL(request.url);
+
+    const q = searchParams.get("q")?.trim() ?? "";
+    const categoria = searchParams.get("categoria");
+    // Default sin paginar (limit=0) para preservar compat con callers que
+    // esperan la lista completa (recetas, ventas, etc.). El listado del ERP
+    // pasa limit explicito cuando quiere paginacion.
+    const limitParam = searchParams.get("limit");
+    const limitRaw = limitParam !== null ? parseInt(limitParam, 10) : 0;
+    const offsetRaw = parseInt(searchParams.get("offset") ?? "0", 10);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(0, limitRaw), 500) : 0;
+    const offset = Number.isFinite(offsetRaw) ? Math.max(0, offsetRaw) : 0;
+
+    let query = ctx.supabase
       .from("productos")
-      .select(PRODUCTO_COLS)
+      .select(PRODUCTO_COLS, { count: "exact" })
       .eq("empresa_id", ctx.auth.empresa_id)
-      .eq("activo", true)
-      .order("nombre");
+      .eq("activo", true);
+
+    if (q) {
+      // Buscar en nombre o sku
+      const safe = q.replace(/[%_]/g, "\\$&");
+      query = query.or(`nombre.ilike.%${safe}%,sku.ilike.%${safe}%`);
+    }
+    if (categoria === "__sin__") {
+      query = query.is("categoria_principal_id", null);
+    } else if (categoria) {
+      query = query.eq("categoria_principal_id", categoria);
+    }
+
+    query = query.order("nombre");
+    if (limit > 0) {
+      query = query.range(offset, offset + limit - 1);
+    }
+
+    const { data, error, count } = await query;
     if (error) throw new Error(error.message);
     const rows = ((data ?? []) as unknown as Record<string, unknown>[]).map(rowToApi);
-    return NextResponse.json(successResponse({ productos: rows }));
+    return NextResponse.json(
+      successResponse({
+        productos: rows,
+        total: count ?? 0,
+        limit,
+        offset,
+      })
+    );
   } catch (err) {
     console.error("[/api/productos GET]", err instanceof Error ? err.message : err);
     return NextResponse.json(errorResponse("No se pudieron cargar los productos."), { status: 500 });
