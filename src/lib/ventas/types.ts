@@ -11,15 +11,25 @@ export interface LineaVenta {
   producto_id:           string;
   producto_nombre:       string;
   sku:                   string;
+  /** Cantidad en la PRESENTACION elegida (ej. 2 = 2 cajas o 10 unidades). */
   cantidad:              number;
   precio_venta_original: number;  // en la moneda elegida
-  precio_venta:          number;  // siempre en GS
+  precio_venta:          number;  // siempre en GS, POR PRESENTACION
   tipo_iva:              TipoIvaVenta;
   /** Nivel de precio aplicado: minorista (precio_venta) | mayorista (precio_mayorista) | costo (costo_promedio). */
   tipo_precio?:          TipoPrecioVenta;
   subtotal:              number;  // precio_venta × cantidad
   monto_iva:             number;
   total_linea:           number;  // subtotal + monto_iva
+  /**
+   * Presentacion de venta elegida (Caja, Paquete, etc). Opcional para mantener
+   * compatibilidad con flujos antiguos. Cuando viene, el backend descuenta
+   * `cantidad * presentacion.cantidad_base` del stock. Cuando NO viene, usa
+   * la default activa del producto (efecto: igual que antes).
+   */
+  presentacion_id?:           string | null;
+  presentacion_nombre?:       string | null;
+  presentacion_cantidad_base?: number | null;
 }
 
 /** Cabecera de venta: condiciones comerciales + totales consolidados. */

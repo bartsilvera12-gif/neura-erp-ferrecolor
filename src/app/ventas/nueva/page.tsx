@@ -210,7 +210,16 @@ export default function NuevaVentaPage() {
    * por el form inline. Mantiene el modal abierto si todo OK.
    */
   function handleAgregarDesdePicker(payload: AgregarVentaPayload): boolean {
-    const { producto: p, cantidad, precio_input, iva, tipo_precio } = payload;
+    const {
+      producto: p,
+      cantidad,
+      precio_input,
+      iva,
+      tipo_precio,
+      presentacion_id,
+      presentacion_nombre,
+      presentacion_cantidad_base,
+    } = payload;
     const precioPyg = precio_input;
     // Verificar stock vs lo ya cargado SOLO si el producto controla stock.
     // Venta sin stock (Fase 5): NO se bloquea por falta de stock al agregar; la
@@ -240,6 +249,9 @@ export default function NuevaVentaPage() {
         subtotal,
         monto_iva: montoIva,
         total_linea: totalLinea,
+        presentacion_id: presentacion_id ?? null,
+        presentacion_nombre: presentacion_nombre ?? null,
+        presentacion_cantidad_base: presentacion_cantidad_base ?? null,
       },
     ]);
     setErrorVenta(null);
@@ -384,9 +396,11 @@ export default function NuevaVentaPage() {
   const precioInput = parseFloat(lineaPrecio) || 0;
   const precioGs    = precioInput;
 
+  // enCarrito en unidades BASE (cantidad * cantidad_base de la presentacion
+  // usada en cada item). Items legacy sin presentacion -> cantidad_base=1.
   const enCarrito = items
     .filter((i) => i.producto_id === lineaProdId)
-    .reduce((s, i) => s + i.cantidad, 0);
+    .reduce((s, i) => s + i.cantidad * (i.presentacion_cantidad_base ?? 1), 0);
   const prodSelControlaStock = prodSel ? prodSel.controla_stock !== false : true;
   const stockDisp = (prodSel?.stock_actual ?? 0) - enCarrito;
 
@@ -822,7 +836,18 @@ export default function NuevaVentaPage() {
                           {item.sku}
                         </td>
                         <td className="py-3 pr-3 text-right tabular-nums">
-                          {item.cantidad}
+                          <span>{item.cantidad}</span>
+                          {item.presentacion_nombre && (
+                            <span className="ml-1 text-xs font-medium text-slate-600">
+                              {item.presentacion_nombre}
+                              {item.presentacion_cantidad_base != null &&
+                              item.presentacion_cantidad_base !== 1 ? (
+                                <span className="block text-[10px] text-slate-400 tabular-nums leading-tight">
+                                  = {item.cantidad * item.presentacion_cantidad_base}
+                                </span>
+                              ) : null}
+                            </span>
+                          )}
                         </td>
                         <td className="py-3 pr-3 text-right tabular-nums text-gray-600 text-xs">
                           {formatGs(item.precio_venta)}

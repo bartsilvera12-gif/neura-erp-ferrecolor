@@ -47,6 +47,20 @@ export interface AgregarVentaPayload {
   iva: "EXENTA" | "5%" | "10%";
   /** Nivel de precio elegido en el panel de detalle. */
   tipo_precio: "minorista" | "mayorista" | "distribuidor";
+  /** Presentacion de venta elegida (Caja, Unidad, Paquete...). Opcional para
+   *  retrocompat: cuando no viene, el backend usa la default del producto. */
+  presentacion_id?: string | null;
+  presentacion_nombre?: string | null;
+  presentacion_cantidad_base?: number | null;
+}
+
+interface PresentacionLite {
+  id: string;
+  nombre: string;
+  cantidad_base: number;
+  precio_venta: number | null;
+  es_default: boolean;
+  activo: boolean;
 }
 
 /**
@@ -101,6 +115,12 @@ export default function ProductPickerModal({
   const [iva, setIva] = useState<"EXENTA" | "5%" | "10%">(ivaDefault);
   const [tipoPrecio, setTipoPrecio] = useState<"minorista" | "mayorista" | "distribuidor">("minorista");
   const [feedback, setFeedback] = useState<string | null>(null);
+
+  // Presentaciones del producto seleccionado (Unidad, Caja, Paquete...).
+  // Se cargan al seleccionar el producto en el panel de detalle.
+  const [presentaciones, setPresentaciones] = useState<PresentacionLite[]>([]);
+  const [presentacionId, setPresentacionId] = useState<string>("");
+  const presSel = presentaciones.find((pp) => pp.id === presentacionId) ?? null;
 
   /** Precio en la moneda activa de la venta (string para el input). */
   function precioEnMonedaStr(precioGs: number): string {
@@ -157,6 +177,47 @@ export default function ProductPickerModal({
     setPrecio(precioEnMonedaStr(precioPorTipoPicker(p, "minorista")));
     setIva(ivaDefault);
     setFeedback(null);
+    // Reset y carga de presentaciones del producto.
+    setPresentaciones([]);
+    setPresentacionId("");
+    (async () => {
+      try {
+        const r = await fetch(`/api/productos/${p.id}/presentaciones`, {
+          credentials: "include",
+        });
+        const j = await r.json();
+        if (!r.ok || !j?.success) return;
+        const list = (j.data?.presentaciones ?? []) as PresentacionLite[];
+        const activos = list.filter((pp) => pp.activo);
+        setPresentaciones(activos);
+        const def = activos.find((pp) => pp.es_default) ?? activos[0] ?? null;
+        if (def) {
+          setPresentacionId(def.id);
+          // Si la presentacion default tiene override de precio, lo usamos como
+          // inicial (en minorista). Sino dejamos el precio_venta del producto.
+          if (def.precio_venta != null && def.precio_venta > 0) {
+            setPrecio(precioEnMonedaStr(def.precio_venta));
+          }
+        }
+      } catch {
+        // best-effort: si falla, el flujo legacy sigue funcionando (sin
+        // presentacion explicita el backend usa default automatica).
+      }
+    })();
+  }
+
+  /** Cambia la presentacion elegida y ajusta el precio sugerido. */
+  function handlePresentacionChange(id: string) {
+    setPresentacionId(id);
+    setFeedback(null);
+    const pp = presentaciones.find((x) => x.id === id);
+    if (!pp || !sel) return;
+    // Precio sugerido: override de presentacion > precio_base * cantidad_base.
+    const sugerido =
+      pp.precio_venta != null && pp.precio_venta > 0
+        ? pp.precio_venta
+        : Math.round(precioPorTipoPicker(sel, tipoPrecio) * pp.cantidad_base);
+    setPrecio(precioEnMonedaStr(sugerido));
   }
 
   function handleAgregar() {
@@ -168,7 +229,16 @@ export default function ProductPickerModal({
     if (moneda === "USD" && tipoCambio <= 0) { setFeedback("Falta tipo de cambio en la venta"); return; }
     // Venta sin stock (Fase 5): NO se bloquea por falta de stock; se permite agregar
     // y la confirmación se pide al registrar la venta.
-    const ok = onAgregar({ producto: sel, cantidad: cantNum, precio_input: precioNum, iva, tipo_precio: tipoPrecio });
+    const ok = onAgregar({
+      producto: sel,
+      cantidad: cantNum,
+      precio_input: precioNum,
+      iva,
+      tipo_precio: tipoPrecio,
+      presentacion_id: presSel ? presSel.id : null,
+      presentacion_nombre: presSel ? presSel.nombre : null,
+      presentacion_cantidad_base: presSel ? presSel.cantidad_base : null,
+    });
     if (ok !== false) {
       setFeedback("Producto agregado ✓");
       setCantidad("1");
@@ -179,8 +249,14 @@ export default function ProductPickerModal({
   }
 
   if (!open) return null;
+  // Stock check: cuando la presentacion tiene cantidad_base > 1, el stock
+  // disponible en esa presentacion es stock_base / cantidad_base. Asi el
+  // selector de cantidad y la advertencia de stock estan en presentaciones,
+  // no en unidad base. dispBase es lo crudo del producto.
   const enCarritoSel = sel ? excludeIds.filter((id) => id === sel.id).length : 0;
-  const dispSel = sel ? sel.stock_actual - enCarritoSel : 0;
+  const dispBase = sel ? sel.stock_actual - enCarritoSel : 0;
+  const cantBase = presSel ? presSel.cantidad_base : 1;
+  const dispSel = cantBase > 0 ? Math.floor(dispBase / cantBase) : dispBase;
   const precioGsEquiv = moneda === "USD" ? (parseFloat(precio) || 0) * (tipoCambio || 0) : (parseFloat(precio) || 0);
   const subtotal = (parseInt(cantidad, 10) || 0) * precioGsEquiv;
   const ivaMonto = iva === "10%" ? subtotal * 0.10 : iva === "5%" ? subtotal * 0.05 : 0;
@@ -347,7 +423,15 @@ export default function ProductPickerModal({
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <DetailItem label="Precio venta" value={formatGs(sel.precio_venta)} highlight />
                   {manejaStock(sel) ? (
-                    <DetailItem label="Stock disp." value={`${dispSel} ${sel.unidad_medida}`} highlight />
+                    <DetailItem
+                      label="Stock disp."
+                      value={
+                        presSel && presSel.cantidad_base !== 1
+                          ? `${dispSel} ${presSel.nombre} (= ${dispBase} ${sel.unidad_medida})`
+                          : `${dispSel} ${sel.unidad_medida}`
+                      }
+                      highlight
+                    />
                   ) : (
                     <DetailItem label="Tipo" value="Menú (preparado)" highlight />
                   )}
@@ -360,6 +444,39 @@ export default function ProductPickerModal({
                 )}
 
                 <div className="space-y-2 bg-white p-3 rounded-xl border border-slate-200">
+                  {/* Presentacion de venta. Solo aparece si hay >1 activa.
+                      Con 1 sola, la default se aplica silenciosamente. */}
+                  {presentaciones.length > 1 && (
+                    <div>
+                      <label className="block text-[11px] uppercase text-slate-400 mb-1">
+                        Presentación
+                      </label>
+                      <select
+                        value={presentacionId}
+                        onChange={(e) => handlePresentacionChange(e.target.value)}
+                        className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm bg-white"
+                      >
+                        {presentaciones.map((pp) => (
+                          <option key={pp.id} value={pp.id}>
+                            {pp.nombre}
+                            {pp.cantidad_base !== 1
+                              ? ` (= ${pp.cantidad_base} ${sel.unidad_medida})`
+                              : ""}
+                          </option>
+                        ))}
+                      </select>
+                      {presSel && presSel.cantidad_base !== 1 && (
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          1 {presSel.nombre} ={" "}
+                          <span className="font-semibold tabular-nums">
+                            {presSel.cantidad_base}
+                          </span>{" "}
+                          {sel.unidad_medida}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   {/* Tipo de precio: al tocar, carga el precio correspondiente y recalcula. */}
                   <div>
                     <label className="block text-[11px] uppercase text-slate-400 mb-1">Tipo de precio</label>
@@ -385,13 +502,24 @@ export default function ProductPickerModal({
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-[11px] uppercase text-slate-400 mb-1">Cantidad</label>
+                      <label className="block text-[11px] uppercase text-slate-400 mb-1">
+                        Cantidad{presSel && presSel.nombre !== sel.unidad_medida ? ` (${presSel.nombre})` : ""}
+                      </label>
                       <input
                         type="number" min={1}
                         value={cantidad}
                         onChange={(e) => setCantidad(e.target.value)}
                         className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm"
                       />
+                      {presSel && presSel.cantidad_base !== 1 && (parseInt(cantidad, 10) || 0) > 0 && (
+                        <p className="mt-1 text-[11px] text-slate-500 tabular-nums">
+                          ={" "}
+                          <span className="font-semibold">
+                            {(parseInt(cantidad, 10) || 0) * presSel.cantidad_base}
+                          </span>{" "}
+                          {sel.unidad_medida}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label className="block text-[11px] uppercase text-slate-400 mb-1">
