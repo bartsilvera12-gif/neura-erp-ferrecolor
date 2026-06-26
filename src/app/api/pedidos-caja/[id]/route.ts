@@ -49,6 +49,7 @@ interface BodyItem {
   cantidad: number;
   precio_venta: number;
   tipo_precio?: "minorista" | "mayorista" | "distribuidor" | null;
+  tipo_iva?: "EXENTA" | "5%" | "10%" | null;
   presentacion_id?: string | null;
   presentacion_nombre?: string | null;
   presentacion_cantidad_base?: number | null;
@@ -122,6 +123,10 @@ export async function PATCH(
             it.tipo_precio === "mayorista" || it.tipo_precio === "distribuidor"
               ? it.tipo_precio
               : "minorista",
+          tipo_iva:
+            it.tipo_iva === "EXENTA" || it.tipo_iva === "5%" || it.tipo_iva === "10%"
+              ? it.tipo_iva
+              : "10%",
           presentacion_id: it.presentacion_id ?? null,
           presentacion_nombre: it.presentacion_nombre ?? null,
           presentacion_cantidad_base:

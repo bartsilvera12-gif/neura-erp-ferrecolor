@@ -20,6 +20,7 @@ function mapItems(raw: unknown): PedidoCajaItem[] {
   return raw.map((x) => {
     const r = (x ?? {}) as Record<string, unknown>;
     const tp = r.tipo_precio;
+    const ti = r.tipo_iva;
     return {
       producto_id: String(r.producto_id ?? ""),
       producto_nombre: String(r.producto_nombre ?? ""),
@@ -28,6 +29,8 @@ function mapItems(raw: unknown): PedidoCajaItem[] {
       precio_venta: num(r.precio_venta),
       tipo_precio:
         tp === "mayorista" || tp === "distribuidor" ? tp : "minorista",
+      tipo_iva:
+        ti === "EXENTA" || ti === "5%" || ti === "10%" ? ti : "10%",
       presentacion_id: r.presentacion_id == null ? null : String(r.presentacion_id),
       presentacion_nombre:
         r.presentacion_nombre == null ? null : String(r.presentacion_nombre),

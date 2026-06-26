@@ -19,6 +19,8 @@ export interface PedidoCajaItem {
   cantidad: number;
   precio_venta: number;
   tipo_precio: "minorista" | "mayorista" | "distribuidor";
+  /** IVA aplicado a la linea. Default '10%' si no viene (items legacy). */
+  tipo_iva?: "EXENTA" | "5%" | "10%";
   // Presentacion opcional (Caja, Paquete...). Snapshot al momento del pedido.
   presentacion_id?: string | null;
   presentacion_nombre?: string | null;

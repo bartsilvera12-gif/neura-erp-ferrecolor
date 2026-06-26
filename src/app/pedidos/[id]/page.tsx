@@ -259,6 +259,7 @@ export default function VerPedidoPage({
                   <tr>
                     <th className="px-5 py-3 text-left font-semibold">Producto</th>
                     <th className="px-3 py-3 text-left font-semibold">Presentación</th>
+                    <th className="px-3 py-3 text-center font-semibold">IVA</th>
                     <th className="px-3 py-3 text-right font-semibold">Cantidad</th>
                     <th className="px-3 py-3 text-right font-semibold">Precio</th>
                     <th className="px-3 py-3 text-right font-semibold">Total</th>
@@ -271,7 +272,7 @@ export default function VerPedidoPage({
                 </tbody>
                 <tfoot className="bg-slate-50/40 border-t-2 border-slate-100">
                   <tr>
-                    <td colSpan={4} className="px-5 py-3 text-right font-bold text-slate-700">
+                    <td colSpan={5} className="px-5 py-3 text-right font-bold text-slate-700">
                       Total
                     </td>
                     <td className="px-3 py-3 text-right font-bold tabular-nums text-lg text-[#3F8E91]">
@@ -435,6 +436,11 @@ function ItemRow({ it }: { it: PedidoCajaItem }) {
         ) : (
           <span className="text-xs text-slate-400">Unidad</span>
         )}
+      </td>
+      <td className="px-3 py-3 text-center">
+        <span className="inline-flex items-center rounded-md bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">
+          {it.tipo_iva ?? "10%"}
+        </span>
       </td>
       <td className="px-3 py-3 text-right">
         <p className="font-bold tabular-nums text-slate-800">{it.cantidad}</p>

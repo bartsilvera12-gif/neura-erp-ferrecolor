@@ -355,6 +355,7 @@ export default function NuevaVentaPage() {
             cantidad: number;
             precio_venta: number;
             tipo_precio?: "minorista" | "mayorista" | "distribuidor";
+            tipo_iva?: "EXENTA" | "5%" | "10%";
             presentacion_id?: string | null;
             presentacion_nombre?: string | null;
             presentacion_cantidad_base?: number | null;
@@ -366,7 +367,11 @@ export default function NuevaVentaPage() {
           .map((it) => {
             const cantidad = Number(it.cantidad) || 0;
             const precio = Number(it.precio_venta) || 0;
-            const iva: TipoIvaVenta = "10%";
+            // IVA del pedido si vino; default 10% para items legacy.
+            const iva: TipoIvaVenta =
+              it.tipo_iva === "EXENTA" || it.tipo_iva === "5%" || it.tipo_iva === "10%"
+                ? it.tipo_iva
+                : "10%";
             const totalLinea = cantidad * precio;
             const montoIva = calcIva(iva, totalLinea);
             const subtotal = totalLinea - montoIva;

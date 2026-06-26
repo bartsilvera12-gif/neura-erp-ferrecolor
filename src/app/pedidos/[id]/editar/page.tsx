@@ -55,6 +55,7 @@ type CartItem = {
   unidad_medida: string;
   cantidad: number;
   tipo_precio: "minorista" | "mayorista" | "distribuidor";
+  tipo_iva: "EXENTA" | "5%" | "10%";
   precio_venta: number;
   precio_mayorista: number;
   precio_distribuidor: number;
@@ -136,6 +137,7 @@ export default function EditarPedidoPage({
             cantidad: number;
             precio_venta: number;
             tipo_precio?: "minorista" | "mayorista" | "distribuidor";
+            tipo_iva?: "EXENTA" | "5%" | "10%";
             presentacion_id?: string | null;
             presentacion_nombre?: string | null;
             presentacion_cantidad_base?: number | null;
@@ -199,6 +201,7 @@ export default function EditarPedidoPage({
             unidad_medida: meta?.unidad_medida ?? "Unidad",
             cantidad: Number(it.cantidad) || 1,
             tipo_precio: (it.tipo_precio as CartItem["tipo_precio"]) ?? "minorista",
+            tipo_iva: (it.tipo_iva as CartItem["tipo_iva"]) ?? "10%",
             precio_venta: Number(it.precio_venta) || 0,
             precio_mayorista: meta?.precio_mayorista ?? 0,
             precio_distribuidor: meta?.precio_distribuidor ?? 0,
@@ -289,6 +292,7 @@ export default function EditarPedidoPage({
         unidad_medida: p.unidad_medida,
         cantidad: 1,
         tipo_precio: "minorista",
+        tipo_iva: "10%",
         precio_venta: p.precio_venta,
         precio_mayorista: p.precio_mayorista,
         precio_distribuidor: p.precio_distribuidor ?? 0,
@@ -386,6 +390,7 @@ export default function EditarPedidoPage({
           cantidad: it.cantidad,
           precio_venta: it.precio_venta,
           tipo_precio: it.tipo_precio,
+          tipo_iva: it.tipo_iva,
           presentacion_id: it.presentacion_id,
           presentacion_nombre: it.presentacion_nombre,
           presentacion_cantidad_base: it.presentacion_cantidad_base,
@@ -538,7 +543,6 @@ export default function EditarPedidoPage({
           ) : (
             <ul className="px-3 py-3 space-y-2 max-h-[420px] overflow-y-auto">
               {cart.map((it) => {
-                const hayPres = it.presentaciones.length > 1;
                 const cantBase = it.presentacion_cantidad_base ?? 1;
                 return (
                   <li
@@ -560,46 +564,82 @@ export default function EditarPedidoPage({
                       </button>
                     </div>
 
-                    {hayPres && (
-                      <div className="mt-2">
-                        <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">
-                          Presentación
-                        </label>
-                        <select
-                          value={it.presentacion_id ?? ""}
-                          onChange={(e) => changePresentacion(it.producto_id, e.target.value)}
-                          className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-xs"
-                        >
-                          {it.presentaciones.map((pp) => (
+                    {/* Presentacion siempre visible */}
+                    <div className="mt-2">
+                      <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">
+                        Presentación
+                      </label>
+                      <select
+                        value={it.presentacion_id ?? ""}
+                        onChange={(e) => changePresentacion(it.producto_id, e.target.value)}
+                        disabled={it.presentaciones.length <= 1}
+                        className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-xs disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      >
+                        {it.presentaciones.length === 0 ? (
+                          <option value="">— Sin presentación —</option>
+                        ) : (
+                          it.presentaciones.map((pp) => (
                             <option key={pp.id} value={pp.id}>
                               {pp.nombre}
                               {pp.cantidad_base !== 1
                                 ? ` (= ${pp.cantidad_base} ${it.unidad_medida})`
                                 : ""}
                             </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
+                          ))
+                        )}
+                      </select>
+                    </div>
 
-                    <div className="mt-2 grid grid-cols-3 gap-1">
-                      {(["minorista", "mayorista", "distribuidor"] as const).map((t) => {
-                        const sel = it.tipo_precio === t;
-                        return (
-                          <button
-                            key={t}
-                            type="button"
-                            onClick={() => changeTipoPrecio(it.producto_id, t)}
-                            className={`rounded-md py-1 text-[10.5px] font-semibold border transition-colors ${
-                              sel
-                                ? "border-[#4FAEB2] bg-[#4FAEB2] text-white"
-                                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
-                            }`}
-                          >
-                            {t === "minorista" ? "Min" : t === "mayorista" ? "May" : "Dist"}
-                          </button>
-                        );
-                      })}
+                    {/* Tipo precio + IVA */}
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">
+                          Tipo de precio
+                        </label>
+                        <div className="grid grid-cols-3 gap-1">
+                          {(["minorista", "mayorista", "distribuidor"] as const).map((t) => {
+                            const sel = it.tipo_precio === t;
+                            return (
+                              <button
+                                key={t}
+                                type="button"
+                                onClick={() => changeTipoPrecio(it.producto_id, t)}
+                                className={`rounded-md py-1 text-[10.5px] font-semibold border transition-colors ${
+                                  sel
+                                    ? "border-[#4FAEB2] bg-[#4FAEB2] text-white"
+                                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+                                }`}
+                              >
+                                {t === "minorista" ? "Min" : t === "mayorista" ? "May" : "Dist"}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">
+                          IVA
+                        </label>
+                        <div className="grid grid-cols-3 gap-1">
+                          {(["EXENTA", "5%", "10%"] as const).map((iva) => {
+                            const sel = it.tipo_iva === iva;
+                            return (
+                              <button
+                                key={iva}
+                                type="button"
+                                onClick={() => updateCart(it.producto_id, { tipo_iva: iva })}
+                                className={`rounded-md py-1 text-[10.5px] font-semibold border transition-colors ${
+                                  sel
+                                    ? "border-[#4FAEB2] bg-[#4FAEB2] text-white"
+                                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+                                }`}
+                              >
+                                {iva === "EXENTA" ? "Ex" : iva}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
 
                     <div className="mt-2 grid grid-cols-[auto_1fr_1fr] gap-2 items-end">
