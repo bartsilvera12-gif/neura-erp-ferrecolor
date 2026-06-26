@@ -20,7 +20,6 @@ import {
   X,
   Pencil,
   Trash2,
-  AlertTriangle,
 } from "lucide-react";
 
 const metodoBadge: Record<MetodoValuacion, string> = {
@@ -524,47 +523,56 @@ export default function InventarioPage() {
       {/* Modal de confirmacion de eliminar */}
       {deleting && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm animate-[fadeIn_.15s_ease-out]"
           onClick={() => !deleteLoading && setDeleting(null)}
         >
           <div
-            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+            className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-900/5 animate-[popIn_.22s_cubic-bezier(.2,.7,.2,1)]"
             onClick={(e) => e.stopPropagation()}
+            style={{ animationFillMode: "both" }}
           >
-            <div className="flex items-start gap-4">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-red-50">
-                <AlertTriangle className="h-5 w-5 text-red-600" />
+            {/* Cabecera con icono centrado */}
+            <div className="flex flex-col items-center px-6 pt-7 pb-2">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-rose-50 ring-4 ring-rose-50/60">
+                <Trash2 className="h-5 w-5 text-rose-600" />
               </div>
-              <div className="min-w-0 flex-1">
-                <h3 className="text-base font-semibold text-slate-900">
-                  ¿Eliminar este producto?
-                </h3>
-                <p className="mt-1 text-sm text-slate-600">
-                  Estás por eliminar{" "}
-                  <strong className="text-slate-900">{deleting.nombre}</strong>
-                  {deleting.sku ? (
-                    <>
-                      {" "}
-                      (SKU <span className="font-mono">{deleting.sku}</span>)
-                    </>
-                  ) : null}
-                  . Esta acción se puede revertir contactando soporte si fue por
-                  error, pero el producto deja de aparecer en el inventario y en
-                  el sitio público.
-                </p>
-                {deleteError && (
-                  <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">
-                    {deleteError}
-                  </p>
-                )}
-              </div>
+              <h3 className="mt-4 text-center text-base font-semibold tracking-tight text-slate-900">
+                ¿Eliminar este producto?
+              </h3>
+              <p className="mt-1.5 text-center text-[13px] leading-relaxed text-slate-500">
+                El producto deja de aparecer en el inventario y en el sitio
+                público. Se puede reactivar después si fue por error.
+              </p>
             </div>
-            <div className="mt-5 flex justify-end gap-2">
+
+            {/* Tarjeta del producto a eliminar */}
+            <div className="mx-6 mt-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
+              <p className="truncate text-[13px] font-semibold text-slate-900">
+                {deleting.nombre}
+              </p>
+              {deleting.sku && (
+                <p className="mt-0.5 text-[11px] uppercase tracking-wider text-slate-400">
+                  SKU{" "}
+                  <span className="font-mono text-slate-500">
+                    {deleting.sku}
+                  </span>
+                </p>
+              )}
+            </div>
+
+            {deleteError && (
+              <div className="mx-6 mt-3 rounded-lg border border-rose-100 bg-rose-50/70 px-3 py-2 text-[12px] text-rose-700">
+                {deleteError}
+              </div>
+            )}
+
+            {/* Acciones */}
+            <div className="mt-5 flex gap-2 border-t border-slate-100 bg-slate-50/40 px-5 py-3">
               <button
                 type="button"
                 onClick={() => setDeleting(null)}
                 disabled={deleteLoading}
-                className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                className="flex-1 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-all hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50"
               >
                 Cancelar
               </button>
@@ -572,17 +580,38 @@ export default function InventarioPage() {
                 type="button"
                 onClick={confirmarEliminar}
                 disabled={deleteLoading}
-                className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-red-700 disabled:opacity-60"
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-rose-600/25 transition-all hover:bg-rose-700 active:scale-[0.98] disabled:opacity-60"
               >
                 {deleteLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Trash2 className="h-4 w-4" />
+                  <Trash2 className="h-3.5 w-3.5" />
                 )}
                 {deleteLoading ? "Eliminando..." : "Eliminar"}
               </button>
             </div>
           </div>
+
+          <style jsx>{`
+            @keyframes fadeIn {
+              from {
+                opacity: 0;
+              }
+              to {
+                opacity: 1;
+              }
+            }
+            @keyframes popIn {
+              from {
+                opacity: 0;
+                transform: translateY(8px) scale(0.96);
+              }
+              to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+              }
+            }
+          `}</style>
         </div>
       )}
     </div>
