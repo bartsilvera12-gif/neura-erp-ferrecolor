@@ -489,6 +489,26 @@ export async function createVentaTransaccionalPg(
     notaRemisionNumero = `NR-${String(nextNr).padStart(6, "0")}`;
   }
 
+  // 4c) Estampar caja_id si hay una caja abierta. Best-effort: si falla la
+  //     lectura, la venta sigue (caja_id queda null). Si no hay caja abierta,
+  //     tambien null (compat con flujo legacy sin turnos).
+  let cajaIdActual: string | null = null;
+  try {
+    const cQ = await sb
+      .from("cajas")
+      .select("id")
+      .eq("empresa_id", params.empresaId)
+      .eq("estado", "abierta")
+      .order("fecha_apertura", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!cQ.error && cQ.data) {
+      cajaIdActual = String((cQ.data as { id: string }).id);
+    }
+  } catch {
+    /* best-effort */
+  }
+
   // 5) Insertar venta
   const insVenta = await sb
     .from("ventas")
@@ -509,6 +529,7 @@ export async function createVentaTransaccionalPg(
       nota_remision_numero: notaRemisionNumero,
       fecha: fechaIso,
       observaciones: observacionesFinal,
+      caja_id: cajaIdActual,
     })
     .select("id")
     .single();
