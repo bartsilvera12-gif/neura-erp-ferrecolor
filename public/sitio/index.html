@@ -232,7 +232,6 @@
       <nav class="nav-links" style="display:flex;align-items:center;gap:24px;margin-left:auto;">
         <a onClick="{{ goInicio }}" class="nav-link">Inicio</a>
         <a onClick="{{ openCatalog }}" class="nav-link" style="cursor:pointer;">Catálogo</a>
-        <a onClick="{{ goOfertasCatalog }}" class="nav-link nav-ofertas">Ofertas</a>
         <div class="cat-dd" style="position:relative;" data-catdd>
           <a onClick="{{ toggleCatMenu }}" class="nav-link" style="display:inline-flex;align-items:center;gap:5px;">Categorías<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" style="{{ catCaretStyle }}"><path d="M6 9l6 6 6-6"/></svg></a>
           <div style="{{ catMenuStyle }}">
@@ -251,7 +250,7 @@
             </div>
           </div>
         </div>
-        <a onClick="{{ goContacto }}" class="nav-link">Contacto</a>
+        <a onClick="{{ goOfertasCatalog }}" class="nav-link nav-ofertas">Ofertas</a>
       </nav>
       <div class="hd-actions" style="display:flex;align-items:center;gap:10px;flex:none;">
         <a href="{{ waContact }}" target="_blank" class="wa-btn hide-sm" aria-label="Escribinos por WhatsApp" title="WhatsApp" style="position:relative;width:44px;height:44px;border-radius:12px;background:#25D366;color:#fff;display:flex;align-items:center;justify-content:center;text-decoration:none;flex:none;">
@@ -740,9 +739,8 @@
         </sc-for>
       </div>
     </sc-if>
-    <a onClick="{{ goOfertasCatalog }}" style="padding:13px 12px;border-radius:11px;color:#fff;font-size:15.5px;font-weight:600;cursor:pointer;transition:background .2s;" style-hover="background:rgba(255,255,255,.08);">Ofertas</a>
     <a onClick="{{ openCatalog }}" style="padding:13px 12px;border-radius:11px;color:#fff;font-size:15.5px;font-weight:600;cursor:pointer;text-decoration:none;transition:background .2s;" style-hover="background:rgba(255,255,255,.08);">Catálogo</a>
-    <a onClick="{{ goContacto }}" style="padding:13px 12px;border-radius:11px;color:#fff;font-size:15.5px;font-weight:600;cursor:pointer;transition:background .2s;" style-hover="background:rgba(255,255,255,.08);">Contacto</a>
+    <a onClick="{{ goOfertasCatalog }}" style="padding:13px 12px;border-radius:11px;color:#fff;font-size:15.5px;font-weight:600;cursor:pointer;transition:background .2s;" style-hover="background:rgba(255,255,255,.08);">Ofertas</a>
     <a href="{{ waContact }}" target="_blank" style="margin-top:14px;height:50px;border-radius:12px;background:#E97932;color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center;gap:9px;text-decoration:none;">WhatsApp</a>
   </div>
 
