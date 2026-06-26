@@ -422,7 +422,12 @@ class Component extends DCLogic {
       (enabled ? 'pointer' : 'not-allowed') + ';font-family:Montserrat;transition:all .2s;';
     const pageInfoStyle = 'font-size:13.5px;color:#697287;font-weight:600;font-family:Montserrat;padding:0 18px;';
 
-    const filterDefs = ['Todos', 'Herramientas', 'Electricidad', 'Plomería', 'Pinturas', 'Adhesivos', 'Ofertas'];
+    // Filtros del catalogo: dinamicos desde categorias del ERP.
+    // Antes era una lista hardcoded ['Todos','Herramientas',...] que no
+    // coincidia con los nombres reales en DB ('Herramientas manuales',
+    // 'Plomeria y sanitarios', etc) -> filtros no aplicaban.
+    const _dbCats = this.state.dbCategorias || [];
+    const filterDefs = ['Todos', ..._dbCats.map(c => c.nombre)];
     const filters = filterDefs.map(label => {
       const active = st.filter === label;
       const style = 'display:flex;align-items:center;justify-content:space-between;gap:14px;width:100%;text-align:left;cursor:pointer;border:none;background:' +
