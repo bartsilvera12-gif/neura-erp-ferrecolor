@@ -12,6 +12,9 @@ export async function GET(request: NextRequest) {
     if (!ctx) return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
     const empresaId = ctx.auth.empresa_id;
 
+    // Sin limit: el usuario pidio ver TODOS los movimientos historicos. Usamos
+    // .range(0, 99999) para bypassear el default de PostgREST (1000 filas) que
+    // se aplicaria silenciosamente si solo quitaramos el .limit(500).
     const { data, error } = await ctx.supabase
       .from("movimientos_inventario")
       .select(
@@ -19,7 +22,7 @@ export async function GET(request: NextRequest) {
       )
       .eq("empresa_id", empresaId)
       .order("fecha", { ascending: false })
-      .limit(500);
+      .range(0, 99999);
     if (error) throw new Error(error.message);
 
     return NextResponse.json(successResponse({ movimientos: data ?? [] }));
