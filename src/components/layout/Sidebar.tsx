@@ -35,6 +35,7 @@ import {
   Utensils,
   BarChart3,
   Banknote,
+  Wallet,
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
@@ -143,6 +144,10 @@ const MENU_STRUCTURE: MenuItem[] = [
     ],
   },
   { key: "gastos", slug: "gastos", label: "Gastos", href: "/gastos", icon: Receipt },
+  // Otros ingresos: ingresos manuales que NO son ventas de productos (cartones,
+  // servicios, alquileres). Suman a caja, no tocan inventario. Slug 'ventas'
+  // para heredar acceso (mismo permiso que Caja).
+  { key: "otros_ingresos", slug: "ventas", label: "Otros ingresos", href: "/otros-ingresos", icon: Wallet },
   { key: "reportes", slug: "reportes", label: "Reportes", href: "/reportes", icon: BarChart3 },
   // Pagos oculto en instancia En lo de Mari (no usa este módulo).
   // Comisiones y Notas de credito ocultos por ahora:
@@ -209,7 +214,7 @@ const MENU_STRUCTURE: MenuItem[] = [
 const MENU_FAMILIES: { id: string; titulo: string; keys: string[] }[] = [
   { id: "inicio", titulo: "Inicio", keys: ["dashboard"] },
   { id: "comercial", titulo: "Comercial", keys: ["clientes", "crm", "gestion-clientes", "ventas", "consulta", "presupuestos", "comisiones", "planes", "ofertas_home"] },
-  { id: "finanzas", titulo: "Finanzas", keys: ["pagos", "gastos", "notas_credito", "reportes"] },
+  { id: "finanzas", titulo: "Finanzas", keys: ["pagos", "gastos", "otros_ingresos", "notas_credito", "reportes"] },
   { id: "operaciones", titulo: "Operaciones", keys: ["inventario", "compras", "recetas", "proyectos"] },
   { id: "omnicanal", titulo: "Omnicanal", keys: ["conversaciones", "conversaciones-finalizadas", "historial-omnicanal", "monitoreo", "campanas"] },
   { id: "marketing", titulo: "Marketing y Automatización", keys: ["marketing", "marketing_ops", "sorteos"] },

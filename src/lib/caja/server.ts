@@ -207,6 +207,8 @@ export async function registrarMovimiento(
     medioPago: MedioPagoCaja;
     observacion: string | null;
     usuarioId: string | null;
+    /** Email snapshot del usuario (para listados sin JOIN). Opcional. */
+    usuarioEmail?: string | null;
   }
 ): Promise<CajaMovimiento> {
   const cQ = await sb
@@ -231,6 +233,7 @@ export async function registrarMovimiento(
       monto: Math.round(params.monto),
       medio_pago: params.medioPago,
       usuario_id: params.usuarioId,
+      usuario_email: params.usuarioEmail ?? null,
       observacion: params.observacion,
     })
     .select(
@@ -299,7 +302,8 @@ async function computeResumen(
     else totalEfectivo += t; // efectivo o sin especificar
   }
 
-  // Movimientos manuales.
+  // Movimientos manuales ACTIVOS (excluye anulados — soft delete del modulo
+  // 'Otros ingresos' que usa esta misma tabla via tipo='ingreso').
   const mQ = await sb
     .from("caja_movimientos")
     .select(
@@ -307,6 +311,7 @@ async function computeResumen(
     )
     .eq("empresa_id", empresaId)
     .eq("caja_id", caja.id)
+    .is("anulado_at", null)
     .order("created_at", { ascending: true });
   if (mQ.error) throw new Error(mQ.error.message);
   const rows = (mQ.data ?? []) as unknown as Array<{
@@ -370,4 +375,175 @@ async function computeResumen(
     efectivo_esperado: efectivoEsperado,
     movimientos,
   };
+}
+
+// ============================================================
+// Otros ingresos (modulo dedicado)
+// ============================================================
+//
+// Convencion: 'Otros ingresos' es una vista filtrada de caja_movimientos
+// donde tipo='ingreso'. Reusa la misma tabla, asi suman a caja por
+// computeResumen sin codigo extra. Lo nuevo aca es:
+//  - Listado con filtros + caja info embebida.
+//  - Anulacion soft (anulado_at + auditoria).
+
+export interface OtroIngreso {
+  id: string;
+  caja_id: string;
+  concepto: string;
+  monto: number;
+  medio_pago: MedioPagoCaja;
+  observacion: string | null;
+  usuario_id: string | null;
+  usuario_email: string | null;
+  created_at: string;
+  anulado_at: string | null;
+  anulado_por_id: string | null;
+  anulado_motivo: string | null;
+  // Info de la caja asociada (snapshot embebido).
+  caja_estado: EstadoCaja | null;
+  caja_fecha_apertura: string | null;
+}
+
+/**
+ * Lista Otros Ingresos (tipo='ingreso' en caja_movimientos) con filtros.
+ * Incluye anulados para mostrarlos tachados en el listado.
+ */
+export async function listOtrosIngresos(
+  sb: AppSupabaseClient,
+  empresaId: string,
+  opts: {
+    fechaDesde?: string;     // YYYY-MM-DD
+    fechaHasta?: string;     // YYYY-MM-DD
+    medioPago?: MedioPagoCaja;
+    cajaId?: string;
+    estado?: "activos" | "anulados" | "todos";
+    q?: string;              // busca en concepto + observacion
+    limit?: number;
+  } = {}
+): Promise<OtroIngreso[]> {
+  const limit = Math.max(1, Math.min(500, opts.limit ?? 200));
+  let q = sb
+    .from("caja_movimientos")
+    .select(
+      "id, caja_id, tipo, concepto, monto, medio_pago, observacion, usuario_id, usuario_email, created_at, anulado_at, anulado_por_id, anulado_motivo"
+    )
+    .eq("empresa_id", empresaId)
+    .eq("tipo", "ingreso")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (opts.medioPago) q = q.eq("medio_pago", opts.medioPago);
+  if (opts.cajaId) q = q.eq("caja_id", opts.cajaId);
+  if (opts.estado === "activos") q = q.is("anulado_at", null);
+  else if (opts.estado === "anulados") q = q.not("anulado_at", "is", null);
+  if (opts.fechaDesde) q = q.gte("created_at", `${opts.fechaDesde}T00:00:00`);
+  if (opts.fechaHasta) q = q.lte("created_at", `${opts.fechaHasta}T23:59:59.999`);
+  if (opts.q && opts.q.trim()) {
+    const safe = opts.q.trim().replace(/,/g, "").replace(/\(/g, "").replace(/\)/g, "");
+    q = q.or(`concepto.ilike.%${safe}%,observacion.ilike.%${safe}%`);
+  }
+
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as unknown as Array<{
+    id: string;
+    caja_id: string;
+    concepto: string;
+    monto: number | string;
+    medio_pago: string | null;
+    observacion: string | null;
+    usuario_id: string | null;
+    usuario_email: string | null;
+    created_at: string;
+    anulado_at: string | null;
+    anulado_por_id: string | null;
+    anulado_motivo: string | null;
+  }>;
+
+  // Enrich con info de cajas (estado + fecha_apertura) para mostrar en UI.
+  const cajaIds = [...new Set(rows.map((r) => r.caja_id))];
+  const cajasById = new Map<string, { estado: EstadoCaja; fecha_apertura: string }>();
+  if (cajaIds.length > 0) {
+    const cQ = await sb
+      .from("cajas")
+      .select("id, estado, fecha_apertura")
+      .eq("empresa_id", empresaId)
+      .in("id", cajaIds);
+    if (!cQ.error) {
+      for (const c of (cQ.data ?? []) as Array<{ id: string; estado: string; fecha_apertura: string }>) {
+        cajasById.set(c.id, {
+          estado: (c.estado === "cerrada" ? "cerrada" : "abierta") as EstadoCaja,
+          fecha_apertura: c.fecha_apertura,
+        });
+      }
+    }
+  }
+
+  function num(v: unknown): number {
+    const n = typeof v === "number" ? v : Number(v ?? 0);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  return rows.map((r) => {
+    const c = cajasById.get(r.caja_id);
+    return {
+      id: r.id,
+      caja_id: r.caja_id,
+      concepto: r.concepto,
+      monto: num(r.monto),
+      medio_pago: (r.medio_pago ?? "efectivo") as MedioPagoCaja,
+      observacion: r.observacion,
+      usuario_id: r.usuario_id,
+      usuario_email: r.usuario_email,
+      created_at: r.created_at,
+      anulado_at: r.anulado_at,
+      anulado_por_id: r.anulado_por_id,
+      anulado_motivo: r.anulado_motivo,
+      caja_estado: c?.estado ?? null,
+      caja_fecha_apertura: c?.fecha_apertura ?? null,
+    };
+  });
+}
+
+/**
+ * Anula un movimiento. Idempotente: si ya esta anulado devuelve OK sin
+ * sobreescribir. Por seguridad solo se permite anular movimientos
+ * tipo='ingreso' (Otros ingresos). Egresos/retiros/ajustes manejan su
+ * vida desde el panel de Caja.
+ */
+export async function anularMovimiento(
+  sb: AppSupabaseClient,
+  params: {
+    empresaId: string;
+    movimientoId: string;
+    usuarioId: string | null;
+    motivo: string | null;
+  }
+): Promise<void> {
+  const q = await sb
+    .from("caja_movimientos")
+    .select("id, tipo, anulado_at")
+    .eq("empresa_id", params.empresaId)
+    .eq("id", params.movimientoId)
+    .maybeSingle();
+  if (q.error) throw new Error(q.error.message);
+  if (!q.data) throw new Error("Movimiento no encontrado.");
+  const row = q.data as { tipo: string; anulado_at: string | null };
+  if (row.tipo !== "ingreso") {
+    throw new Error("Solo se pueden anular Otros ingresos desde este modulo.");
+  }
+  if (row.anulado_at) return; // idempotente
+
+  const upd = await sb
+    .from("caja_movimientos")
+    .update({
+      anulado_at: new Date().toISOString(),
+      anulado_por_id: params.usuarioId,
+      anulado_motivo: (params.motivo ?? "").trim().slice(0, 500) || null,
+    })
+    .eq("empresa_id", params.empresaId)
+    .eq("id", params.movimientoId)
+    .is("anulado_at", null);
+  if (upd.error) throw new Error(upd.error.message);
 }

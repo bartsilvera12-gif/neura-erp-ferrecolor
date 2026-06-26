@@ -72,6 +72,7 @@ export async function POST(request: NextRequest) {
       medioPago: medioPago as (typeof MEDIOS_VALIDOS)[number],
       observacion,
       usuarioId: ctx.auth.usuarioCatalogId ?? null,
+      usuarioEmail: ctx.auth.user?.email ?? null,
     });
     return NextResponse.json(successResponse({ movimiento }));
   } catch (err) {
