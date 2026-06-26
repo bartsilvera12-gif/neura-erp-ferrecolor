@@ -415,6 +415,58 @@ export async function getMovimientos(): Promise<MovimientoInventario[]> {
   }
 }
 
+export interface MovimientosPaginadosOpts {
+  page?: number;
+  pageSize?: number;
+  q?: string;
+  tipo?: string;     // ENTRADA | SALIDA | AJUSTE
+  origen?: string;   // compra | venta | ajuste_manual | inventario_inicial
+  fechaDesde?: string;  // YYYY-MM-DD
+  fechaHasta?: string;  // YYYY-MM-DD
+}
+export interface MovimientosPaginadosResult {
+  movimientos: MovimientoInventario[];
+  total: number;
+}
+
+/**
+ * Lista movimientos paginados con filtros server-side. Mismo modelo que
+ * getProductosPaginated. El total viene de count: "planned" (estimacion
+ * rapida via pg_stats).
+ */
+export async function getMovimientosPaginated(
+  opts: MovimientosPaginadosOpts = {}
+): Promise<MovimientosPaginadosResult> {
+  const page = Math.max(1, opts.page ?? 1);
+  const pageSize = Math.max(1, Math.min(200, opts.pageSize ?? 25));
+  const offset = (page - 1) * pageSize;
+  const params = new URLSearchParams();
+  params.set("limit", String(pageSize));
+  params.set("offset", String(offset));
+  if (opts.q && opts.q.trim()) params.set("q", opts.q.trim());
+  if (opts.tipo) params.set("tipo", opts.tipo);
+  if (opts.origen) params.set("origen", opts.origen);
+  if (opts.fechaDesde) params.set("fecha_desde", opts.fechaDesde);
+  if (opts.fechaHasta) params.set("fecha_hasta", opts.fechaHasta);
+  try {
+    const r = await fetch(`/api/inventario/movimientos?${params.toString()}`, {
+      credentials: "include",
+      cache: "no-store",
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j?.success) {
+      console.error("[inventario] getMovimientosPaginated:", (j as { error?: string })?.error ?? r.status);
+      return { movimientos: [], total: 0 };
+    }
+    const data = j.data as { movimientos?: MovimientoRow[]; total?: number };
+    const list = (data.movimientos ?? []) as MovimientoRow[];
+    return { movimientos: list.map(rowToMovimiento), total: Number(data.total) || 0 };
+  } catch (err) {
+    console.error("[inventario] getMovimientosPaginated:", err instanceof Error ? err.message : err);
+    return { movimientos: [], total: 0 };
+  }
+}
+
 function calcularDelta(tipo: TipoMovimiento, cantidad: number): number {
   if (tipo === "ENTRADA") return Math.abs(cantidad);
   if (tipo === "SALIDA") return -Math.abs(cantidad);
