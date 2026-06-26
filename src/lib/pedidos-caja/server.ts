@@ -5,10 +5,10 @@ import type { AppSupabaseClient } from "@/lib/supabase/schema";
 import type { PedidoCaja, PedidoCajaItem } from "./types";
 
 export const PEDIDO_CAJA_COLS =
-  "id, titulo, cliente_id, cliente_nombre, cliente_telefono, observacion, items, " +
+  "id, numero, titulo, cliente_id, cliente_nombre, cliente_telefono, observacion, items, " +
   "total_estimado, estado, venta_id, venta_numero, " +
-  "armado_por_id, armado_por_email, created_at, facturado_at, " +
-  "cancelado_at, cancelado_motivo";
+  "armado_por_id, armado_por_email, abierto_por_id, abierto_por_email, abierto_at, " +
+  "created_at, facturado_at, cancelado_at, cancelado_motivo";
 
 function num(v: unknown): number {
   const n = typeof v === "number" ? v : Number(v ?? 0);
@@ -43,6 +43,7 @@ export function mapPedidoCaja(r: Record<string, unknown>): PedidoCaja {
   const est = r.estado;
   return {
     id: String(r.id),
+    numero: r.numero ? String(r.numero) : null,
     titulo: String(r.titulo ?? ""),
     cliente_id: r.cliente_id ? String(r.cliente_id) : null,
     cliente_nombre: r.cliente_nombre ? String(r.cliente_nombre) : null,
@@ -51,11 +52,16 @@ export function mapPedidoCaja(r: Record<string, unknown>): PedidoCaja {
     items: mapItems(r.items),
     total_estimado: num(r.total_estimado),
     estado:
-      est === "facturado" || est === "cancelado" ? est : "pendiente",
+      est === "facturado" || est === "cancelado" || est === "en_caja"
+        ? (est as "facturado" | "cancelado" | "en_caja")
+        : "pendiente",
     venta_id: r.venta_id ? String(r.venta_id) : null,
     venta_numero: r.venta_numero ? String(r.venta_numero) : null,
     armado_por_id: r.armado_por_id ? String(r.armado_por_id) : null,
     armado_por_email: r.armado_por_email ? String(r.armado_por_email) : null,
+    abierto_por_id: r.abierto_por_id ? String(r.abierto_por_id) : null,
+    abierto_por_email: r.abierto_por_email ? String(r.abierto_por_email) : null,
+    abierto_at: r.abierto_at ? String(r.abierto_at) : null,
     created_at: String(r.created_at ?? ""),
     facturado_at: r.facturado_at ? String(r.facturado_at) : null,
     cancelado_at: r.cancelado_at ? String(r.cancelado_at) : null,
@@ -93,6 +99,9 @@ export async function marcarPedidoFacturado(
   if (row.estado === "cancelado") {
     throw new Error("El pedido está cancelado, no se puede facturar.");
   }
+  // Permitimos facturar tanto 'pendiente' como 'en_caja' (cajero tomo el pedido
+  // y ahora lo cobra). El WHERE in (...) es la garantia atomica del cambio
+  // de estado.
   const upd = await sb
     .from("pedidos_caja")
     .update({
@@ -103,6 +112,32 @@ export async function marcarPedidoFacturado(
     })
     .eq("empresa_id", empresaId)
     .eq("id", pedidoId)
-    .eq("estado", "pendiente");
+    .in("estado", ["pendiente", "en_caja"]);
   if (upd.error) throw new Error(upd.error.message);
+}
+
+/**
+ * Genera el proximo numero PED-XXXXXX para una empresa. Best-effort
+ * (race posible en multi-usuario, mismo patron que ventas.numero_control).
+ * El indice unique parcial en DB es la garantia hard contra colisiones.
+ */
+export async function generarNumeroPedido(
+  sb: AppSupabaseClient,
+  empresaId: string
+): Promise<string> {
+  const q = await sb
+    .from("pedidos_caja")
+    .select("numero")
+    .eq("empresa_id", empresaId)
+    .like("numero", "PED-%")
+    .order("numero", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  let next = 1;
+  const last = (q.data as { numero?: string } | null)?.numero;
+  if (last) {
+    const m = last.match(/^PED-(\d+)$/);
+    if (m) next = parseInt(m[1], 10) + 1;
+  }
+  return `PED-${String(next).padStart(6, "0")}`;
 }

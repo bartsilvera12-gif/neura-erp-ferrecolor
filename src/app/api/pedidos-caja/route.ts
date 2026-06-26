@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
-import { mapPedidoCaja, PEDIDO_CAJA_COLS } from "@/lib/pedidos-caja/server";
+import { mapPedidoCaja, PEDIDO_CAJA_COLS, generarNumeroPedido } from "@/lib/pedidos-caja/server";
 
 /**
  * GET /api/pedidos-caja?estado=pendiente&mios=1
@@ -45,16 +45,25 @@ export async function GET(request: NextRequest) {
     const url = new URL(request.url);
     const estadoParam = url.searchParams.get("estado") ?? "pendiente";
     const mios = url.searchParams.get("mios") === "1";
+    const qText = (url.searchParams.get("q") ?? "").trim();
+    const limit = Math.max(1, Math.min(500, Number(url.searchParams.get("limit") ?? 200) || 200));
 
     let q = sb
       .from("pedidos_caja")
       .select(PEDIDO_CAJA_COLS)
       .eq("empresa_id", empresaId)
       .order("created_at", { ascending: false })
-      .limit(200);
+      .limit(limit);
 
     if (estadoParam !== "todos") q = q.eq("estado", estadoParam);
     if (mios && auth.usuarioCatalogId) q = q.eq("armado_por_id", auth.usuarioCatalogId);
+    if (qText.length > 0) {
+      const safe = qText.replace(/,/g, "").replace(/\(/g, "").replace(/\)/g, "");
+      // Buscar por numero, titulo, cliente_nombre, armado_por_email.
+      q = q.or(
+        `numero.ilike.%${safe}%,titulo.ilike.%${safe}%,cliente_nombre.ilike.%${safe}%,armado_por_email.ilike.%${safe}%`
+      );
+    }
 
     const { data, error } = await q;
     if (error) return NextResponse.json(errorResponse(error.message), { status: 400 });
@@ -103,14 +112,16 @@ export async function POST(request: NextRequest) {
 
     const totalEstimado = items.reduce((s, it) => s + it.cantidad * it.precio_venta, 0);
     const clienteNombre = (body.cliente_nombre ?? "").trim() || null;
+    const numero = await generarNumeroPedido(sb, empresaId);
     const titulo = clienteNombre
-      ? `Pedido ${clienteNombre}`
-      : `Pedido (${items.length} producto${items.length === 1 ? "" : "s"})`;
+      ? `${numero} - ${clienteNombre}`
+      : `${numero} - ${items.length} producto${items.length === 1 ? "" : "s"}`;
 
     const ins = await sb
       .from("pedidos_caja")
       .insert({
         empresa_id: empresaId,
+        numero,
         titulo,
         cliente_id: body.cliente_id || null,
         cliente_nombre: clienteNombre,

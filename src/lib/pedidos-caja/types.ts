@@ -6,7 +6,11 @@
  * 'facturado' y vinculado a la venta resultante.
  */
 
-export type EstadoPedidoCaja = "pendiente" | "facturado" | "cancelado";
+export type EstadoPedidoCaja =
+  | "pendiente"  // Vendedor creo el pedido, esperando que caja lo tome.
+  | "en_caja"    // Cajero abrio el pedido en /ventas/nueva (procesandolo).
+  | "facturado"  // Cajero cobro y emitio venta. Inmutable.
+  | "cancelado"; // Anulado antes de facturar. Inmutable.
 
 export interface PedidoCajaItem {
   producto_id: string;
@@ -23,6 +27,8 @@ export interface PedidoCajaItem {
 
 export interface PedidoCaja {
   id: string;
+  /** Numero visible PED-XXXXXX. Generado al crear. */
+  numero: string | null;
   titulo: string;
   cliente_id: string | null;
   cliente_nombre: string | null;
@@ -35,6 +41,10 @@ export interface PedidoCaja {
   venta_numero: string | null;
   armado_por_id: string | null;
   armado_por_email: string | null;
+  /** Cajero que abrio el pedido (estado en_caja). */
+  abierto_por_id: string | null;
+  abierto_por_email: string | null;
+  abierto_at: string | null;
   created_at: string;
   facturado_at: string | null;
   cancelado_at: string | null;

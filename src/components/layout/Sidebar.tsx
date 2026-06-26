@@ -107,9 +107,10 @@ const MENU_STRUCTURE: MenuItem[] = [
   //   href: "/dashboard/monitoreo", icon: Activity,
   // },
   { key: "ventas", slug: "ventas", label: "Caja", href: "/ventas", icon: ShoppingCart },
-  // Consulta: vendedor arma pedidos en el salon y los envia a Caja para cobrar.
+  // Pedidos: vendedor arma pedidos en el salon, caja los cobra desde /ventas.
   // Slug 'ventas' para heredar acceso del modulo (mismo permiso).
-  { key: "consulta", slug: "ventas", label: "Consulta", href: "/consulta", icon: Search },
+  // La ruta vieja /consulta hace redirect a /pedidos para preservar bookmarks.
+  { key: "pedidos", slug: "ventas", label: "Pedidos", href: "/pedidos", icon: Receipt },
   // Presupuestos oculto en ferreteria (la tienda publica + WhatsApp manejan
   // cotizaciones manualmente, no se usa el modulo).
   // { key: "presupuestos", slug: "presupuestos", label: "Presupuestos", href: "/presupuestos", icon: FileText },

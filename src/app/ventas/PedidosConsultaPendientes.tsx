@@ -91,13 +91,13 @@ export default function PedidosConsultaPendientes() {
           </div>
           <div>
             <h2 className="text-[15px] font-bold text-slate-800 leading-none flex items-center gap-2">
-              Pedidos pendientes (Consulta)
+              Pedidos pendientes
               <span className="inline-flex items-center justify-center min-w-[28px] h-[22px] px-2 rounded-full bg-[#4FAEB2] text-white text-[11px] font-bold tabular-nums">
                 {pedidos.length}
               </span>
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              Pedidos armados por vendedores desde Consulta. Click en uno para cobrar.
+              Pedidos armados por vendedores. Click en uno para cobrar y facturar.
             </p>
           </div>
         </div>
