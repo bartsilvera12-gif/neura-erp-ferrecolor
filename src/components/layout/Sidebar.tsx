@@ -154,8 +154,18 @@ const MENU_STRUCTURE: MenuItem[] = [
     children: [
       { label: "Facturación", href: "/configuracion/facturacion" },
       { label: "Equipos y supervisión", href: "/configuracion/omnicanal-equipos" },
-      { label: "Ofertas del home", href: "/configuracion/ofertas-home" },
     ],
+  },
+  // Ofertas del home: modulo standalone para configurar el banner "Ofertas
+  // de la semana" del sitio publico (countdown + 3 productos destacados).
+  // La ruta sigue siendo /configuracion/ofertas-home; solo cambia el lugar
+  // en el sidebar para que sea mas accesible.
+  {
+    key: "ofertas_home",
+    slug: "ofertas-home",
+    label: "Ofertas del home",
+    href: "/configuracion/ofertas-home",
+    icon: Sparkles,
   },
   // Items ocultos en ferreteria (no aplican / duplicados):
   // - Planes: suscripciones, modelo SaaS.
