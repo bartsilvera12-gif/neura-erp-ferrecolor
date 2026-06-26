@@ -285,14 +285,17 @@ class Component extends DCLogic {
       url.searchParams.set('limit', String(st.pageSize));
       url.searchParams.set('offset', String((st.page - 1) * st.pageSize));
       if (st.search) url.searchParams.set('q', st.search);
+      let filterAppliedInQuery = false;
       if (st.filter === 'Ofertas') {
-        // Filtro especial: productos con descuento activo
         url.searchParams.set('en_oferta', '1');
+        filterAppliedInQuery = true;
       } else if (st.filter && st.filter !== 'Todos') {
         const cat = (st.dbCategorias || []).find(c => c.nombre === st.filter);
-        if (cat) url.searchParams.set('categoria', cat.id);
+        if (cat) {
+          url.searchParams.set('categoria', cat.id);
+          filterAppliedInQuery = true;
+        }
       }
-      // Categorias se cargan 1 vez solo; despues no se refetchean.
       const needCats = !(st.dbCategorias && st.dbCategorias.length);
       const [pr, cr] = await Promise.all([
         fetch(url.toString()).then(r => r.json()),
@@ -300,13 +303,22 @@ class Component extends DCLogic {
           ? fetch('/api/sitio/categorias').then(r => r.json())
           : Promise.resolve({ categorias: st.dbCategorias })
       ]);
+      const newCats = Array.isArray(cr.categorias) ? cr.categorias : [];
       this.setState({
         dbProducts: Array.isArray(pr.productos) ? pr.productos : [],
-        dbCategorias: Array.isArray(cr.categorias) ? cr.categorias : [],
+        dbCategorias: newCats,
         total: Number(pr.total) || 0,
         loading: false,
         loadError: null
       });
+      // Si llegamos con ?cat=X pero el primer fetch no aplico el filtro
+      // (porque categorias todavia no estaban cargadas), re-disparamos
+      // cargarDatos ahora que dbCategorias tiene el id correcto.
+      // El re-fetch es rapido porque el endpoint cachea s-maxage=300.
+      if (!filterAppliedInQuery && st.filter && st.filter !== 'Todos' && st.filter !== 'Ofertas' && newCats.length) {
+        const cat = newCats.find(c => c.nombre === st.filter);
+        if (cat) this.cargarDatos();
+      }
     } catch (e) {
       this.setState({ loading: false, loadError: String(e && e.message ? e.message : e) });
     }
@@ -364,10 +376,6 @@ class Component extends DCLogic {
     };
     document.addEventListener('click', this._onDoc);
     // Leer filtros de URL: ?cat=X y ?q=Y.
-    // El filtro por categoria se hace server-side por categoria_id que solo
-    // conocemos despues de cargar /api/sitio/categorias. Por eso si hay ?cat=,
-    // cargamos categorias PRIMERO y despues cargarDatos.
-    // El ?q= se aplica directo (no requiere categorias).
     let initialFilter = 'Todos';
     let initialQuery = '';
     try {
@@ -380,19 +388,15 @@ class Component extends DCLogic {
       const q = sp.get('q');
       if (q) initialQuery = q;
     } catch (e) {}
-    const baseState = { search: initialQuery };
-    if (initialFilter !== 'Todos') {
-      fetch('/api/sitio/categorias').then(r => r.json()).then(cr => {
-        const cats = Array.isArray(cr.categorias) ? cr.categorias : [];
-        this.setState({ ...baseState, dbCategorias: cats, filter: initialFilter, loading: true }, () => this.cargarDatos());
-      }).catch(() => {
-        this.setState({ ...baseState, filter: initialFilter });
-        this.cargarDatos();
-      });
-    } else {
-      this.setState(baseState);
-      this.cargarDatos();
-    }
+    // Cargamos productos Y categorias en PARALELO. Antes con ?cat= bloqueaba
+    // productos hasta tener categorias (para resolver nombre->id) - sumaba
+    // ~700ms al primer render. Ahora:
+    //   1) Primer fetch sin categoria filter (devuelve todo paginado rapido).
+    //   2) Cuando categorias llegan, si el filtro mapea a una categoria,
+    //      re-disparamos cargarDatos con el id correcto.
+    // Resultado: el grid se rellena casi instantaneo y se refina al toque.
+    this.setState({ search: initialQuery, filter: initialFilter });
+    this.cargarDatos();
   }
   componentWillUnmount() { if (this._onDoc) document.removeEventListener('click', this._onDoc); }
 

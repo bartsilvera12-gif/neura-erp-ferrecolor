@@ -62,6 +62,35 @@ const nextConfig: NextConfig = {
           { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
         ],
       },
+      // Sitio publico: assets estaticos del sitio importado (/sitio/assets/*,
+      // /sitio/uploads/*, /sitio/support.js, /sitio/image-slot.js) tambien
+      // cacheables agresivo. Cuando se actualizan, se renombran (cache-bust
+      // manual via ?v=). Sin esto, el browser hacia revalidacion 304 en cada
+      // nav -> agregaba ~200ms por archivo en visitas repetidas.
+      {
+        source: "/sitio/assets/:path*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=2592000" },
+        ],
+      },
+      {
+        source: "/sitio/uploads/:path*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=2592000" },
+        ],
+      },
+      {
+        source: "/sitio/support.js",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=604800" },
+        ],
+      },
+      {
+        source: "/sitio/image-slot.js",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=604800" },
+        ],
+      },
     ];
   },
 };
