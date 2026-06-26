@@ -229,9 +229,9 @@ export default function InventarioPage() {
       </header>
 
       {/* Tarjeta principal */}
-      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <section className="rounded-2xl border-2 border-[#4FAEB2]/20 bg-white shadow-[0_2px_10px_-2px_rgba(79,174,178,0.12)]">
         {/* Barra de acciones + filtros */}
-        <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:p-5">
+        <div className="flex flex-col gap-3 border-b border-[#4FAEB2]/15 bg-gradient-to-r from-[#4FAEB2]/5 to-transparent p-4 sm:p-5">
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2.5">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#4FAEB2]/10 text-[#4FAEB2]">
@@ -269,7 +269,7 @@ export default function InventarioPage() {
                 value={searchDraft}
                 onChange={(e) => setSearchDraft(e.target.value)}
                 placeholder="Buscar por nombre o SKU..."
-                className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-9 text-sm outline-none transition-all focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20"
+                className="h-10 w-full rounded-lg border-2 border-slate-200 bg-white pl-9 pr-9 text-sm outline-none transition-all focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20"
               />
               {searchDraft && (
                 <button
@@ -289,7 +289,7 @@ export default function InventarioPage() {
                 setCategoriaId(e.target.value);
                 setPage(1);
               }}
-              className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition-all focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20"
+              className="h-10 rounded-lg border-2 border-slate-200 bg-white px-3 text-sm outline-none transition-all focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20"
             >
               <option value="">Todas las categorías</option>
               <option value="__sin__">— Sin categoría —</option>
@@ -306,7 +306,7 @@ export default function InventarioPage() {
                 setPageSize(Number(e.target.value));
                 setPage(1);
               }}
-              className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition-all focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20"
+              className="h-10 rounded-lg border-2 border-slate-200 bg-white px-3 text-sm outline-none transition-all focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20"
               aria-label="Cantidad por página"
             >
               {PAGE_SIZE_OPTIONS.map((n) => (
@@ -347,7 +347,7 @@ export default function InventarioPage() {
         <EdgeScrollArea>
           <table className="w-full min-w-[820px] text-left text-sm">
             <thead>
-              <tr className="border-b border-slate-100 bg-slate-50/60 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              <tr className="border-b-2 border-[#4FAEB2]/15 bg-[#4FAEB2]/5 text-[11px] font-bold uppercase tracking-wider text-[#3F8E91]">
                 <th className="px-5 py-3">Producto</th>
                 <th className="hidden px-3 py-3 lg:table-cell">SKU</th>
                 <th className="hidden px-3 py-3 md:table-cell">Categoría</th>
@@ -392,26 +392,26 @@ export default function InventarioPage() {
                   return (
                     <tr
                       key={p.id}
-                      className="transition-colors hover:bg-slate-50"
+                      className="border-b border-slate-100 transition-colors hover:bg-[#4FAEB2]/5"
                     >
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-2">
                           <div className="min-w-0">
-                            <p className="truncate font-medium text-slate-900">
+                            <p className="truncate font-bold text-slate-900">
                               {p.nombre}
                             </p>
-                            <p className="mt-0.5 font-mono text-[11px] text-slate-400 lg:hidden">
+                            <p className="mt-0.5 font-mono text-[11px] text-slate-600 lg:hidden">
                               {p.sku}
                             </p>
                           </div>
                         </div>
                       </td>
-                      <td className="hidden px-3 py-3.5 font-mono text-xs text-slate-500 lg:table-cell">
+                      <td className="hidden px-3 py-3.5 font-mono text-xs text-slate-600 lg:table-cell">
                         {p.sku}
                       </td>
                       <td className="hidden px-3 py-3.5 text-xs text-slate-600 md:table-cell">
                         {catNombre === "—" ? (
-                          <span className="text-slate-300">—</span>
+                          <span className="text-slate-400">— Sin categoría</span>
                         ) : (
                           (() => {
                             const c = categoryColor(catNombre);
@@ -441,7 +441,7 @@ export default function InventarioPage() {
                       </td>
                       <td className="px-3 py-3.5 text-center">
                         {sinControl ? (
-                          <span className="text-xs text-slate-400">— sin control</span>
+                          <span className="text-xs font-medium text-slate-500">— sin control</span>
                         ) : (
                           <span
                             className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums ${
@@ -505,7 +505,7 @@ export default function InventarioPage() {
 
         {/* Paginacion */}
         {total > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 sm:px-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-[#4FAEB2]/15 bg-gradient-to-r from-[#4FAEB2]/5 to-transparent px-4 py-3 sm:px-5">
             <p className="text-xs text-slate-500">
               Página{" "}
               <span className="font-semibold text-slate-900">{safePage}</span>{" "}
@@ -612,7 +612,7 @@ export default function InventarioPage() {
                 type="button"
                 onClick={() => setDeleting(null)}
                 disabled={deleteLoading}
-                className="flex-1 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-all hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50"
+                className="flex-1 rounded-lg border-2 border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-all hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50"
               >
                 Cancelar
               </button>
