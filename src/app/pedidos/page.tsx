@@ -378,7 +378,13 @@ export default function PedidosPage() {
                     className="hover:bg-[#4FAEB2]/3 transition-colors"
                   >
                     <td className="px-5 py-3 font-bold text-slate-800 font-mono text-xs whitespace-nowrap">
-                      {p.numero ?? p.titulo}
+                      <Link
+                        href={`/pedidos/${p.id}`}
+                        className="hover:text-[#3F8E91] hover:underline"
+                        title="Ver detalle del pedido"
+                      >
+                        {p.numero ?? p.titulo}
+                      </Link>
                     </td>
                     <td className="px-3 py-3 text-slate-600">
                       {p.cliente_nombre ?? (
@@ -498,26 +504,29 @@ function Acciones({
   onLiberar: () => void;
   onCancelar: () => void;
 }) {
-  if (p.estado === "facturado") {
-    return p.venta_id ? (
+  if (p.estado === "facturado" || p.estado === "cancelado") {
+    return (
       <Link
-        href={`/ventas`}
+        href={`/pedidos/${p.id}`}
         className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:border-[#4FAEB2] hover:text-[#3F8E91]"
+        title="Ver detalle del pedido"
       >
         <Eye className="h-3 w-3" />
         Ver
       </Link>
-    ) : (
-      <span className="text-slate-300 text-xs">—</span>
     );
-  }
-  if (p.estado === "cancelado") {
-    return <span className="text-slate-300 text-xs">—</span>;
   }
 
   // pendiente / en_caja
   return (
     <>
+      <Link
+        href={`/pedidos/${p.id}`}
+        className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:border-[#4FAEB2] hover:text-[#3F8E91]"
+        title="Ver detalle"
+      >
+        <Eye className="h-3 w-3" />
+      </Link>
       {p.estado === "pendiente" && (
         <Link
           href={`/pedidos/${p.id}/editar`}

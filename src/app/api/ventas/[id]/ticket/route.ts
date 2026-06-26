@@ -144,6 +144,10 @@ interface ItemRow {
   cantidad: number | string;
   precio_venta: number | string;
   total_linea: number | string;
+  // Snapshot de la presentacion al momento de la venta (NULL en items
+  // legacy o cuando la presentacion era 'Unidad' default).
+  presentacion_nombre?: string | null;
+  presentacion_cantidad_base?: number | string | null;
 }
 
 type EnrichedItem = ItemRow & { sector: Sector };
@@ -183,17 +187,30 @@ function renderCopia(opts: {
         (tipo === "pizzeria" && it.sector === "pizzeria") ||
         (tipo === "plancha" && it.sector === "plancha");
       const cls = matchesSector ? "match" : tipo === "cliente" ? "" : "muted";
+
+      // Presentacion (Caja, Paquete, etc): cantidad mostrada como "1 caja"
+      // y equivalencia "= 1000 unidades" si cantidad_base != 1.
+      const presNombre = (it.presentacion_nombre ?? "").trim();
+      const cantBase = it.presentacion_cantidad_base != null ? Number(it.presentacion_cantidad_base) : 1;
+      const showsPres = !!presNombre && presNombre.toLowerCase() !== "unidad";
+      const cantStr = showsPres ? `${cant} ${escapeHtml(presNombre)}` : `${cant}`;
+      const equiv = showsPres && cantBase > 1
+        ? `<tr class="sub"><td></td><td colspan="2" style="opacity:.75;">= ${cant * cantBase} unidades</td></tr>`
+        : "";
+
       const main = showPrices
         ? `<tr class="${cls}">
-             <td class="qty"><strong>${cant}×</strong></td>
+             <td class="qty"><strong>${cantStr}×</strong></td>
              <td class="name">${escapeHtml(it.producto_nombre)}</td>
              <td class="amt">${formatGs(sub)}</td>
            </tr>
+           ${equiv}
            <tr class="sub"><td></td><td colspan="2">${cant} × ${formatGs(punit)}</td></tr>`
         : `<tr class="${cls}">
-             <td class="qty"><strong>${cant}×</strong></td>
+             <td class="qty"><strong>${cantStr}×</strong></td>
              <td class="name" colspan="2"><strong>${escapeHtml(it.producto_nombre)}</strong></td>
-           </tr>`;
+           </tr>
+           ${equiv}`;
       return main;
     })
     .join("");
@@ -272,13 +289,24 @@ function renderNotaRemision(opts: {
   const { negocio, venta, items, cliente } = opts;
   const numeroNota = venta.nota_remision_numero || "—";
   const filas = items
-    .map(
-      (it) => `<tr>
-        <td class="cant">${Number(it.cantidad)}</td>
-        <td class="uni">${escapeHtml(it.unidad || "UNIDAD")}</td>
-        <td class="desc">${escapeHtml(it.producto_nombre)}<span class="sku">${escapeHtml(it.sku)}</span></td>
-      </tr>`
-    )
+    .map((it) => {
+      const cant = Number(it.cantidad);
+      const presNombre = (it.presentacion_nombre ?? "").trim();
+      const cantBase = it.presentacion_cantidad_base != null ? Number(it.presentacion_cantidad_base) : 1;
+      const showsPres = !!presNombre && presNombre.toLowerCase() !== "unidad";
+      // Si la presentacion no es 'Unidad', usamos su nombre como unidad y
+      // mostramos la equivalencia en linea debajo del nombre del producto.
+      const unidadCell = showsPres ? escapeHtml(presNombre) : escapeHtml(it.unidad || "UNIDAD");
+      const equivLinea =
+        showsPres && cantBase > 1
+          ? `<span class="sku" style="color:#555;">= ${cant * cantBase} ${escapeHtml(it.unidad || "unidades")}</span>`
+          : "";
+      return `<tr>
+        <td class="cant">${cant}</td>
+        <td class="uni">${unidadCell}</td>
+        <td class="desc">${escapeHtml(it.producto_nombre)}<span class="sku">${escapeHtml(it.sku)}</span>${equivLinea}</td>
+      </tr>`;
+    })
     .join("");
   const cli = cliente
     ? [
@@ -377,7 +405,9 @@ export async function GET(request: NextRequest, ctxParams: { params: Promise<{ i
   // Items
   const iQ = await ctx.supabase
     .from("ventas_items")
-    .select("producto_id, producto_nombre, sku, cantidad, precio_venta, total_linea")
+    .select(
+      "producto_id, producto_nombre, sku, cantidad, precio_venta, total_linea, presentacion_nombre, presentacion_cantidad_base"
+    )
     .eq("venta_id", id)
     .eq("empresa_id", empresaId);
   if (iQ.error) return new NextResponse(`Error items: ${iQ.error.message}`, { status: 500 });
