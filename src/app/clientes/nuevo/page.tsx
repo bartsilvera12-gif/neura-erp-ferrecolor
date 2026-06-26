@@ -28,8 +28,18 @@ import { filasTiposDesdeSistemaEstatico, fetchTiposFormCliente } from "@/lib/cli
 import type { Plan } from "@/lib/planes/types";
 import { NEURA_CLIENT_SCHEMA } from "@/lib/supabase/schema";
 
-/** Instancia monocliente Reserva: formulario de clientes simplificado (sin campos SaaS/Neura). */
-const SIMPLE_CLIENTE = NEURA_CLIENT_SCHEMA === "reservacaacupe";
+/**
+ * Instancias monocliente con formulario de clientes simplificado (sin
+ * campos SaaS/Neura: sin Plan, sin vendedor responsable ERP, sin facturacion
+ * mensual recurrente, sin campos de email secundario, condicion de pago
+ * por defecto CONTADO, etc).
+ *
+ * Lo aplico a ferreteriarepublica porque una ferreteria solo necesita los
+ * datos basicos del cliente (nombre, telefono, RUC/CI opcional, direccion).
+ */
+const SIMPLE_CLIENTE =
+  NEURA_CLIENT_SCHEMA === "reservacaacupe" ||
+  NEURA_CLIENT_SCHEMA === "ferreteriarepublica";
 
 // ── Estilos ────────────────────────────────────────────────────────────────────
 
