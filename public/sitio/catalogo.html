@@ -38,6 +38,13 @@
   @media(max-width:640px){.fr-detail{flex-direction:column;max-height:92vh;overflow-y:auto;}.fr-detail>div:first-child{width:100%!important;min-height:200px!important;height:200px;}}
   @keyframes ddPop{from{opacity:0;transform:translateY(26px) scale(.96);}to{opacity:1;transform:none;}}
   @keyframes ddImgPan{0%{transform:scale(1.08) translateY(0);}100%{transform:scale(1.16) translateY(-8px);}}
+  /* Glow pulsante para el chip "OFERTAS" del filtro lateral del catalogo. */
+  @keyframes ofertasGlow{0%,100%{box-shadow:0 0 0 0 rgba(233,121,50,.45);}50%{box-shadow:0 0 0 6px rgba(233,121,50,0);}}
+  /* Link "Ofertas" en el header: naranja + animacion sutil para llamar la atencion. */
+  .cnav a.nav-ofertas{color:#E97932!important;font-weight:800!important;display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;background:rgba(233,121,50,.12);position:relative;letter-spacing:.02em;}
+  .cnav a.nav-ofertas::before{content:"🔥";font-size:14px;}
+  .cnav a.nav-ofertas:hover{background:rgba(233,121,50,.22);color:#F4552A!important;}
+  .cnav a.nav-ofertas::after{content:"";position:absolute;inset:0;border-radius:8px;border:1.5px solid rgba(233,121,50,.55);animation:ofertasGlow 2.2s ease-in-out infinite;pointer-events:none;}
   .dd-card{animation:ddPop .42s cubic-bezier(.2,.8,.25,1) both;}
   .dd-cta{transition:transform .22s cubic-bezier(.2,.7,.2,1),box-shadow .25s,filter .22s;}
   .dd-cta:hover{transform:translateY(-2px);box-shadow:0 18px 38px -14px rgba(37,211,102,.75);filter:brightness(1.03);}
@@ -53,7 +60,7 @@
       <nav class="cnav" style="margin-left:auto;">
         <a href="Ferreteria Republica Store.dc.html#inicio">Inicio</a>
         <a href="Catalogo.dc.html" class="active">Catálogo</a>
-        <a onClick="{{ goOfertas }}" style="cursor:pointer;">Ofertas</a>
+        <a onClick="{{ goOfertas }}" class="nav-ofertas" style="cursor:pointer;">Ofertas</a>
         <div style="position:relative;" data-catdd>
           <a onClick="{{ toggleCatMenu }}" style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;">Categorías<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" style="{{ catCaretStyle }}"><path d="M6 9l6 6 6-6"/></svg></a>
           <div style="{{ catMenuStyle }}">
@@ -280,7 +287,10 @@ class Component extends DCLogic {
       url.searchParams.set('limit', String(st.pageSize));
       url.searchParams.set('offset', String((st.page - 1) * st.pageSize));
       if (st.search) url.searchParams.set('q', st.search);
-      if (st.filter && st.filter !== 'Todos') {
+      if (st.filter === 'Ofertas') {
+        // Filtro especial: productos con descuento activo
+        url.searchParams.set('en_oferta', '1');
+      } else if (st.filter && st.filter !== 'Todos') {
         const cat = (st.dbCategorias || []).find(c => c.nombre === st.filter);
         if (cat) url.searchParams.set('categoria', cat.id);
       }
@@ -422,18 +432,29 @@ class Component extends DCLogic {
       (enabled ? 'pointer' : 'not-allowed') + ';font-family:Montserrat;transition:all .2s;';
     const pageInfoStyle = 'font-size:13.5px;color:#697287;font-weight:600;font-family:Montserrat;padding:0 18px;';
 
-    // Filtros del catalogo: dinamicos desde categorias del ERP.
+    // Filtros del catalogo: dinamicos desde categorias del ERP + Ofertas.
     // Antes era una lista hardcoded ['Todos','Herramientas',...] que no
     // coincidia con los nombres reales en DB ('Herramientas manuales',
     // 'Plomeria y sanitarios', etc) -> filtros no aplicaban.
+    // El item "Ofertas" tiene styling especial naranja con animacion para
+    // destacar y filtra server-side con ?en_oferta=1.
     const _dbCats = this.state.dbCategorias || [];
-    const filterDefs = ['Todos', ..._dbCats.map(c => c.nombre)];
+    const filterDefs = ['Todos', ..._dbCats.map(c => c.nombre), 'Ofertas'];
     const filters = filterDefs.map(label => {
       const active = st.filter === label;
-      const style = 'display:flex;align-items:center;justify-content:space-between;gap:14px;width:100%;text-align:left;cursor:pointer;border:none;background:' +
-        (active ? 'rgba(233,121,50,.1)' : 'transparent') + ';color:' + (active ? '#E97932' : '#27324c') +
-        ';font-weight:' + (active ? '700' : '600') + ';font-size:14px;padding:11px 16px;border-radius:10px;font-family:Montserrat;transition:background .15s;';
-      return { label, style, active, set: () => { this.setState({ filterOpen: false }); this.onFilterChange(label); } };
+      const isOfertas = label === 'Ofertas';
+      const style = isOfertas
+        ? ('display:flex;align-items:center;justify-content:space-between;gap:14px;width:100%;text-align:left;cursor:pointer;border:1.5px solid ' +
+            (active ? '#E97932' : 'rgba(233,121,50,.45)') + ';background:' +
+            (active ? 'linear-gradient(110deg,#F4552A,#E97932)' : 'rgba(233,121,50,.08)') + ';color:' +
+            (active ? '#fff' : '#E97932') +
+            ';font-weight:800;font-size:14px;padding:11px 16px;border-radius:10px;font-family:Montserrat;transition:all .2s;letter-spacing:.02em;text-transform:uppercase;' +
+            'box-shadow:' + (active ? '0 8px 20px -8px rgba(233,121,50,.6)' : '0 0 0 0 rgba(233,121,50,0)') + ';' +
+            'animation:' + (active ? 'none' : 'ofertasGlow 2.2s ease-in-out infinite') + ';margin-top:6px;')
+        : ('display:flex;align-items:center;justify-content:space-between;gap:14px;width:100%;text-align:left;cursor:pointer;border:none;background:' +
+            (active ? 'rgba(233,121,50,.1)' : 'transparent') + ';color:' + (active ? '#E97932' : '#27324c') +
+            ';font-weight:' + (active ? '700' : '600') + ';font-size:14px;padding:11px 16px;border-radius:10px;font-family:Montserrat;transition:background .15s;');
+      return { label, style, active, isOfertas, set: () => { this.setState({ filterOpen: false }); this.onFilterChange(label); } };
     });
     const filterLabel = st.filter === 'Todos' ? 'Filtrar por rubro' : st.filter;
     const fo = st.filterOpen;

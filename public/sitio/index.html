@@ -27,6 +27,12 @@
   @keyframes floaty2{0%,100%{transform:translateY(0)}50%{transform:translateY(12px)}}
   @keyframes floaty3{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-10px) rotate(-3deg)}}
   @keyframes pulseBadge{0%,100%{box-shadow:0 0 0 0 rgba(244,85,42,.5)}50%{box-shadow:0 0 0 9px rgba(244,85,42,0)}}
+  /* Glow para link "Ofertas" del header (mismo patron que catalogo.html). */
+  @keyframes ofertasGlow{0%,100%{box-shadow:0 0 0 0 rgba(233,121,50,.45);}50%{box-shadow:0 0 0 6px rgba(233,121,50,0);}}
+  .nav-link.nav-ofertas{color:#E97932!important;font-weight:800!important;display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;background:rgba(233,121,50,.12);position:relative;letter-spacing:.02em;}
+  .nav-link.nav-ofertas::before{content:"🔥";font-size:14px;}
+  .nav-link.nav-ofertas:hover{background:rgba(233,121,50,.22);color:#F4552A!important;}
+  .nav-link.nav-ofertas::after{content:"";position:absolute;inset:0;border-radius:8px;border:1.5px solid rgba(233,121,50,.55);background:none;height:auto;transform:none;animation:ofertasGlow 2.2s ease-in-out infinite;pointer-events:none;}
   @keyframes spinSlow{to{transform:rotate(360deg)}}
   @keyframes gridPan{from{background-position:0 0}to{background-position:64px 64px}}
   @keyframes glowPulse{0%,100%{opacity:.42;transform:scale(1)}50%{opacity:.82;transform:scale(1.12)}}
@@ -226,7 +232,7 @@
       <nav class="nav-links" style="display:flex;align-items:center;gap:24px;margin-left:auto;">
         <a onClick="{{ goInicio }}" class="nav-link">Inicio</a>
         <a onClick="{{ openCatalog }}" class="nav-link" style="cursor:pointer;">Catálogo</a>
-        <a onClick="{{ goOfertasCatalog }}" class="nav-link">Ofertas</a>
+        <a onClick="{{ goOfertasCatalog }}" class="nav-link nav-ofertas">Ofertas</a>
         <div class="cat-dd" style="position:relative;" data-catdd>
           <a onClick="{{ toggleCatMenu }}" class="nav-link" style="display:inline-flex;align-items:center;gap:5px;">Categorías<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" style="{{ catCaretStyle }}"><path d="M6 9l6 6 6-6"/></svg></a>
           <div style="{{ catMenuStyle }}">
