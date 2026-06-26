@@ -825,6 +825,59 @@ export default function EditarProductoPage() {
                   />
                 </div>
               </div>
+              {/* Vista previa del precio con descuento aplicado */}
+              {(() => {
+                const base = parseFloat(form.precio_venta) || 0;
+                const val = parseFloat(discountValue) || 0;
+                const active = !!discountType && val > 0 && base > 0;
+                let final = base;
+                if (active) {
+                  if (discountType === "percentage") final = base - (base * val) / 100;
+                  else final = base - val;
+                  final = Math.max(0, Math.round(final));
+                }
+                const ahorro = Math.max(0, base - final);
+                const pct = base > 0 ? Math.round((ahorro / base) * 100) : 0;
+                const fmt = (n: number) => `Gs. ${Math.round(n).toLocaleString("es-PY")}`;
+                return (
+                  <div className="mt-4 rounded-xl border border-amber-200/70 bg-gradient-to-br from-amber-50/60 to-orange-50/30 p-4">
+                    <p className="text-[10.5px] uppercase tracking-wider font-bold text-amber-700 mb-3">
+                      Vista previa del precio
+                    </p>
+                    {active ? (
+                      <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+                        <div>
+                          <p className="text-[10.5px] uppercase tracking-wider text-slate-500 mb-0.5">
+                            Precio base
+                          </p>
+                          <p className="text-sm font-medium text-slate-500 line-through tabular-nums">
+                            {fmt(base)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10.5px] uppercase tracking-wider text-slate-500 mb-0.5">
+                            Precio final
+                          </p>
+                          <p className="text-2xl font-bold tabular-nums text-amber-700">
+                            {fmt(final)}
+                          </p>
+                        </div>
+                        <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">
+                          <span>↓ {pct}%</span>
+                          <span className="text-emerald-600">·</span>
+                          <span>Ahorra {fmt(ahorro)}</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-500">
+                        {base <= 0
+                          ? "Cargá un precio de venta arriba para ver el cálculo."
+                          : "Elegí un tipo de descuento y un valor para ver el precio final."}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
               <p className="mt-2 text-xs text-gray-500">
                 Si dejás las fechas vacías, el descuento es indefinido. Aparece en la sección &quot;Ofertas&quot; del home con badge -X%.
               </p>
