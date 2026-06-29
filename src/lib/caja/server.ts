@@ -6,6 +6,8 @@ import type {
   Caja,
   CajaMovimiento,
   CajaResumen,
+  CajaReporteRow,
+  CajasReporte,
   EstadoCaja,
   MedioPagoCaja,
   TipoMovimientoCaja,
@@ -86,6 +88,203 @@ export async function listarCajas(
     .limit(limit);
   if (q.error) throw new Error(q.error.message);
   return ((q.data ?? []) as unknown as CajaRow[]).map(mapCaja);
+}
+
+/**
+ * Reporte de cierres de caja por rango de fechas (turnos abiertos en el
+ * rango). Agrega ventas y movimientos en lote (2 queries totales, sin N+1)
+ * y resuelve los nombres de quien abrio/cerro cada turno.
+ */
+export async function getReporteCajas(
+  sb: AppSupabaseClient,
+  empresaId: string,
+  rango: { start: string; end: string; desde: string; hasta: string }
+): Promise<CajasReporte> {
+  // 1) Cajas cuyo turno abrio dentro del rango.
+  const cQ = await sb
+    .from("cajas")
+    .select(CAJA_COLS)
+    .eq("empresa_id", empresaId)
+    .gte("fecha_apertura", rango.start)
+    .lte("fecha_apertura", rango.end)
+    .order("fecha_apertura", { ascending: false });
+  if (cQ.error) throw new Error(cQ.error.message);
+  const cajas = ((cQ.data ?? []) as unknown as CajaRow[]).map(mapCaja);
+
+  const empty: CajasReporte = {
+    desde: rango.desde,
+    hasta: rango.hasta,
+    totales: {
+      cantidad_cajas: 0,
+      cajas_abiertas: 0,
+      cajas_cerradas: 0,
+      total_vendido: 0,
+      total_efectivo: 0,
+      total_tarjeta: 0,
+      total_transferencia: 0,
+      total_diferencia: 0,
+      faltantes: 0,
+      sobrantes: 0,
+      cajas_con_diferencia: 0,
+    },
+    cajas: [],
+  };
+  if (cajas.length === 0) return empty;
+
+  const cajaIds = cajas.map((c) => c.id);
+
+  // 2) Ventas de esas cajas (en lote).
+  const vQ = await sb
+    .from("ventas")
+    .select("caja_id, total, metodo_pago, estado")
+    .eq("empresa_id", empresaId)
+    .in("caja_id", cajaIds);
+  if (vQ.error) throw new Error(vQ.error.message);
+  const ventas = (vQ.data ?? []) as unknown as Array<{
+    caja_id: string | null;
+    total: number | string;
+    metodo_pago: string | null;
+    estado: string | null;
+  }>;
+
+  // 3) Movimientos activos de esas cajas (en lote).
+  const mQ = await sb
+    .from("caja_movimientos")
+    .select("caja_id, tipo, monto, medio_pago")
+    .eq("empresa_id", empresaId)
+    .in("caja_id", cajaIds)
+    .is("anulado_at", null);
+  if (mQ.error) throw new Error(mQ.error.message);
+  const movs = (mQ.data ?? []) as unknown as Array<{
+    caja_id: string | null;
+    tipo: string;
+    monto: number | string;
+    medio_pago: string | null;
+  }>;
+
+  // 4) Nombres de usuarios (abierta_por / cerrada_por).
+  const userIds = [
+    ...new Set(
+      cajas.flatMap((c) => [c.abierta_por, c.cerrada_por]).filter((x): x is string => !!x)
+    ),
+  ];
+  const nombrePorUsuario = new Map<string, string>();
+  if (userIds.length > 0) {
+    const uQ = await sb
+      .from("usuarios")
+      .select("id, nombre, email")
+      .eq("empresa_id", empresaId)
+      .in("id", userIds);
+    if (!uQ.error) {
+      for (const u of (uQ.data ?? []) as Array<{ id: string; nombre: string | null; email: string | null }>) {
+        nombrePorUsuario.set(u.id, (u.nombre?.trim() || u.email?.trim() || "—") as string);
+      }
+    }
+  }
+
+  // 5) Acumuladores por caja.
+  type Acc = {
+    cantidad_ventas: number;
+    total_vendido: number;
+    total_efectivo: number;
+    total_tarjeta: number;
+    total_transferencia: number;
+    ingresos_efectivo: number;
+    egresos_efectivo: number;
+    retiros_efectivo: number;
+    ajustes_efectivo: number;
+  };
+  const accById = new Map<string, Acc>();
+  const newAcc = (): Acc => ({
+    cantidad_ventas: 0,
+    total_vendido: 0,
+    total_efectivo: 0,
+    total_tarjeta: 0,
+    total_transferencia: 0,
+    ingresos_efectivo: 0,
+    egresos_efectivo: 0,
+    retiros_efectivo: 0,
+    ajustes_efectivo: 0,
+  });
+  for (const id of cajaIds) accById.set(id, newAcc());
+
+  for (const v of ventas) {
+    if (!v.caja_id || v.estado === "anulada") continue;
+    const a = accById.get(v.caja_id);
+    if (!a) continue;
+    const t = num(v.total);
+    a.cantidad_ventas++;
+    a.total_vendido += t;
+    if (v.metodo_pago === "tarjeta") a.total_tarjeta += t;
+    else if (v.metodo_pago === "transferencia") a.total_transferencia += t;
+    else a.total_efectivo += t;
+  }
+
+  for (const m of movs) {
+    if (!m.caja_id) continue;
+    const a = accById.get(m.caja_id);
+    if (!a) continue;
+    if ((m.medio_pago ?? "efectivo") !== "efectivo") continue;
+    const monto = num(m.monto);
+    if (m.tipo === "ingreso") a.ingresos_efectivo += monto;
+    else if (m.tipo === "egreso") a.egresos_efectivo += monto;
+    else if (m.tipo === "retiro") a.retiros_efectivo += monto;
+    else if (m.tipo === "ajuste") a.ajustes_efectivo += monto;
+  }
+
+  // 6) Filas + totales.
+  const filas: CajaReporteRow[] = cajas.map((c) => {
+    const a = accById.get(c.id) ?? newAcc();
+    const efectivoEsperado =
+      c.monto_apertura +
+      a.total_efectivo +
+      a.ingresos_efectivo -
+      a.egresos_efectivo -
+      a.retiros_efectivo +
+      a.ajustes_efectivo;
+    return {
+      id: c.id,
+      estado: c.estado,
+      fecha_apertura: c.fecha_apertura,
+      fecha_cierre: c.fecha_cierre,
+      abierta_por_nombre: c.abierta_por ? nombrePorUsuario.get(c.abierta_por) ?? null : null,
+      cerrada_por_nombre: c.cerrada_por ? nombrePorUsuario.get(c.cerrada_por) ?? null : null,
+      monto_apertura: c.monto_apertura,
+      cantidad_ventas: a.cantidad_ventas,
+      total_vendido: a.total_vendido,
+      total_efectivo: a.total_efectivo,
+      total_tarjeta: a.total_tarjeta,
+      total_transferencia: a.total_transferencia,
+      ingresos_efectivo: a.ingresos_efectivo,
+      egresos_efectivo: a.egresos_efectivo,
+      retiros_efectivo: a.retiros_efectivo,
+      ajustes_efectivo: a.ajustes_efectivo,
+      efectivo_esperado: efectivoEsperado,
+      monto_esperado_efectivo: c.monto_esperado_efectivo,
+      monto_cierre_contado: c.monto_cierre_contado,
+      diferencia: c.diferencia,
+      observacion_cierre: c.observacion_cierre,
+    };
+  });
+
+  const totales = empty.totales;
+  totales.cantidad_cajas = filas.length;
+  for (const f of filas) {
+    if (f.estado === "abierta") totales.cajas_abiertas++;
+    else totales.cajas_cerradas++;
+    totales.total_vendido += f.total_vendido;
+    totales.total_efectivo += f.total_efectivo;
+    totales.total_tarjeta += f.total_tarjeta;
+    totales.total_transferencia += f.total_transferencia;
+    if (f.diferencia != null && f.diferencia !== 0) {
+      totales.cajas_con_diferencia++;
+      totales.total_diferencia += f.diferencia;
+      if (f.diferencia < 0) totales.faltantes += -f.diferencia;
+      else totales.sobrantes += f.diferencia;
+    }
+  }
+
+  return { desde: rango.desde, hasta: rango.hasta, totales, cajas: filas };
 }
 
 /** Resumen/arqueo de UNA caja (ventas + movs + efectivo esperado). */

@@ -1,4 +1,5 @@
 import type { EstadoCuentaReporte, ProveedoresReporte, ComprasReporte, VentasReporte, ConciliacionReporte } from "./types";
+import type { CajasReporte } from "@/lib/caja/types";
 
 async function getReporte<T>(url: string): Promise<T | null> {
   try {
@@ -24,3 +25,5 @@ export const getVentasReporte = (mes: string) =>
   getReporte<VentasReporte>(`/api/reportes/ventas?mes=${mq(mes)}`);
 export const getConciliacionReporte = (mes: string) =>
   getReporte<ConciliacionReporte>(`/api/reportes/conciliacion?mes=${mq(mes)}`);
+export const getCajasReporte = (desde: string, hasta: string) =>
+  getReporte<CajasReporte>(`/api/reportes/cajas?desde=${mq(desde)}&hasta=${mq(hasta)}`);

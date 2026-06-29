@@ -2,7 +2,7 @@
 
 import PageHeader from "@/components/ui/PageHeader";
 import { ReportCard } from "@/components/reportes/ReportCard";
-import { Wallet, Truck, Package, ShoppingCart, ArrowLeftRight } from "lucide-react";
+import { Wallet, Truck, Package, ShoppingCart, ArrowLeftRight, Lock } from "lucide-react";
 
 /** Hub de reportería operativa (Fase 1: Estado de cuenta + Proveedores). */
 export default function ReportesPage() {
@@ -58,6 +58,15 @@ export default function ReportesPage() {
             icon={ArrowLeftRight}
             description="Detalle de cobro por venta (efectivo/transferencia/tarjeta), por método y por entidad."
             href="/reportes/conciliacion"
+          />
+        </li>
+        <li>
+          <ReportCard
+            title="Cierres de caja"
+            subtitle="Arqueo de turnos"
+            icon={Lock}
+            description="Turnos de caja por rango de fechas: apertura, cierre, efectivo esperado vs. contado y diferencias."
+            href="/reportes/cajas"
           />
         </li>
       </ul>

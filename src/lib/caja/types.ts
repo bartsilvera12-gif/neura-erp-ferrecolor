@@ -64,3 +64,56 @@ export interface CajaResumen {
   efectivo_esperado: number;
   movimientos: CajaMovimiento[];
 }
+
+/**
+ * Una fila del reporte de cierres de caja: un turno con sus totales
+ * agregados (ventas + movimientos) y el arqueo persistido al cierre.
+ */
+export interface CajaReporteRow {
+  id: string;
+  estado: EstadoCaja;
+  fecha_apertura: string;
+  fecha_cierre: string | null;
+  abierta_por_nombre: string | null;
+  cerrada_por_nombre: string | null;
+  monto_apertura: number;
+  cantidad_ventas: number;
+  total_vendido: number;
+  total_efectivo: number;
+  total_tarjeta: number;
+  total_transferencia: number;
+  ingresos_efectivo: number;
+  egresos_efectivo: number;
+  retiros_efectivo: number;
+  ajustes_efectivo: number;
+  /** Efectivo esperado calculado en vivo (útil para cajas abiertas). */
+  efectivo_esperado: number;
+  /** Arqueo persistido al cerrar (null mientras la caja está abierta). */
+  monto_esperado_efectivo: number | null;
+  monto_cierre_contado: number | null;
+  diferencia: number | null;
+  observacion_cierre: string | null;
+}
+
+/** Reporte de cierres de caja por rango de fechas. */
+export interface CajasReporte {
+  desde: string;
+  hasta: string;
+  totales: {
+    cantidad_cajas: number;
+    cajas_abiertas: number;
+    cajas_cerradas: number;
+    total_vendido: number;
+    total_efectivo: number;
+    total_tarjeta: number;
+    total_transferencia: number;
+    /** Suma neta de diferencias (sobrante − faltante). */
+    total_diferencia: number;
+    /** Faltantes acumulados (valor absoluto de diferencias negativas). */
+    faltantes: number;
+    /** Sobrantes acumulados (diferencias positivas). */
+    sobrantes: number;
+    cajas_con_diferencia: number;
+  };
+  cajas: CajaReporteRow[];
+}
