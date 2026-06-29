@@ -480,7 +480,7 @@ export default function NuevoPedidoPage() {
         </div>
 
         {/* Columna derecha: carrito sticky */}
-        <aside className="bg-white rounded-2xl border-2 border-[#4FAEB2]/20 shadow-[0_2px_10px_-2px_rgba(79,174,178,0.12)] overflow-hidden flex flex-col lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)]">
+        <aside className="bg-white rounded-2xl border-2 border-[#4FAEB2]/20 shadow-[0_2px_10px_-2px_rgba(79,174,178,0.12)] overflow-hidden flex flex-col lg:sticky lg:top-4 lg:max-h-[calc(100svh-6rem)]">
           <div className="shrink-0 px-5 py-4 border-b border-[#4FAEB2]/15 bg-gradient-to-r from-[#4FAEB2]/5 to-transparent">
             <h2 className="text-[15px] font-bold text-slate-800 flex items-center gap-2">
               <Receipt className="h-4 w-4 text-[#4FAEB2]" />
