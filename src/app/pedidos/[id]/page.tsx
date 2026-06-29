@@ -6,18 +6,17 @@
  * Muestra cabecera + items con presentacion + equivalencia + auditoria
  * (vendedor, cajero, fecha). Acciones contextuales por estado:
  *
- *   pendiente  -> [Editar] [Cancelar] [Cobrar]
- *   en_caja    -> [Editar] [Liberar] [Cancelar] [Cobrar]
+ *   pendiente  -> [Editar] [Cancelar] [Ir a cobrar]
+ *   en_caja    -> [Editar] [Liberar] [Cancelar] [Ir a cobrar]
  *   facturado  -> [Ver venta]    (link a /ventas/[id]/ticket)
  *   cancelado  -> readonly
  *
- * No duplica logica: para editar usa /pedidos/[id]/editar, y para cobrar
- * llama POST /tomar antes de redirigir a /ventas/nueva.
+ * No duplica logica: para editar usa /pedidos/[id]/editar. El cobro se hace
+ * desde la cola de caja /pedidos-por-cobrar ("Ir a cobrar" enlaza alli).
  */
 
 import { useCallback, useEffect, useState, use } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   Receipt,
   Clock,
@@ -67,7 +66,6 @@ export default function VerPedidoPage({
   params: Promise<{ id: string }>;
 }) {
   const { id: pedidoId } = use(params);
-  const router = useRouter();
 
   const [pedido, setPedido] = useState<PedidoCaja | null>(null);
   const [loading, setLoading] = useState(true);
@@ -99,22 +97,6 @@ export default function VerPedidoPage({
   useEffect(() => {
     load();
   }, [load]);
-
-  async function handleCobrar() {
-    if (!pedido) return;
-    setBusy(true);
-    try {
-      if (pedido.estado === "pendiente") {
-        await fetchWithSupabaseSession(
-          `/api/pedidos-caja/${pedido.id}/tomar`,
-          { method: "POST" }
-        );
-      }
-      router.push(`/ventas/nueva?pedido_caja_id=${pedido.id}`);
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function handleLiberar() {
     if (!pedido) return;
@@ -229,7 +211,6 @@ export default function VerPedidoPage({
           <Acciones
             pedido={pedido}
             busy={busy}
-            onCobrar={handleCobrar}
             onLiberar={handleLiberar}
             onCancelar={handleCancelar}
           />
@@ -502,13 +483,11 @@ function EstadoBadge({
 function Acciones({
   pedido,
   busy,
-  onCobrar,
   onLiberar,
   onCancelar,
 }: {
   pedido: PedidoCaja;
   busy: boolean;
-  onCobrar: () => void;
   onLiberar: () => void;
   onCancelar: () => void;
 }) {
@@ -544,21 +523,14 @@ function Acciones({
         <Trash2 className="h-3.5 w-3.5" />
         Cancelar
       </button>
-      <button
-        type="button"
-        onClick={onCobrar}
-        disabled={busy}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-[#4FAEB2] hover:bg-[#3F8E91] text-white text-sm font-bold px-4 py-2 transition-colors shadow-sm shadow-[#4FAEB2]/30 disabled:opacity-50"
+      <Link
+        href="/pedidos-por-cobrar"
+        className="inline-flex items-center gap-1.5 rounded-lg bg-[#4FAEB2] hover:bg-[#3F8E91] text-white text-sm font-bold px-4 py-2 transition-colors shadow-sm shadow-[#4FAEB2]/30"
+        title="Ir a la cola de caja para cobrar"
       >
-        {busy ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <>
-            Cobrar
-            <ArrowRight className="h-3.5 w-3.5" />
-          </>
-        )}
-      </button>
+        Ir a cobrar
+        <ArrowRight className="h-3.5 w-3.5" />
+      </Link>
     </>
   );
 }

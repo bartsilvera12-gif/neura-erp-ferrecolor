@@ -7,20 +7,18 @@
  * - Filtros por estado (pendiente, en_caja, facturado, cancelado, todos).
  * - Buscador por numero, cliente, vendedor.
  * - Toggle 'Solo mios' para vendedor.
- * - Acciones por fila:
- *     pendiente  -> Cobrar (caja), Editar (vendedor), Cancelar
- *     en_caja    -> Cobrar (continuar), Liberar, Cancelar
+ * - Acciones por fila (gestion; el cobro vive en /pedidos-por-cobrar):
+ *     pendiente  -> Ver, Editar (vendedor), Cancelar
+ *     en_caja    -> Ver, Liberar, Cancelar
  *     facturado  -> Ver venta
  *     cancelado  -> (solo lectura)
  * - Boton CTA "+ Nuevo pedido" -> /pedidos/nuevo
  *
- * Anti doble facturacion: ver enlace "Cobrar" llama POST /tomar antes
- * de redirigir, dejando el pedido marcado 'en_caja'.
+ * El cobro/facturacion se hace desde la cola de caja /pedidos-por-cobrar.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   Search,
   Plus,
@@ -32,10 +30,8 @@ import {
   Receipt,
   Eye,
   Pencil,
-  ArrowRight,
   Trash2,
   Unlock,
-  Loader2,
 } from "lucide-react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import type { EstadoPedidoCaja } from "@/lib/pedidos-caja/types";
@@ -86,7 +82,6 @@ const ESTADOS: {
 ];
 
 export default function PedidosPage() {
-  const router = useRouter();
   const [items, setItems] = useState<PedidoLite[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -154,29 +149,6 @@ export default function PedidosPage() {
   // ============================================================
   // Acciones
   // ============================================================
-
-  async function handleCobrar(p: PedidoLite) {
-    // Si esta pendiente, primero llamamos /tomar para marcarlo en_caja.
-    // Si ya esta en_caja, vamos directo.
-    setBusyId(p.id);
-    try {
-      if (p.estado === "pendiente") {
-        const r = await fetchWithSupabaseSession(
-          `/api/pedidos-caja/${p.id}/tomar`,
-          { method: "POST" }
-        );
-        const j = await r.json();
-        if (!r.ok || !j?.success) {
-          // No bloqueamos: si el tomar falla, igual abrimos. El backend de
-          // create-venta acepta facturar tanto pendiente como en_caja.
-          console.warn("tomar fallo:", j?.error);
-        }
-      }
-      router.push(`/ventas/nueva?pedido_caja_id=${p.id}`);
-    } finally {
-      setBusyId(null);
-    }
-  }
 
   async function handleLiberar(p: PedidoLite) {
     setBusyId(p.id);
@@ -249,8 +221,12 @@ export default function PedidosPage() {
             Pedidos
           </h1>
           <p className="text-[14px] text-slate-500 mt-1.5">
-            Vendedores arman pedidos; caja los cobra y factura. Stock se
-            descuenta solo al facturar.
+            Gestión de pedidos del salón. El cobro y la facturación se hacen
+            desde{" "}
+            <Link href="/pedidos-por-cobrar" className="font-semibold text-[#3F8E91] hover:underline">
+              Pedidos por cobrar
+            </Link>
+            .
           </p>
         </div>
         <Link
@@ -411,7 +387,6 @@ export default function PedidosPage() {
                         <Acciones
                           p={p}
                           busy={busyId === p.id}
-                          onCobrar={() => handleCobrar(p)}
                           onLiberar={() => handleLiberar(p)}
                           onCancelar={() => handleCancelar(p)}
                         />
@@ -494,13 +469,11 @@ function EstadoBadge({ p }: { p: PedidoLite }) {
 function Acciones({
   p,
   busy,
-  onCobrar,
   onLiberar,
   onCancelar,
 }: {
   p: PedidoLite;
   busy: boolean;
-  onCobrar: () => void;
   onLiberar: () => void;
   onCancelar: () => void;
 }) {
@@ -555,21 +528,6 @@ function Acciones({
         title="Cancelar pedido"
       >
         <Trash2 className="h-3 w-3" />
-      </button>
-      <button
-        type="button"
-        onClick={onCobrar}
-        disabled={busy}
-        className="inline-flex items-center gap-1 rounded-lg bg-[#4FAEB2] hover:bg-[#3F8E91] text-white text-xs font-bold px-3 py-1.5 transition-colors shadow-sm shadow-[#4FAEB2]/30 disabled:opacity-50"
-      >
-        {busy ? (
-          <Loader2 className="h-3 w-3 animate-spin" />
-        ) : (
-          <>
-            Cobrar
-            <ArrowRight className="h-3 w-3" />
-          </>
-        )}
       </button>
     </>
   );

@@ -107,8 +107,11 @@ const MENU_STRUCTURE: MenuItem[] = [
   //   href: "/dashboard/monitoreo", icon: Activity,
   // },
   { key: "ventas", slug: "ventas", label: "Caja", href: "/ventas", icon: ShoppingCart },
-  // Pedidos: vendedor arma pedidos en el salon, caja los cobra desde /ventas.
-  // Slug 'ventas' para heredar acceso del modulo (mismo permiso).
+  // Pedidos por cobrar: cola de caja. El cajero cobra/factura desde aca; el
+  // cobro se saco del listado general /pedidos (que queda solo para gestion).
+  { key: "pedidos_por_cobrar", slug: "ventas", label: "Pedidos por cobrar", href: "/pedidos-por-cobrar", icon: ListChecks },
+  // Pedidos: vendedor arma pedidos en el salon; este listado es gestion
+  // (ver/editar/cancelar). Slug 'ventas' para heredar acceso del modulo.
   // La ruta vieja /consulta hace redirect a /pedidos para preservar bookmarks.
   { key: "pedidos", slug: "ventas", label: "Pedidos", href: "/pedidos", icon: Receipt },
   // Presupuestos oculto en ferreteria (la tienda publica + WhatsApp manejan
