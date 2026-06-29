@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Eye } from "lucide-react";
 import PageHeader from "@/components/ui/PageHeader";
 import StatCard from "@/components/ui/StatCard";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import RangoFechasSelector from "@/components/reportes/RangoFechasSelector";
-import CajaDetalleModal from "@/components/caja/CajaDetalleModal";
 import { getCajasReporte } from "@/lib/reportes/storage";
 import { mesActualAsuncion } from "@/lib/fechas/asuncion-bounds";
 import type { CajasReporte } from "@/lib/caja/types";
@@ -33,7 +33,6 @@ export default function CajasReportePage() {
   const [hasta, setHasta] = useState(hoyAsuncion());
   const [data, setData] = useState<CajasReporte | null>(null);
   const [cargando, setCargando] = useState(true);
-  const [detalleId, setDetalleId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancel = false;
@@ -133,14 +132,13 @@ export default function CajasReportePage() {
                             {dif == null ? "—" : (dif > 0 ? "+" : "") + formatGs(dif)}
                           </td>
                           <td className="px-3 py-2.5 text-center">
-                            <button
-                              type="button"
-                              onClick={() => setDetalleId(c.id)}
+                            <Link
+                              href={`/reportes/cajas/${c.id}`}
                               className="inline-flex items-center gap-1.5 rounded-lg border border-[#4FAEB2]/40 bg-white px-2.5 py-1.5 text-xs font-semibold text-[#3F8E91] transition-colors hover:bg-[#4FAEB2]/10"
                             >
                               <Eye className="h-3.5 w-3.5" />
                               Ver
-                            </button>
+                            </Link>
                           </td>
                         </tr>
                       );
@@ -151,10 +149,6 @@ export default function CajasReportePage() {
             )}
           </div>
         </>
-      )}
-
-      {detalleId && (
-        <CajaDetalleModal cajaId={detalleId} onClose={() => setDetalleId(null)} />
       )}
     </div>
   );
