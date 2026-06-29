@@ -12,7 +12,7 @@
  *   cancelado  -> readonly
  *
  * No duplica logica: para editar usa /pedidos/[id]/editar. El cobro se hace
- * desde la cola de caja /pedidos-por-cobrar ("Ir a cobrar" enlaza alli).
+ * desde la Caja (/ventas) ("Ir a cobrar" enlaza alli).
  */
 
 import { useCallback, useEffect, useState, use } from "react";
@@ -524,9 +524,9 @@ function Acciones({
         Cancelar
       </button>
       <Link
-        href="/pedidos-por-cobrar"
+        href="/ventas"
         className="inline-flex items-center gap-1.5 rounded-lg bg-[#4FAEB2] hover:bg-[#3F8E91] text-white text-sm font-bold px-4 py-2 transition-colors shadow-sm shadow-[#4FAEB2]/30"
-        title="Ir a la cola de caja para cobrar"
+        title="Ir a la Caja para cobrar"
       >
         Ir a cobrar
         <ArrowRight className="h-3.5 w-3.5" />

@@ -7,14 +7,15 @@
  * - Filtros por estado (pendiente, en_caja, facturado, cancelado, todos).
  * - Buscador por numero, cliente, vendedor.
  * - Toggle 'Solo mios' para vendedor.
- * - Acciones por fila (gestion; el cobro vive en /pedidos-por-cobrar):
+ * - Acciones por fila (gestion; el cobro vive en la Caja /ventas):
  *     pendiente  -> Ver, Editar (vendedor), Cancelar
  *     en_caja    -> Ver, Liberar, Cancelar
  *     facturado  -> Ver venta
  *     cancelado  -> (solo lectura)
  * - Boton CTA "+ Nuevo pedido" -> /pedidos/nuevo
  *
- * El cobro/facturacion se hace desde la cola de caja /pedidos-por-cobrar.
+ * El cobro/facturacion se hace desde la Caja (/ventas), que muestra el
+ * listado "Pedidos por cobrar" embebido.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -222,11 +223,11 @@ export default function PedidosPage() {
           </h1>
           <p className="text-[14px] text-slate-500 mt-1.5">
             Gestión de pedidos del salón. El cobro y la facturación se hacen
-            desde{" "}
-            <Link href="/pedidos-por-cobrar" className="font-semibold text-[#3F8E91] hover:underline">
-              Pedidos por cobrar
-            </Link>
-            .
+            desde la{" "}
+            <Link href="/ventas" className="font-semibold text-[#3F8E91] hover:underline">
+              Caja
+            </Link>{" "}
+            (listado «Pedidos por cobrar»).
           </p>
         </div>
         <Link
