@@ -1620,27 +1620,31 @@ const DashInventario = memo(function DashInventario({
 
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard icon="📦" label="Productos totales"      value={String(totalProductos)} color="text-[#0EA5E9]" variation={4} />
-        <KpiCard icon="🔢" label="Stock total (unidades)" value={formatGs(totalUnidades)} color="text-[#0EA5E9]" />
+        <KpiCard icon="📦" label="Productos totales"      value={String(totalProductos)} color="text-[#3F8E91]" variation={4} />
+        <KpiCard icon="🔢" label="Stock total (unidades)" value={formatGs(totalUnidades)} color="text-[#3F8E91]" />
         <KpiCard icon="⚠️" label="Bajo stock mínimo"      value={String(bajosStock)}
           sub={bajosStock > 0 ? "requieren reposición" : "todo en orden"}
-          color={bajosStock > 0 ? "text-red-600" : "text-[#0EA5E9]"}
+          color={bajosStock > 0 ? "text-red-600" : "text-[#3F8E91]"}
           variation={bajosStock > 0 ? -2 : undefined} />
-        <KpiCard icon="💎" label="Valor del inventario"   value={`Gs. ${formatGsFull(valorTotal)}`} color="text-[#0EA5E9]" variation={12} />
+        <KpiCard icon="💎" label="Valor del inventario"   value={`Gs. ${formatGsFull(valorTotal)}`} color="text-[#3F8E91]" variation={12} />
       </div>
 
       {/* Donut + Críticos */}
       <div className="grid grid-cols-3 gap-4">
-        <motion.div whileHover={{ y: -2 }} className="bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 p-6">
-          <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Estado del stock</h3>
+        <motion.div whileHover={{ y: -2 }} className="rounded-2xl border border-[#4FAEB2]/30 bg-white p-6 shadow-sm ring-1 ring-[#4FAEB2]/10 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+          <h3 className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-700">
+            <span className="inline-block h-3.5 w-1 rounded-full bg-[#4FAEB2]" />
+            Estado del stock
+          </h3>
           <DonutChart segments={[
             { label: "Saludable", value: cntSaludable, color: "#22c55e" },
             { label: "Bajo",      value: cntBajo,      color: "#f59e0b" },
             { label: "Crítico",   value: cntCritico,   color: "#ef4444" },
           ]} centerLabel="productos" />
         </motion.div>
-        <motion.div whileHover={{ y: -2 }} className="col-span-2 bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 p-6 transition-shadow hover:shadow-md">
-          <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">
+        <motion.div whileHover={{ y: -2 }} className="col-span-2 rounded-2xl border border-[#4FAEB2]/30 bg-white p-6 shadow-sm ring-1 ring-[#4FAEB2]/10 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+          <h3 className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-700">
+            <span className="inline-block h-3.5 w-1 rounded-full bg-[#4FAEB2]" />
             Productos críticos — stock bajo mínimo
           </h3>
           {criticos.length === 0 ? (
@@ -1648,31 +1652,31 @@ const DashInventario = memo(function DashInventario({
               <span>✅</span> Todos los productos tienen stock suficiente.
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <div className="overflow-x-auto rounded-xl border border-slate-200">
               <table className="w-full text-sm">
-                <thead className="bg-slate-50 border-b border-slate-200">
+                <thead className="bg-[#E5F4F4] border-b-2 border-[#4FAEB2]/40">
                   <tr>
                     <th className="w-10 px-3 py-3">
-                      <input type="checkbox" className="rounded border-slate-300 text-[#0EA5E9] focus:ring-[#0EA5E9]" />
+                      <input type="checkbox" className="h-4 w-4 rounded border-slate-300 accent-[#4FAEB2]" />
                     </th>
                     {["Producto", "Stock actual", "Stock mín.", "Estado", "Proveedor"].map(h => (
-                      <th key={h} className="text-left text-xs font-semibold text-slate-500 px-3 py-3 uppercase tracking-wide">{h}</th>
+                      <th key={h} className="text-left text-xs font-bold text-[#3F8E91] px-3 py-3 uppercase tracking-wide">{h}</th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200">
+                <tbody className="divide-y divide-slate-100">
                   {criticos.map(p => (
-                    <tr key={p.id} className={`${p.stock_actual <= 0 ? "bg-red-50/40 dark:bg-red-900/10" : "bg-amber-50/30 dark:bg-amber-900/10"} hover:bg-opacity-80 transition-colors`}>
+                    <tr key={p.id} className={`${p.stock_actual <= 0 ? "bg-red-50/50" : "bg-amber-50/40"} transition-colors hover:bg-[#4FAEB2]/10`}>
                       <td className="px-3 py-2.5">
-                        <input type="checkbox" className="rounded border-slate-300 text-[#0EA5E9] focus:ring-[#0EA5E9]" />
+                        <input type="checkbox" className="h-4 w-4 rounded border-slate-300 accent-[#4FAEB2]" />
                       </td>
-                      <td className="px-3 py-2.5 text-xs font-medium text-slate-800 dark:text-slate-200">{p.nombre}</td>
+                      <td className="px-3 py-2.5 text-xs font-semibold text-slate-900">{p.nombre}</td>
                       <td className="px-3 py-2.5">
-                        <span className={`text-xs font-bold tabular-nums ${p.stock_actual <= 0 ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
+                        <span className={`text-xs font-bold tabular-nums ${p.stock_actual <= 0 ? "text-red-600" : "text-amber-600"}`}>
                           {p.stock_actual} {p.unidad_medida}
                         </span>
                       </td>
-                      <td className="px-3 py-2.5 text-xs text-slate-500 dark:text-slate-400 tabular-nums">{p.stock_minimo} {p.unidad_medida}</td>
+                      <td className="px-3 py-2.5 text-xs font-medium text-slate-600 tabular-nums">{p.stock_minimo} {p.unidad_medida}</td>
                       <td className="px-3 py-2.5">
                         <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
                           p.stock_actual <= 0 ? "bg-[var(--badge-error-bg)] text-[var(--badge-error-text)]" : "bg-[var(--badge-warning-bg)] text-[var(--badge-warning-text)]"
@@ -1680,7 +1684,7 @@ const DashInventario = memo(function DashInventario({
                           {p.stock_actual <= 0 ? "Crítico" : "Bajo"}
                         </span>
                       </td>
-                      <td className="px-3 py-2.5 text-xs text-slate-500 dark:text-slate-400">{proveedorMap[String(p.id)] ?? "—"}</td>
+                      <td className="px-3 py-2.5 text-xs font-medium text-slate-600">{proveedorMap[String(p.id)] ?? "—"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1691,36 +1695,37 @@ const DashInventario = memo(function DashInventario({
       </div>
 
       {/* Top por valor */}
-      <motion.div whileHover={{ y: -2 }} className="bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 p-6 transition-shadow hover:shadow-md">
-        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">
+      <motion.div whileHover={{ y: -2 }} className="rounded-2xl border border-[#4FAEB2]/30 bg-white p-6 shadow-sm ring-1 ring-[#4FAEB2]/10 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+        <h3 className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-700">
+          <span className="inline-block h-3.5 w-1 rounded-full bg-[#4FAEB2]" />
           Top productos por valor de inventario
         </h3>
         {topPorValor.length === 0 ? (
           <p className="text-sm text-slate-400 text-center py-6">Sin productos registrados.</p>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-slate-200">
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200">
+              <thead className="bg-[#E5F4F4] border-b-2 border-[#4FAEB2]/40">
                 <tr>
                   <th className="w-10 px-3 py-3">
-                    <input type="checkbox" className="rounded border-slate-300 text-[#0EA5E9] focus:ring-[#0EA5E9]" />
+                    <input type="checkbox" className="h-4 w-4 rounded border-slate-300 accent-[#4FAEB2]" />
                   </th>
                   {["Producto", "SKU", "Stock", "Costo promedio", "Valor inventario"].map(h => (
-                    <th key={h} className="text-left text-xs font-semibold text-slate-500 px-3 py-3 uppercase tracking-wide">{h}</th>
+                    <th key={h} className="text-left text-xs font-bold text-[#3F8E91] px-3 py-3 uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200">
+              <tbody className="divide-y divide-slate-100">
                 {topPorValor.map(p => (
-                  <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                  <tr key={p.id} className="transition-colors hover:bg-[#4FAEB2]/10">
                     <td className="px-3 py-2.5">
-                      <input type="checkbox" className="rounded border-slate-300 text-[#0EA5E9] focus:ring-[#0EA5E9]" />
+                      <input type="checkbox" className="h-4 w-4 rounded border-slate-300 accent-[#4FAEB2]" />
                     </td>
-                    <td className="px-3 py-2.5 text-xs font-medium text-slate-800 dark:text-slate-200">{p.nombre}</td>
-                    <td className="px-3 py-2.5 font-mono text-xs text-slate-500 dark:text-slate-400">{p.sku}</td>
-                    <td className="px-3 py-2.5 text-xs tabular-nums text-slate-700 dark:text-slate-300">{p.stock_actual}</td>
-                    <td className="px-3 py-2.5 text-xs tabular-nums text-slate-500 dark:text-slate-400">Gs. {formatGs(p.costo_promedio)}</td>
-                    <td className="px-3 py-2.5 text-xs tabular-nums font-semibold text-slate-800 dark:text-slate-200">Gs. {formatGs(p.valor)}</td>
+                    <td className="px-3 py-2.5 text-xs font-semibold text-slate-900">{p.nombre}</td>
+                    <td className="px-3 py-2.5 font-mono text-xs font-medium text-[#3F8E91]">{p.sku}</td>
+                    <td className="px-3 py-2.5 text-xs tabular-nums font-medium text-slate-700">{p.stock_actual}</td>
+                    <td className="px-3 py-2.5 text-xs tabular-nums text-slate-600">Gs. {formatGs(p.costo_promedio)}</td>
+                    <td className="px-3 py-2.5 text-xs tabular-nums font-bold text-slate-900">Gs. {formatGs(p.valor)}</td>
                   </tr>
                 ))}
               </tbody>
