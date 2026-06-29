@@ -6,6 +6,7 @@ import MontoInput from "@/components/ui/MontoInput";
 import ProductPickerModal, { type ProductoPickerItem, type AgregarVentaPayload } from "@/components/inventario/ProductPickerModal";
 import { saveVenta, type FaltanteStock } from "@/lib/ventas/storage";
 import { getProductos } from "@/lib/inventario/storage";
+import { saveCliente } from "@/lib/clientes/storage";
 import { generarYAbrirRecibo } from "@/lib/recibos/client";
 import type { TipoIvaVenta, TipoVenta, MonedaVenta, LineaVenta, MetodoPago, TipoPrecioVenta } from "@/lib/ventas/types";
 import type { Producto } from "@/lib/inventario/types";
@@ -149,6 +150,12 @@ export default function NuevaVentaPage() {
   const clienteContainerRef = useRef<HTMLDivElement>(null);
   // Nota de remisión: activada si el cliente la usa; toggle manual solo con cliente.
   const [generaNotaRemision, setGeneraNotaRemision] = useState(false);
+
+  // Datos para factura sin cliente seleccionado: si se completan, al confirmar
+  // se crea (o reutiliza por RUC) un cliente y se asocia a la venta.
+  const [facturaNombre, setFacturaNombre] = useState("");
+  const [facturaRuc, setFacturaRuc] = useState("");
+  const [creandoCliente, setCreandoCliente] = useState(false);
 
   // ── Cobro (solo CONTADO, no se persiste — solo ayuda al cajero) ───────────
   const [montoRecibido, setMontoRecibido] = useState("");
@@ -497,10 +504,20 @@ export default function NuevaVentaPage() {
   const totalSubtotal = items.reduce((s, i) => s + i.subtotal, 0);
   const totalIva      = items.reduce((s, i) => s + i.monto_iva, 0);
   const totalGeneral  = items.reduce((s, i) => s + i.total_linea, 0);
+  // Datos de factura (cliente nuevo) cuando no hay cliente seleccionado.
+  const facturaNombreOk = facturaNombre.trim().length > 0;
+  const facturaRucNorm = facturaRuc.replace(/\s+/g, "").toLowerCase();
+  // Si ya existe un cliente con ese RUC, lo reutilizamos en vez de duplicar.
+  const clienteConMismoRuc =
+    !clienteId && facturaRucNorm
+      ? clientes.find((c) => (c.ruc ?? "").replace(/\s+/g, "").toLowerCase() === facturaRucNorm) ?? null
+      : null;
+
   // Condición de venta: si es Crédito, exigir plazo de al menos 1 día.
   const plazoDiasNum = parseInt(plazoDias) || 0;
-  // Crédito exige cliente seleccionado Y plazo/vencimiento (≥1 día). Genera cuenta por cobrar.
-  const creditoValido = tipoVenta === "CONTADO" || (plazoDiasNum >= 1 && !!clienteId);
+  // Crédito exige plazo (≥1 día) y un cliente: seleccionado o por crear (nombre de factura).
+  const tieneClienteOFactura = !!clienteId || facturaNombreOk;
+  const creditoValido = tipoVenta === "CONTADO" || (plazoDiasNum >= 1 && tieneClienteOFactura);
   const ventaValida   = items.length > 0 && creditoValido;
 
   // Cliente (opcional) — selección + filtrado del buscador.
@@ -658,6 +675,44 @@ export default function NuevaVentaPage() {
     isSubmittingRef.current = true;
     setGuardando(true);
     try {
+      // Resolver cliente para factura: si no hay uno seleccionado pero se
+      // cargaron datos (nombre), reutilizar por RUC o crear uno nuevo y asociarlo.
+      let clienteIdFinal = clienteId;
+      if (!clienteIdFinal && facturaNombreOk) {
+        if (clienteConMismoRuc) {
+          clienteIdFinal = clienteConMismoRuc.id;
+        } else {
+          setCreandoCliente(true);
+          try {
+            const nuevo = await saveCliente({
+              tipo_cliente: "empresa",
+              empresa: facturaNombre.trim(),
+              nombre_contacto: facturaNombre.trim(),
+              ruc: facturaRuc.trim() || undefined,
+              origen: "VENTA",
+              estado: "activo",
+            });
+            if (!nuevo) {
+              setErrorVenta("No se pudo crear el cliente para la factura. Revisá los datos e intentá de nuevo.");
+              return;
+            }
+            clienteIdFinal = nuevo.id;
+            // Reflejar el nuevo cliente en el buscador local.
+            setClientes((prev) => [
+              ...prev,
+              {
+                id: nuevo.id,
+                label: nuevo.empresa || nuevo.nombre_contacto || "Cliente",
+                ruc: nuevo.ruc ?? null,
+                usa_nota_remision: nuevo.usa_nota_remision === true,
+              },
+            ]);
+          } finally {
+            setCreandoCliente(false);
+          }
+        }
+      }
+
       const resultado = await saveVenta(
         {
           items,
@@ -669,8 +724,8 @@ export default function NuevaVentaPage() {
           tipo_venta:   tipoVenta,
           plazo_dias:   tipoVenta === "CREDITO" ? plazoDiasNum : undefined,
           metodo_pago:  metodoPago,
-          cliente_id:   clienteId || null,
-          genera_nota_remision: !!clienteId && generaNotaRemision,
+          cliente_id:   clienteIdFinal || null,
+          genera_nota_remision: !!clienteIdFinal && generaNotaRemision,
         },
         undefined,
         {
@@ -866,8 +921,8 @@ export default function NuevaVentaPage() {
                   {plazoDiasNum < 1 && (
                     <p className="mt-1 text-[11px] text-red-600">Ingresá un plazo de al menos 1 día.</p>
                   )}
-                  {!clienteId && (
-                    <p className="mt-1 text-[11px] text-red-600">La venta a crédito requiere un cliente seleccionado.</p>
+                  {!clienteId && !facturaNombreOk && (
+                    <p className="mt-1 text-[11px] text-red-600">La venta a crédito requiere un cliente: seleccioná uno o cargá los datos para factura.</p>
                   )}
                   <p className="mt-1 text-[11px] text-slate-500">Al confirmar se genera una cuenta por cobrar por el total.</p>
                 </div>
@@ -1058,6 +1113,42 @@ export default function NuevaVentaPage() {
                       )}
                     </div>
                   )}
+
+                  {/* Datos para factura: si no hay cliente seleccionado y se
+                      completan, al confirmar se crea (o reutiliza por RUC) un cliente. */}
+                  {!clienteSel && (
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2.5">
+                      <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Datos para factura</p>
+                      <p className="-mt-1 text-[11px] text-gray-400">
+                        Sin cliente seleccionado: completá estos datos y se creará un cliente al confirmar la venta.
+                      </p>
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">Nombre / Razón social</label>
+                        <input
+                          type="text"
+                          value={facturaNombre}
+                          onChange={(e) => setFacturaNombre(e.target.value)}
+                          placeholder="Nombre del cliente"
+                          className={inputClass}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">RUC / CI</label>
+                        <input
+                          type="text"
+                          value={facturaRuc}
+                          onChange={(e) => setFacturaRuc(e.target.value)}
+                          placeholder="RUC o documento"
+                          className={inputClass}
+                        />
+                      </div>
+                      {clienteConMismoRuc && (
+                        <p className="text-[11px] text-amber-600">
+                          Ya existe un cliente con ese RUC ({clienteConMismoRuc.label}); se usará ese en vez de crear uno nuevo.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </>
@@ -1087,7 +1178,7 @@ export default function NuevaVentaPage() {
               aria-busy={guardando}
               className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-6 py-3 rounded-lg text-sm font-medium transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 min-h-[48px] w-full sm:w-auto"
             >
-              {guardando ? "Guardando…" : "Confirmar venta"}
+              {creandoCliente ? "Creando cliente…" : guardando ? "Guardando…" : "Confirmar venta"}
             </button>
           </div>
 
