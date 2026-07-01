@@ -115,6 +115,7 @@ export default function NuevaCompraPage() {
     stock_minimo: "0", precio_venta_sugerido: "", tipo: "reventa" as "reventa" | "menu" | "materia",
   });
   const [errorSku, setErrorSku] = useState<string | null>(null);
+  const [generandoSku, setGenerandoSku] = useState(false);
   const [productoCreado, setProductoCreado] = useState<string | null>(null);
 
   // Comprobante / factura del proveedor (opcional, para toda la compra)
@@ -321,6 +322,25 @@ export default function NuevaCompraPage() {
   function handleProductoInputChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
     if (e.target.name === "sku") setErrorSku(null);
     setFormProducto((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  }
+  /** Autogenera el próximo SKU según el tipo (REV/MEN/MP), usando el endpoint del sistema. */
+  async function generarSku() {
+    setGenerandoSku(true);
+    setErrorSku(null);
+    try {
+      const res = await fetch(`/api/productos/sku-sugerencias?tipo=${formProducto.tipo}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = await res.json();
+      if (res.ok && json?.success && json.data?.sugerido) {
+        setFormProducto((prev) => ({ ...prev, sku: String(json.data.sugerido) }));
+      }
+    } catch {
+      /* no bloquea: el usuario puede escribir el SKU a mano */
+    } finally {
+      setGenerandoSku(false);
+    }
   }
   async function handleAgregarProducto() {
     if (!formProducto.nombre.trim() || !formProducto.sku.trim()) return;
@@ -533,8 +553,15 @@ export default function NuevaCompraPage() {
                     </div>
                     <div>
                       <label className={labelSmClass}>SKU / Código <span className="text-red-500">*</span></label>
-                      <input type="text" name="sku" value={formProducto.sku} onChange={handleProductoInputChange}
-                        placeholder="Ej: CHIA-500" className={`${inputSmClass} uppercase ${errorSku ? "border-red-300 bg-red-50" : ""}`} />
+                      <div className="flex gap-2">
+                        <input type="text" name="sku" value={formProducto.sku} onChange={handleProductoInputChange}
+                          placeholder="Ej: CHIA-500" className={`${inputSmClass} uppercase ${errorSku ? "border-red-300 bg-red-50" : ""}`} />
+                        <button type="button" onClick={generarSku} disabled={generandoSku}
+                          title="Generar el próximo SKU según el tipo (REV/MEN/MP)"
+                          className="shrink-0 rounded-lg border border-[#4FAEB2]/40 bg-white px-3 text-xs font-semibold text-[#3F8E91] transition-colors hover:bg-[#4FAEB2]/10 disabled:opacity-50 disabled:cursor-not-allowed">
+                          {generandoSku ? "…" : "Generar"}
+                        </button>
+                      </div>
                       {errorSku && <p className="mt-1 text-xs text-red-600">{errorSku}</p>}
                     </div>
                     <div>
