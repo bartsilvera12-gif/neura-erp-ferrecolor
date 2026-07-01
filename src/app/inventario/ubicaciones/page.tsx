@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Warehouse, Plus, MapPin, Loader2, Store, Rows3, LayoutGrid, Boxes, Map, Package } from "lucide-react";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import ImportExcelButton from "@/components/ui/ImportExcelButton";
+import { FancySelect } from "@/components/ui/FancySelect";
 import { useIsAdmin } from "@/lib/auth/use-is-admin";
 
 interface Ubicacion {
@@ -31,7 +32,7 @@ const TIPO_META: Record<string, TipoMeta> = {
 const tipoMeta = (t: string): TipoMeta => TIPO_META[t] ?? TIPO_META.otro;
 
 const inputClass =
-  "w-full h-10 rounded-lg border-2 border-slate-200 bg-white px-3 text-sm outline-none transition-all hover:border-slate-300 focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20";
+  "w-full h-10 rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-900 shadow-sm outline-none transition-all placeholder:text-slate-400 hover:border-[#4FAEB2]/60 focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20";
 
 export default function UbicacionesPage() {
   const { isAdmin } = useIsAdmin();
@@ -177,20 +178,27 @@ export default function UbicacionesPage() {
           </div>
           <div className="md:col-span-2">
             <label className="block text-xs font-semibold text-slate-500 mb-1.5">Tipo</label>
-            <select value={tipo} onChange={(e) => setTipo(e.target.value)} className={inputClass}>
-              {TIPOS.map((t) => (
-                <option key={t} value={t}>{tipoMeta(t).label}</option>
-              ))}
-            </select>
+            <FancySelect
+              ariaLabel="Tipo de ubicación"
+              value={tipo}
+              onChange={setTipo}
+              options={TIPOS.map((t) => ({ value: t, label: tipoMeta(t).label }))}
+            />
           </div>
           <div className="md:col-span-4">
             <label className="block text-xs font-semibold text-slate-500 mb-1.5">Ubicación padre <span className="font-normal text-slate-400">(opcional)</span></label>
-            <select value={parentId} onChange={(e) => setParentId(e.target.value)} className={inputClass}>
-              <option value="">— ninguna —</option>
-              {items.filter((i) => i.activo).map((i) => (
-                <option key={i.id} value={i.id}>{i.nombre} ({tipoMeta(i.tipo).label})</option>
-              ))}
-            </select>
+            <FancySelect
+              ariaLabel="Ubicación padre"
+              value={parentId}
+              onChange={setParentId}
+              placeholder="— ninguna —"
+              options={[
+                { value: "", label: "— ninguna —" },
+                ...items
+                  .filter((i) => i.activo)
+                  .map((i) => ({ value: i.id, label: i.nombre, description: tipoMeta(i.tipo).label })),
+              ]}
+            />
           </div>
           <div className="md:col-span-2 flex md:justify-end">
             <button
