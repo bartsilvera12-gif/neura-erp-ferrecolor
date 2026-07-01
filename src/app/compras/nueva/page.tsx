@@ -21,10 +21,16 @@ function margenColor(m: number) {
   if (m >= 20) return "text-yellow-600";
   return "text-red-600";
 }
-function ivaMonto(subtotal: number, iva: TipoIva): number {
-  if (iva === "exenta") return 0;
-  if (iva === "5") return subtotal * 0.05;
-  return subtotal * 0.1;
+/**
+ * IVA INCLUIDO (modelo PY, igual que Caja): el costo ya contiene el IVA.
+ * Se desglosa desde adentro: base = bruto / factor; iva = bruto − base.
+ * No se suma nada encima del costo.
+ */
+function desglosarIva(bruto: number, iva: TipoIva): { subtotal: number; monto_iva: number } {
+  if (iva === "exenta") return { subtotal: bruto, monto_iva: 0 };
+  const factor = iva === "5" ? 1.05 : 1.1;
+  const subtotal = bruto / factor;
+  return { subtotal, monto_iva: bruto - subtotal };
 }
 
 const inputClass =
@@ -147,9 +153,9 @@ export default function NuevaCompraPage() {
   // ── Recalcular derivados de una línea (usa el tipo de cambio actual) ─────────
   function recomputeLinea(base: LineaCompra): LineaCompra {
     const costoPyg = (base.costo_unitario_input || 0) * tipoCambioNum;
-    const subtotal = (base.cantidad || 0) * costoPyg;
-    const monto_iva = ivaMonto(subtotal, base.iva_tipo);
-    const total = subtotal + monto_iva;
+    // IVA incluido: el total de la línea es costo × cantidad (el IVA ya está dentro).
+    const total = (base.cantidad || 0) * costoPyg;
+    const { subtotal, monto_iva } = desglosarIva(total, base.iva_tipo);
     const margen_venta = base.precio_venta > 0 && costoPyg > 0 ? ((base.precio_venta - costoPyg) / base.precio_venta) * 100 : null;
     return { ...base, costo_unitario_pyg: costoPyg, subtotal, monto_iva, total, margen_venta };
   }
@@ -159,9 +165,8 @@ export default function NuevaCompraPage() {
     setLineas((prev) =>
       prev.map((l) => {
         const costoPyg = (l.costo_unitario_input || 0) * tipoCambioNum;
-        const subtotal = (l.cantidad || 0) * costoPyg;
-        const monto_iva = ivaMonto(subtotal, l.iva_tipo);
-        const total = subtotal + monto_iva;
+        const total = (l.cantidad || 0) * costoPyg;
+        const { subtotal, monto_iva } = desglosarIva(total, l.iva_tipo);
         const margen_venta = l.precio_venta > 0 && costoPyg > 0 ? ((l.precio_venta - costoPyg) / l.precio_venta) * 100 : null;
         return { ...l, costo_unitario_pyg: costoPyg, subtotal, monto_iva, total, margen_venta };
       })
@@ -567,13 +572,13 @@ export default function NuevaCompraPage() {
               </div>
             ) : (
               <div className="overflow-x-auto rounded-lg border border-slate-200">
-                <table className="w-full min-w-[820px] text-left text-sm">
+                <table className="w-full min-w-[880px] text-left text-sm">
                   <thead className="bg-slate-50 text-gray-500">
                     <tr>
                       <th className="py-2 px-3 font-medium">Producto</th>
                       <th className="py-2 px-3 font-medium text-right w-20">Cant.</th>
                       <th className="py-2 px-3 font-medium text-right w-32">Costo unit. ({monedaLabel})</th>
-                      <th className="py-2 px-3 font-medium w-24">IVA</th>
+                      <th className="py-2 px-3 font-medium w-32">IVA</th>
                       <th className="py-2 px-3 font-medium text-right w-32">Precio venta</th>
                       <th className="py-2 px-3 font-medium text-right">Total línea</th>
                       <th className="py-2 px-2" />
