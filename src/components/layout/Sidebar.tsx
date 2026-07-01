@@ -126,7 +126,7 @@ const MENU_STRUCTURE: MenuItem[] = [
     { label: "Productos", href: "/inventario" },
     { label: "Movimientos", href: "/inventario/movimientos" },
     { label: "Categorías", href: "/inventario/categorias" },
-    // "Depósitos / Ubicaciones" oculto en instancia En lo de Mari (no aplica para gastronomía).
+    { label: "Depósitos / Ubicaciones", href: "/inventario/ubicaciones" },
   ]},
   // Clientes: reactivado para que el modulo Consulta pueda asociar pedidos.
   { key: "clientes", slug: "clientes", label: "Clientes", href: "/clientes", icon: Users },
