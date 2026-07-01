@@ -32,7 +32,6 @@ import {
   ChefHat,
   Utensils,
   BarChart3,
-  Banknote,
   Wallet,
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
@@ -130,7 +129,8 @@ const MENU_STRUCTURE: MenuItem[] = [
   ]},
   // Clientes: reactivado para que el modulo Consulta pueda asociar pedidos.
   { key: "clientes", slug: "clientes", label: "Clientes", href: "/clientes", icon: Users },
-  { key: "pagos", slug: "pagos", label: "Pagos", href: "/pagos", icon: Banknote },
+  // Pagos ocultado a pedido de Ferretería República (no se usa el módulo).
+  // { key: "pagos", slug: "pagos", label: "Pagos", href: "/pagos", icon: Banknote },
   {
     key: "compras",
     slug: "compras",
@@ -217,7 +217,7 @@ const MENU_STRUCTURE: MenuItem[] = [
 const MENU_FAMILIES: { id: string; titulo: string; keys: string[] }[] = [
   { id: "inicio", titulo: "Inicio", keys: ["dashboard"] },
   { id: "comercial", titulo: "Comercial", keys: ["clientes", "crm", "gestion-clientes", "ventas", "pedidos", "presupuestos", "comisiones", "planes", "ofertas_home"] },
-  { id: "finanzas", titulo: "Finanzas", keys: ["pagos", "gastos", "otros_ingresos", "entidades_bancarias", "notas_credito", "reportes"] },
+  { id: "finanzas", titulo: "Finanzas", keys: ["gastos", "otros_ingresos", "entidades_bancarias", "notas_credito", "reportes"] },
   { id: "operaciones", titulo: "Operaciones", keys: ["inventario", "compras", "recetas", "proyectos"] },
   { id: "omnicanal", titulo: "Omnicanal", keys: ["conversaciones", "conversaciones-finalizadas", "historial-omnicanal", "monitoreo", "campanas"] },
   { id: "marketing", titulo: "Marketing y Automatización", keys: ["marketing", "marketing_ops", "sorteos"] },
