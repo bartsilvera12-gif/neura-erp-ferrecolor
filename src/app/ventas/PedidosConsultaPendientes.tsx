@@ -24,6 +24,7 @@ type Pedido = {
   total_estimado: number;
   items_count: number;
   estado: "pendiente" | "en_caja";
+  en_cola_caja: boolean;
   armado_por_email: string | null;
   abierto_por_email: string | null;
   created_at: string | null;
@@ -55,6 +56,7 @@ function mapPedido(p: Record<string, unknown>): Pedido {
     total_estimado: Number(p.total_estimado) || 0,
     items_count: Array.isArray(p.items) ? (p.items as unknown[]).length : 0,
     estado: p.estado === "en_caja" ? "en_caja" : "pendiente",
+    en_cola_caja: p.en_cola_caja !== false,
     armado_por_email: p.armado_por_email ? String(p.armado_por_email) : null,
     abierto_por_email: p.abierto_por_email ? String(p.abierto_por_email) : null,
     created_at: p.created_at ? String(p.created_at) : null,
@@ -76,7 +78,9 @@ export default function PedidosConsultaPendientes() {
         if (cancel) return;
         const pend = jPend?.success && Array.isArray(jPend.data?.pedidos) ? (jPend.data.pedidos as Array<Record<string, unknown>>) : [];
         const caja = jCaja?.success && Array.isArray(jCaja.data?.pedidos) ? (jCaja.data.pedidos as Array<Record<string, unknown>>) : [];
-        const merged = [...pend, ...caja].map(mapPedido);
+        // Solo los que están en la cola de Caja. Los liberados (en_cola_caja=false)
+        // vuelven al vendedor y no se muestran acá.
+        const merged = [...pend, ...caja].map(mapPedido).filter((p) => p.en_cola_caja);
         // En caja primero (ya tomados), luego por fecha desc.
         merged.sort((a, b) => {
           if (a.estado !== b.estado) return a.estado === "en_caja" ? -1 : 1;

@@ -4,12 +4,11 @@ import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 
 /**
- * POST /api/pedidos-caja/[id]/liberar
+ * POST /api/pedidos-caja/[id]/enviar-a-caja
  *
- * Saca el pedido de la cola de Caja: en_cola_caja -> false y estado ->
- * 'pendiente'. El pedido vuelve al vendedor (editable) y deja de aparecer en
- * "Pedidos por cobrar" hasta que lo re-envíen con /enviar-a-caja. Limpia
- * abierto_por*. Solo aplica a pedidos no facturados/cancelados.
+ * Vuelve a poner el pedido en la cola de Caja: en_cola_caja -> true (estado
+ * 'pendiente'). Inverso de /liberar. Solo aplica a pedidos no
+ * facturados/cancelados.
  */
 export async function POST(
   request: NextRequest,
@@ -23,13 +22,7 @@ export async function POST(
 
     const upd = await sb
       .from("pedidos_caja")
-      .update({
-        estado: "pendiente",
-        en_cola_caja: false,
-        abierto_por_id: null,
-        abierto_por_email: null,
-        abierto_at: null,
-      })
+      .update({ estado: "pendiente", en_cola_caja: true })
       .eq("empresa_id", auth.empresa_id)
       .eq("id", id)
       .in("estado", ["pendiente", "en_caja"]);
@@ -37,7 +30,7 @@ export async function POST(
 
     return NextResponse.json(successResponse({ ok: true }));
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "No se pudo liberar el pedido.";
+    const msg = err instanceof Error ? err.message : "No se pudo enviar el pedido a caja.";
     return NextResponse.json(errorResponse(msg), { status: 500 });
   }
 }

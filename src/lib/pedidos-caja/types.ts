@@ -39,6 +39,12 @@ export interface PedidoCaja {
   items: PedidoCajaItem[];
   total_estimado: number;
   estado: EstadoPedidoCaja;
+  /**
+   * true = está en la cola de Caja (aparece en "Pedidos por cobrar").
+   * false = liberado: devuelto al vendedor para editar; NO se cobra hasta
+   * que lo vuelvan a "Enviar a Caja".
+   */
+  en_cola_caja: boolean;
   venta_id: string | null;
   venta_numero: string | null;
   armado_por_id: string | null;

@@ -33,6 +33,7 @@ import {
   Pencil,
   Trash2,
   Unlock,
+  Send,
 } from "lucide-react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import type { EstadoPedidoCaja } from "@/lib/pedidos-caja/types";
@@ -45,6 +46,7 @@ type PedidoLite = {
   total_estimado: number;
   items_count: number;
   estado: EstadoPedidoCaja;
+  en_cola_caja: boolean;
   venta_numero: string | null;
   venta_id: string | null;
   armado_por_email: string | null;
@@ -128,6 +130,7 @@ export default function PedidosPage() {
             if (e === "facturado" || e === "cancelado" || e === "en_caja") return e;
             return "pendiente";
           })(),
+          en_cola_caja: p.en_cola_caja !== false,
           venta_numero: p.venta_numero ? String(p.venta_numero) : null,
           venta_id: p.venta_id ? String(p.venta_id) : null,
           armado_por_email: p.armado_por_email ? String(p.armado_por_email) : null,
@@ -163,6 +166,23 @@ export default function PedidosPage() {
       await load();
     } catch (e) {
       window.alert(e instanceof Error ? e.message : "No se pudo liberar.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleEnviarACaja(p: PedidoLite) {
+    setBusyId(p.id);
+    try {
+      const r = await fetchWithSupabaseSession(
+        `/api/pedidos-caja/${p.id}/enviar-a-caja`,
+        { method: "POST" }
+      );
+      const j = await r.json();
+      if (!r.ok || !j?.success) throw new Error(j?.error ?? "Error");
+      await load();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "No se pudo enviar a caja.");
     } finally {
       setBusyId(null);
     }
@@ -389,6 +409,7 @@ export default function PedidosPage() {
                           p={p}
                           busy={busyId === p.id}
                           onLiberar={() => handleLiberar(p)}
+                          onEnviarACaja={() => handleEnviarACaja(p)}
                           onCancelar={() => handleCancelar(p)}
                         />
                       </div>
@@ -459,6 +480,18 @@ function EstadoBadge({ p }: { p: PedidoLite }) {
       </span>
     );
   }
+  // Pendiente pero liberado (fuera de la cola de Caja): volvió al vendedor.
+  if (!p.en_cola_caja) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-md bg-slate-100 border border-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-600"
+        title="Liberado: volvió al vendedor. No está en la cola de Caja."
+      >
+        <Unlock className="h-3 w-3" />
+        Con vendedor
+      </span>
+    );
+  }
   return (
     <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 border border-amber-200 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
       <Clock className="h-3 w-3" />
@@ -471,11 +504,13 @@ function Acciones({
   p,
   busy,
   onLiberar,
+  onEnviarACaja,
   onCancelar,
 }: {
   p: PedidoLite;
   busy: boolean;
   onLiberar: () => void;
+  onEnviarACaja: () => void;
   onCancelar: () => void;
 }) {
   if (p.estado === "facturado" || p.estado === "cancelado") {
@@ -510,15 +545,29 @@ function Acciones({
           <Pencil className="h-3 w-3" />
         </Link>
       )}
-      {p.estado === "en_caja" && (
+      {/* En la cola de Caja (o tomado): "Liberar" lo saca y lo devuelve al vendedor. */}
+      {((p.estado === "pendiente" && p.en_cola_caja) || p.estado === "en_caja") && (
         <button
           type="button"
           onClick={onLiberar}
           disabled={busy}
-          className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:border-sky-400 hover:text-sky-700 disabled:opacity-50"
-          title="Liberar pedido (volver a pendiente)"
+          className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:border-amber-400 hover:text-amber-700 disabled:opacity-50"
+          title="Liberar: sacar de la cola de Caja y devolver al vendedor"
         >
           <Unlock className="h-3 w-3" />
+        </button>
+      )}
+      {/* Liberado (fuera de la cola): "Enviar a Caja" lo vuelve a poner disponible para cobrar. */}
+      {p.estado === "pendiente" && !p.en_cola_caja && (
+        <button
+          type="button"
+          onClick={onEnviarACaja}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-[#4FAEB2] hover:bg-[#3F8E91] text-white text-xs font-bold px-3 py-1.5 transition-colors shadow-sm shadow-[#4FAEB2]/30 disabled:opacity-50"
+          title="Enviar el pedido a la cola de Caja para cobrar"
+        >
+          <Send className="h-3 w-3" />
+          Enviar a Caja
         </button>
       )}
       <button

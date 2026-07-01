@@ -6,7 +6,7 @@ import type { PedidoCaja, PedidoCajaItem } from "./types";
 
 export const PEDIDO_CAJA_COLS =
   "id, numero, titulo, cliente_id, cliente_nombre, cliente_telefono, observacion, items, " +
-  "total_estimado, estado, venta_id, venta_numero, " +
+  "total_estimado, estado, en_cola_caja, venta_id, venta_numero, " +
   "armado_por_id, armado_por_email, abierto_por_id, abierto_por_email, abierto_at, " +
   "created_at, facturado_at, cancelado_at, cancelado_motivo";
 
@@ -58,6 +58,7 @@ export function mapPedidoCaja(r: Record<string, unknown>): PedidoCaja {
       est === "facturado" || est === "cancelado" || est === "en_caja"
         ? (est as "facturado" | "cancelado" | "en_caja")
         : "pendiente",
+    en_cola_caja: r.en_cola_caja !== false,
     venta_id: r.venta_id ? String(r.venta_id) : null,
     venta_numero: r.venta_numero ? String(r.venta_numero) : null,
     armado_por_id: r.armado_por_id ? String(r.armado_por_id) : null,
