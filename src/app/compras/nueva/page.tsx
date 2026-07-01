@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, X } from "lucide-react";
+import { Search, Trash2 } from "lucide-react";
 import MontoInput from "@/components/ui/MontoInput";
 import { saveCompraMulti, uploadComprobante, type CompraItemPayload } from "@/lib/compras/storage";
 import { getProveedores, proveedorExiste, createProveedor } from "@/lib/proveedores/storage";
@@ -33,14 +33,13 @@ const inputSmClass = inputClass;
 const labelClass = "block text-sm font-medium text-slate-700 mb-2";
 const labelSmClass = "block text-xs font-medium text-slate-600 mb-1.5";
 
-const ivaLabel: Record<TipoIva, string> = { exenta: "Exenta", "5": "IVA 5%", "10": "IVA 10%" };
-
 // ── Tipos locales ────────────────────────────────────────────────────────────
 
 type LineaCompra = {
   producto_id: string;
   producto_nombre: string;
   sku: string;
+  es_insumo_no_vendible: boolean;
   cantidad: number;
   costo_unitario_input: number; // en la moneda de la cabecera
   costo_unitario_pyg: number;
@@ -95,17 +94,8 @@ export default function NuevaCompraPage() {
     tipo_cambio: "",
   });
 
-  // Líneas ya agregadas
+  // Líneas de la compra (editables inline)
   const [lineas, setLineas] = useState<LineaCompra[]>([]);
-
-  // Editor de la línea en curso
-  const [nl, setNl] = useState({
-    producto_id: "",
-    cantidad: "",
-    costo_unitario_input: "",
-    iva_tipo: "10" as TipoIva,
-    precio_venta: "",
-  });
 
   // Inline crear proveedor / producto
   const [mostrarFormProveedor, setMostrarFormProveedor] = useState(false);
@@ -152,22 +142,31 @@ export default function NuevaCompraPage() {
   function recargarProductos() { getProductos().then(setProductos); }
   useEffect(() => { recargarProveedores(); recargarProductos(); }, []);
 
-  // ── Cálculos de la línea en curso ──────────────────────────────────────────
   const tipoCambioNum = cab.moneda === "USD" ? parseFloat(cab.tipo_cambio) || 0 : 1;
-  const nlCant = parseFloat(nl.cantidad) || 0;
-  const nlCostoInput = parseFloat(nl.costo_unitario_input) || 0;
-  const nlCostoPYG = nlCostoInput * tipoCambioNum;
-  const nlPrecio = parseFloat(nl.precio_venta) || 0;
-  const nlSubtotal = nlCant > 0 && nlCostoPYG > 0 ? nlCant * nlCostoPYG : 0;
-  const nlIva = ivaMonto(nlSubtotal, nl.iva_tipo);
-  const nlTotal = nlSubtotal + nlIva;
-  const nlMargen = nlPrecio > 0 && nlCostoPYG > 0 ? ((nlPrecio - nlCostoPYG) / nlPrecio) * 100 : null;
-  const productoSel = productos.find((p) => p.id === nl.producto_id);
-  // Materia prima / insumo NO vendible: no exigimos precio de venta (se compra para recetas).
-  const esInsumoNoVendible = !!productoSel && productoSel.es_insumo === true && productoSel.es_vendible !== true;
-  const requierePrecioVenta = !esInsumoNoVendible;
-  const lineaLista =
-    !!nl.producto_id && nlCant > 0 && nlCostoPYG > 0 && (!requierePrecioVenta || nlPrecio > 0);
+
+  // ── Recalcular derivados de una línea (usa el tipo de cambio actual) ─────────
+  function recomputeLinea(base: LineaCompra): LineaCompra {
+    const costoPyg = (base.costo_unitario_input || 0) * tipoCambioNum;
+    const subtotal = (base.cantidad || 0) * costoPyg;
+    const monto_iva = ivaMonto(subtotal, base.iva_tipo);
+    const total = subtotal + monto_iva;
+    const margen_venta = base.precio_venta > 0 && costoPyg > 0 ? ((base.precio_venta - costoPyg) / base.precio_venta) * 100 : null;
+    return { ...base, costo_unitario_pyg: costoPyg, subtotal, monto_iva, total, margen_venta };
+  }
+
+  // Si cambia el tipo de cambio (o la moneda), recalcular todas las líneas.
+  useEffect(() => {
+    setLineas((prev) =>
+      prev.map((l) => {
+        const costoPyg = (l.costo_unitario_input || 0) * tipoCambioNum;
+        const subtotal = (l.cantidad || 0) * costoPyg;
+        const monto_iva = ivaMonto(subtotal, l.iva_tipo);
+        const total = subtotal + monto_iva;
+        const margen_venta = l.precio_venta > 0 && costoPyg > 0 ? ((l.precio_venta - costoPyg) / l.precio_venta) * 100 : null;
+        return { ...l, costo_unitario_pyg: costoPyg, subtotal, monto_iva, total, margen_venta };
+      })
+    );
+  }, [tipoCambioNum]);
 
   // ── Totales de la compra ───────────────────────────────────────────────────
   const totales = useMemo(() => {
@@ -181,57 +180,40 @@ export default function NuevaCompraPage() {
     );
   }, [lineas]);
 
-  // ── Agregar / quitar línea ──────────────────────────────────────────────────
-  function handleAgregarLinea() {
+  // ── Agregar / editar / quitar línea ─────────────────────────────────────────
+  function agregarProducto(prod: Producto) {
     setErrorLinea(null);
-    if (!nl.producto_id) return setErrorLinea("Elegí un producto.");
-    if (nlCant <= 0) return setErrorLinea("La cantidad debe ser mayor a 0.");
-    if (nlCostoPYG <= 0) return setErrorLinea("El costo unitario debe ser mayor a 0.");
-    if (requierePrecioVenta && nlPrecio <= 0)
-      return setErrorLinea("El precio de venta debe ser mayor a 0.");
-    if (cab.moneda === "USD" && tipoCambioNum <= 0)
-      return setErrorLinea("Cargá el tipo de cambio (USD → Gs.) en la cabecera.");
-    const prod = productos.find((p) => p.id === nl.producto_id);
-    if (!prod) return setErrorLinea("Producto no encontrado. Recargá e intentá de nuevo.");
-
+    if (lineas.some((l) => l.producto_id === prod.id)) {
+      setErrorLinea(`"${prod.nombre}" ya está en la compra. Ajustá su cantidad en la lista.`);
+      return;
+    }
+    const insumoNoVendible = prod.es_insumo === true && prod.es_vendible !== true;
     setLineas((prev) => [
       ...prev,
-      {
+      recomputeLinea({
         producto_id: prod.id,
         producto_nombre: prod.nombre,
         sku: prod.sku,
-        cantidad: nlCant,
-        costo_unitario_input: nlCostoInput,
-        costo_unitario_pyg: nlCostoPYG,
-        iva_tipo: nl.iva_tipo,
-        // Para insumos sin precio cargado, guardamos el precio actual del producto
-        // (no inventamos uno). El backend no sobreescribe productos.precio_venta con 0.
-        precio_venta: nlPrecio > 0 ? nlPrecio : (prod.precio_venta ?? 0),
-        subtotal: nlSubtotal,
-        monto_iva: nlIva,
-        total: nlTotal,
-        margen_venta: nlMargen,
-      },
+        es_insumo_no_vendible: insumoNoVendible,
+        cantidad: 1,
+        costo_unitario_input: prod.costo_promedio || 0,
+        costo_unitario_pyg: 0,
+        iva_tipo: "10",
+        precio_venta: insumoNoVendible ? 0 : (prod.precio_venta || 0),
+        subtotal: 0,
+        monto_iva: 0,
+        total: 0,
+        margen_venta: null,
+      }),
     ]);
-    setNl({ producto_id: "", cantidad: "", costo_unitario_input: "", iva_tipo: "10", precio_venta: "" });
-    setProductoCreado(null);
+  }
+
+  function editarLinea(idx: number, patch: Partial<LineaCompra>) {
+    setLineas((prev) => prev.map((l, i) => (i === idx ? recomputeLinea({ ...l, ...patch }) : l)));
   }
 
   function handleQuitarLinea(idx: number) {
     setLineas((prev) => prev.filter((_, i) => i !== idx));
-  }
-
-  function selectProducto(id: string) {
-    const p = productos.find((x) => x.id === id);
-    setProductoCreado(null);
-    const insumoNoVendible = !!p && p.es_insumo === true && p.es_vendible !== true;
-    setNl((prev) => ({
-      ...prev,
-      producto_id: id,
-      costo_unitario_input: p ? String(p.costo_promedio) : "",
-      // Insumo no vendible: dejamos el precio vacío (es opcional).
-      precio_venta: !p || insumoNoVendible ? "" : String(p.precio_venta),
-    }));
   }
 
   // ── Submit ──────────────────────────────────────────────────────────────────
@@ -243,6 +225,10 @@ export default function NuevaCompraPage() {
     if (lineas.length === 0) return setErrorSubmit("Agregá al menos un producto a la compra.");
     if (cab.moneda === "USD" && tipoCambioNum <= 0)
       return setErrorSubmit("Cargá el tipo de cambio (USD → Gs.).");
+    const invalida = lineas.find((l) => l.cantidad <= 0 || l.costo_unitario_pyg <= 0);
+    if (invalida) return setErrorSubmit(`Revisá "${invalida.producto_nombre}": la cantidad y el costo deben ser mayores a 0.`);
+    const sinPrecio = lineas.find((l) => !l.es_insumo_no_vendible && l.precio_venta <= 0);
+    if (sinPrecio) return setErrorSubmit(`Cargá el precio de venta de "${sinPrecio.producto_nombre}".`);
 
     const proveedor = proveedores.find((p) => String(p.id) === cab.proveedor_id);
     if (!proveedor) return setErrorSubmit("Proveedor no encontrado. Recargá e intentá de nuevo.");
@@ -347,19 +333,14 @@ export default function NuevaCompraPage() {
       nombre: formProducto.nombre.trim().toUpperCase(), sku: formProducto.sku.trim().toUpperCase(),
       unidad_medida: formProducto.unidad_medida.toUpperCase(), metodo_valuacion: formProducto.metodo_valuacion,
       stock_actual: 0, stock_minimo: parseInt(formProducto.stock_minimo) || 0,
-      costo_promedio: nlCostoPYG || 0, precio_venta: parseFloat(formProducto.precio_venta_sugerido) || 0,
+      costo_promedio: 0, precio_venta: parseFloat(formProducto.precio_venta_sugerido) || 0,
       ...flags,
     });
     if (!creado) return;
-    // Insert optimista para que la línea reconozca de inmediato si es insumo (precio opcional).
+    // Insert optimista + agregar como línea de la compra (auto-cargado).
     setProductos((prev) => (prev.some((p) => p.id === creado.id) ? prev : [...prev, creado]));
     recargarProductos();
-    const creadoInsumo = formProducto.tipo === "materia";
-    setNl((prev) => ({
-      ...prev, producto_id: creado.id,
-      // Para materia prima dejamos el precio vacío (es opcional).
-      precio_venta: creadoInsumo ? "" : (formProducto.precio_venta_sugerido || prev.precio_venta),
-    }));
+    agregarProducto(creado);
     setProductoCreado(creado.nombre);
     setMostrarFormProducto(false);
     setFormProducto({ nombre: "", sku: "", unidad_medida: "Unidad", metodo_valuacion: "CPP", stock_minimo: "0", precio_venta_sugerido: "", tipo: "reventa" });
@@ -370,6 +351,8 @@ export default function NuevaCompraPage() {
     setErrorSku(null);
   }
 
+  const monedaLabel = cab.moneda === "USD" ? "USD" : "Gs.";
+
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-8">
@@ -378,7 +361,7 @@ export default function NuevaCompraPage() {
         <p className="text-gray-600">Una compra puede tener varios productos del mismo proveedor. Impacta el inventario al guardar.</p>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 max-w-3xl">
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 max-w-4xl">
         <form className="space-y-8" onSubmit={handleSubmit}>
 
           {/* ── Cabecera ─────────────────────────────────────────────────────── */}
@@ -494,41 +477,156 @@ export default function NuevaCompraPage() {
             </div>
           </section>
 
-          {/* ── Productos (líneas) ───────────────────────────────────────────── */}
+          {/* ── Productos de la compra ───────────────────────────────────────── */}
           <section className="space-y-4">
             <SectionTitle>Productos de la compra</SectionTitle>
 
-            {/* Líneas ya agregadas */}
-            {lineas.length > 0 && (
+            {/* Buscador: cada producto que elegís se agrega a la lista de abajo */}
+            <div className="rounded-xl border border-dashed border-slate-300 p-4 space-y-3 bg-slate-50/40">
+              <label className={labelSmClass}>Buscá y agregá productos <span className="text-red-500">*</span></label>
+              <ProductoBuscador
+                productos={productos}
+                excludeIds={lineas.map((l) => l.producto_id)}
+                onPick={agregarProducto}
+              />
+              {productoCreado && (
+                <p className="text-xs text-green-600">✓ Producto &quot;{productoCreado}&quot; creado y agregado a la compra.</p>
+              )}
+              {errorLinea && <p className="text-xs text-red-600">{errorLinea}</p>}
+              {!mostrarFormProducto ? (
+                <button type="button" onClick={() => { setMostrarFormProducto(true); setProductoCreado(null); }}
+                  className="text-xs text-gray-400 hover:text-gray-700 underline transition-colors">
+                  ¿No encontrás el producto? Crear nuevo
+                </button>
+              ) : (
+                <InlineFormBox titulo="Nuevo producto" onCancel={handleCancelarProducto} onSave={handleAgregarProducto}
+                  saveDisabled={!formProducto.nombre.trim() || !formProducto.sku.trim()}>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="col-span-2">
+                      <label className={labelSmClass}>Tipo de producto</label>
+                      <SegmentedControl<"reventa" | "menu" | "materia"> small value={formProducto.tipo}
+                        options={[
+                          { value: "reventa", label: "Reventa" },
+                          { value: "menu", label: "Menú" },
+                          { value: "materia", label: "Materia prima" },
+                        ]}
+                        onChange={(v) => setFormProducto((prev) => ({
+                          ...prev,
+                          tipo: v,
+                          unidad_medida: v === "materia" && prev.unidad_medida === "Unidad" ? "G" : prev.unidad_medida,
+                        }))} />
+                      {formProducto.tipo === "materia" && (
+                        <p className="mt-1.5 text-xs text-amber-600">
+                          Materia prima / insumo: se usa en recetas. No requiere precio de venta.
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className={labelSmClass}>Nombre <span className="text-red-500">*</span></label>
+                      <input type="text" name="nombre" value={formProducto.nombre} onChange={handleProductoInputChange}
+                        placeholder="Ej: CHÍA 500G" className={`${inputSmClass} uppercase`} />
+                    </div>
+                    <div>
+                      <label className={labelSmClass}>SKU / Código <span className="text-red-500">*</span></label>
+                      <input type="text" name="sku" value={formProducto.sku} onChange={handleProductoInputChange}
+                        placeholder="Ej: CHIA-500" className={`${inputSmClass} uppercase ${errorSku ? "border-red-300 bg-red-50" : ""}`} />
+                      {errorSku && <p className="mt-1 text-xs text-red-600">{errorSku}</p>}
+                    </div>
+                    <div>
+                      <label className={labelSmClass}>Unidad de medida</label>
+                      <select name="unidad_medida" value={formProducto.unidad_medida} onChange={handleProductoInputChange} className={inputSmClass}>
+                        <option value="Unidad">Unidad</option>
+                        <option value="Kg">Kg</option>
+                        <option value="G">G</option>
+                        <option value="Litro">Litro</option>
+                        <option value="Caja">Caja</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className={labelSmClass}>Stock mínimo</label>
+                      <input type="number" name="stock_minimo" value={formProducto.stock_minimo} onChange={handleProductoInputChange}
+                        placeholder="Ej: 5" min={0} className={inputSmClass} />
+                    </div>
+                    {formProducto.tipo !== "materia" && (
+                      <div className="col-span-2">
+                        <label className={labelSmClass}>Precio de venta sugerido (Gs.)</label>
+                        <MontoInput value={formProducto.precio_venta_sugerido}
+                          onChange={(n) => setFormProducto((prev) => ({ ...prev, precio_venta_sugerido: String(n) }))}
+                          placeholder="Ej: 25000" className={inputSmClass} decimals={false} />
+                      </div>
+                    )}
+                  </div>
+                </InlineFormBox>
+              )}
+            </div>
+
+            {/* Tabla editable de líneas */}
+            {lineas.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-400">
+                Todavía no agregaste productos. Buscá arriba y hacé clic para cargarlos.
+              </div>
+            ) : (
               <div className="overflow-x-auto rounded-lg border border-slate-200">
-                <table className="w-full min-w-[640px] text-left text-sm">
+                <table className="w-full min-w-[820px] text-left text-sm">
                   <thead className="bg-slate-50 text-gray-500">
                     <tr>
                       <th className="py-2 px-3 font-medium">Producto</th>
-                      <th className="py-2 px-3 font-medium text-right">Cant.</th>
-                      <th className="py-2 px-3 font-medium text-right">Costo unit.</th>
-                      <th className="py-2 px-3 font-medium">IVA</th>
-                      <th className="py-2 px-3 font-medium text-right">Precio venta</th>
+                      <th className="py-2 px-3 font-medium text-right w-20">Cant.</th>
+                      <th className="py-2 px-3 font-medium text-right w-32">Costo unit. ({monedaLabel})</th>
+                      <th className="py-2 px-3 font-medium w-24">IVA</th>
+                      <th className="py-2 px-3 font-medium text-right w-32">Precio venta</th>
                       <th className="py-2 px-3 font-medium text-right">Total línea</th>
-                      <th className="py-2 px-3" />
+                      <th className="py-2 px-2" />
                     </tr>
                   </thead>
                   <tbody>
                     {lineas.map((l, i) => (
-                      <tr key={`${l.producto_id}-${i}`} className="border-t border-slate-100">
+                      <tr key={l.producto_id} className="border-t border-slate-100 align-top">
                         <td className="py-2 px-3">
                           <div className="font-medium text-gray-800">{l.producto_nombre}</div>
                           <div className="font-mono text-[11px] text-gray-400">{l.sku}</div>
+                          {l.es_insumo_no_vendible && (
+                            <span className="mt-0.5 inline-block rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">Materia prima</span>
+                          )}
                         </td>
-                        <td className="py-2 px-3 text-right tabular-nums">{l.cantidad}</td>
-                        <td className="py-2 px-3 text-right tabular-nums text-gray-600">{formatGs(l.costo_unitario_pyg)}</td>
-                        <td className="py-2 px-3 text-xs text-gray-500">{ivaLabel[l.iva_tipo]}</td>
-                        <td className="py-2 px-3 text-right tabular-nums text-gray-600">{formatGs(l.precio_venta)}</td>
+                        <td className="py-2 px-3">
+                          <input type="number" min={0} step="any" value={l.cantidad || ""}
+                            onChange={(e) => editarLinea(i, { cantidad: parseFloat(e.target.value) || 0 })}
+                            className="w-16 rounded-md border border-slate-200 px-2 py-1.5 text-right text-sm outline-none focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20" />
+                        </td>
+                        <td className="py-2 px-3">
+                          <MontoInput value={l.costo_unitario_input}
+                            onChange={(n) => editarLinea(i, { costo_unitario_input: n })}
+                            decimals={cab.moneda === "USD"}
+                            className="w-28 rounded-md border border-slate-200 px-2 py-1.5 text-right text-sm outline-none focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20" />
+                          {cab.moneda === "USD" && l.costo_unitario_pyg > 0 && (
+                            <div className="mt-0.5 text-right text-[10px] text-gray-400">≈ {formatGs(l.costo_unitario_pyg)}</div>
+                          )}
+                        </td>
+                        <td className="py-2 px-3">
+                          <select value={l.iva_tipo}
+                            onChange={(e) => editarLinea(i, { iva_tipo: e.target.value as TipoIva })}
+                            className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20 bg-white">
+                            <option value="exenta">Exenta</option>
+                            <option value="5">IVA 5%</option>
+                            <option value="10">IVA 10%</option>
+                          </select>
+                        </td>
+                        <td className="py-2 px-3">
+                          <MontoInput value={l.precio_venta}
+                            onChange={(n) => editarLinea(i, { precio_venta: n })}
+                            decimals={false}
+                            placeholder={l.es_insumo_no_vendible ? "Opcional" : "0"}
+                            className="w-28 rounded-md border border-slate-200 px-2 py-1.5 text-right text-sm outline-none focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20" />
+                          {l.margen_venta !== null && (
+                            <div className={`mt-0.5 text-right text-[10px] ${margenColor(l.margen_venta)}`}>Margen {l.margen_venta.toFixed(1)}%</div>
+                          )}
+                        </td>
                         <td className="py-2 px-3 text-right tabular-nums font-semibold text-gray-800">{formatGs(l.total)}</td>
-                        <td className="py-2 px-3 text-right">
+                        <td className="py-2 px-2 text-right">
                           <button type="button" onClick={() => handleQuitarLinea(i)}
-                            className="text-red-500 hover:text-red-700 text-xs font-medium" aria-label="Quitar línea">
-                            Quitar
+                            className="rounded-md p-1.5 text-red-400 hover:bg-red-50 hover:text-red-600" aria-label="Quitar línea">
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         </td>
                       </tr>
@@ -546,145 +644,6 @@ export default function NuevaCompraPage() {
                 </table>
               </div>
             )}
-
-            {/* Editor de nueva línea */}
-            <div className="rounded-xl border border-dashed border-slate-300 p-4 space-y-4 bg-slate-50/40">
-              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Agregar producto</p>
-
-              <div>
-                <label className={labelSmClass}>Producto <span className="text-red-500">*</span></label>
-                <ProductoCombobox productos={productos} value={nl.producto_id} onSelect={selectProducto} />
-                {productoSel && !productoCreado && (
-                  <p className="mt-1.5 text-xs text-gray-400">
-                    Costo promedio actual: {formatGs(productoSel.costo_promedio)} · Precio venta actual: {formatGs(productoSel.precio_venta)}
-                  </p>
-                )}
-                {productoCreado && (
-                  <p className="mt-1.5 text-xs text-green-600">✓ Producto &quot;{productoCreado}&quot; creado y seleccionado.</p>
-                )}
-                {!mostrarFormProducto ? (
-                  <button type="button" onClick={() => { setMostrarFormProducto(true); setProductoCreado(null); }}
-                    className="mt-2 text-xs text-gray-400 hover:text-gray-700 underline transition-colors">
-                    ¿No encontrás el producto? Crear nuevo
-                  </button>
-                ) : (
-                  <InlineFormBox titulo="Nuevo producto" onCancel={handleCancelarProducto} onSave={handleAgregarProducto}
-                    saveDisabled={!formProducto.nombre.trim() || !formProducto.sku.trim()}>
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      <div className="col-span-2">
-                        <label className={labelSmClass}>Tipo de producto</label>
-                        <SegmentedControl<"reventa" | "menu" | "materia"> small value={formProducto.tipo}
-                          options={[
-                            { value: "reventa", label: "Reventa" },
-                            { value: "menu", label: "Menú" },
-                            { value: "materia", label: "Materia prima" },
-                          ]}
-                          onChange={(v) => setFormProducto((prev) => ({
-                            ...prev,
-                            tipo: v,
-                            // Materia prima suele medirse en gramos; si está en "Unidad", sugerimos "G".
-                            unidad_medida: v === "materia" && prev.unidad_medida === "Unidad" ? "G" : prev.unidad_medida,
-                          }))} />
-                        {formProducto.tipo === "materia" && (
-                          <p className="mt-1.5 text-xs text-amber-600">
-                            Materia prima / insumo: se usa en recetas. No requiere precio de venta.
-                          </p>
-                        )}
-                      </div>
-                      <div>
-                        <label className={labelSmClass}>Nombre <span className="text-red-500">*</span></label>
-                        <input type="text" name="nombre" value={formProducto.nombre} onChange={handleProductoInputChange}
-                          placeholder="Ej: CHÍA 500G" className={`${inputSmClass} uppercase`} />
-                      </div>
-                      <div>
-                        <label className={labelSmClass}>SKU / Código <span className="text-red-500">*</span></label>
-                        <input type="text" name="sku" value={formProducto.sku} onChange={handleProductoInputChange}
-                          placeholder="Ej: CHIA-500" className={`${inputSmClass} uppercase ${errorSku ? "border-red-300 bg-red-50" : ""}`} />
-                        {errorSku && <p className="mt-1 text-xs text-red-600">{errorSku}</p>}
-                      </div>
-                      <div>
-                        <label className={labelSmClass}>Unidad de medida</label>
-                        <select name="unidad_medida" value={formProducto.unidad_medida} onChange={handleProductoInputChange} className={inputSmClass}>
-                          <option value="Unidad">Unidad</option>
-                          <option value="Kg">Kg</option>
-                          <option value="G">G</option>
-                          <option value="Litro">Litro</option>
-                          <option value="Caja">Caja</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className={labelSmClass}>Stock mínimo</label>
-                        <input type="number" name="stock_minimo" value={formProducto.stock_minimo} onChange={handleProductoInputChange}
-                          placeholder="Ej: 5" min={0} className={inputSmClass} />
-                      </div>
-                      {formProducto.tipo !== "materia" && (
-                        <div className="col-span-2">
-                          <label className={labelSmClass}>Precio de venta sugerido (Gs.)</label>
-                          <MontoInput value={formProducto.precio_venta_sugerido}
-                            onChange={(n) => setFormProducto((prev) => ({ ...prev, precio_venta_sugerido: String(n) }))}
-                            placeholder="Ej: 25000" className={inputSmClass} decimals={false} />
-                        </div>
-                      )}
-                    </div>
-                  </InlineFormBox>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div>
-                  <label className={labelSmClass}>Cantidad <span className="text-red-500">*</span></label>
-                  <input type="number" value={nl.cantidad} onChange={(e) => setNl((p) => ({ ...p, cantidad: e.target.value }))}
-                    placeholder="Ej: 50" className={inputSmClass} min={0} step="any" />
-                </div>
-                <div>
-                  <label className={labelSmClass}>Costo unit. ({cab.moneda === "USD" ? "USD" : "Gs."}) <span className="text-red-500">*</span></label>
-                  <MontoInput value={nl.costo_unitario_input}
-                    onChange={(n) => setNl((p) => ({ ...p, costo_unitario_input: String(n) }))}
-                    placeholder={cab.moneda === "USD" ? "Ej: 12" : "Ej: 18000"} className={inputSmClass}
-                    decimals={cab.moneda === "USD"} />
-                </div>
-                <div>
-                  <label className={labelSmClass}>IVA</label>
-                  <SegmentedControl<TipoIva> small value={nl.iva_tipo}
-                    options={[{ value: "exenta", label: "Ex." }, { value: "5", label: "5%" }, { value: "10", label: "10%" }]}
-                    onChange={(v) => setNl((p) => ({ ...p, iva_tipo: v }))} />
-                </div>
-                <div>
-                  <label className={labelSmClass}>
-                    {esInsumoNoVendible ? (
-                      <>Precio venta <span className="font-normal text-gray-400">(opcional, solo si se vende directamente)</span></>
-                    ) : (
-                      <>Precio venta (Gs.) <span className="text-red-500">*</span></>
-                    )}
-                  </label>
-                  <MontoInput value={nl.precio_venta}
-                    onChange={(n) => setNl((p) => ({ ...p, precio_venta: String(n) }))}
-                    placeholder={esInsumoNoVendible ? "Opcional" : "Ej: 25000"} className={inputSmClass} decimals={false} />
-                </div>
-              </div>
-
-              {esInsumoNoVendible && (
-                <p className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                  Este producto es materia prima. La compra actualizará stock y costo promedio; el precio de venta no es necesario.
-                </p>
-              )}
-
-              {(nlSubtotal > 0 || nlMargen !== null) && (
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-gray-500">
-                  {cab.moneda === "USD" && nlCostoPYG > 0 && <span>≈ {formatGs(nlCostoPYG)}/u</span>}
-                  {nlSubtotal > 0 && <span>Subtotal: <strong className="text-gray-700">{formatGs(nlSubtotal)}</strong></span>}
-                  {nlSubtotal > 0 && <span>Total línea: <strong className="text-gray-700">{formatGs(nlTotal)}</strong></span>}
-                  {nlMargen !== null && <span className={margenColor(nlMargen)}>Margen: {nlMargen.toFixed(1)}%</span>}
-                </div>
-              )}
-
-              {errorLinea && <p className="text-xs text-red-600">{errorLinea}</p>}
-
-              <button type="button" onClick={handleAgregarLinea} disabled={!lineaLista}
-                className="w-full rounded-lg bg-[#4FAEB2] py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#3F8E91] disabled:opacity-40 disabled:cursor-not-allowed active:scale-95">
-                + Agregar producto a la compra
-              </button>
-            </div>
           </section>
 
           {/* ── Totales generales ────────────────────────────────────────────── */}
@@ -734,18 +693,18 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Buscador de productos (typeahead). Reemplaza al <select> nativo: con miles de
- * productos, filtra por nombre/SKU en cliente. Al seleccionar muestra un "chip";
- * la X vuelve a la búsqueda para cargar el siguiente producto de la compra.
+ * Buscador de productos multi-carga. Filtra por nombre/SKU en cliente (soporta
+ * miles de productos e incluye insumos). Cada clic agrega el producto y limpia
+ * la búsqueda para cargar el siguiente; los ya agregados no vuelven a aparecer.
  */
-function ProductoCombobox({
+function ProductoBuscador({
   productos,
-  value,
-  onSelect,
+  excludeIds,
+  onPick,
 }: {
   productos: Producto[];
-  value: string;
-  onSelect: (id: string) => void;
+  excludeIds: string[];
+  onPick: (p: Producto) => void;
 }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -754,15 +713,16 @@ function ProductoCombobox({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
-  const selected = useMemo(() => productos.find((p) => p.id === value) ?? null, [productos, value]);
+  const excluidos = useMemo(() => new Set(excludeIds), [excludeIds]);
 
   const resultados = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const base = q
-      ? productos.filter((p) => p.nombre.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q))
-      : productos;
-    return base.slice(0, 50);
-  }, [productos, query]);
+    const base = productos.filter((p) => !excluidos.has(p.id));
+    const filt = q
+      ? base.filter((p) => p.nombre.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q))
+      : base;
+    return filt.slice(0, 50);
+  }, [productos, excluidos, query]);
 
   useEffect(() => {
     function onDown(e: MouseEvent) {
@@ -777,35 +737,11 @@ function ProductoCombobox({
   }, [open, hl]);
 
   function pick(p: Producto) {
-    onSelect(p.id);
+    onPick(p);
     setQuery("");
-    setOpen(false);
     setHl(-1);
-  }
-
-  if (selected) {
-    return (
-      <div className="flex h-10 items-center justify-between gap-2 rounded-xl border border-[#4FAEB2]/40 bg-[#4FAEB2]/[0.06] px-3.5 shadow-sm">
-        <span className="min-w-0 flex-1 truncate text-sm">
-          <span className="font-semibold text-slate-800">{selected.nombre}</span>
-          <span className="ml-2 font-mono text-xs text-slate-500">{selected.sku}</span>
-          <span className="ml-2 text-xs text-slate-400">stock: {selected.stock_actual}</span>
-        </span>
-        <button
-          type="button"
-          onClick={() => {
-            onSelect("");
-            setQuery("");
-            setOpen(true);
-            setTimeout(() => inputRef.current?.focus(), 0);
-          }}
-          className="shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-white hover:text-slate-700"
-          aria-label="Cambiar producto"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-    );
+    // Mantener el buscador enfocado y abierto para cargar el siguiente.
+    setTimeout(() => inputRef.current?.focus(), 0);
   }
 
   return (
@@ -815,26 +751,13 @@ function ProductoCombobox({
         ref={inputRef}
         type="text"
         value={query}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          setOpen(true);
-          setHl(-1);
-        }}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); setHl(-1); }}
         onFocus={() => setOpen(true)}
         onKeyDown={(e) => {
-          if (e.key === "ArrowDown") {
-            e.preventDefault();
-            setOpen(true);
-            setHl((h) => Math.min(h + 1, resultados.length - 1));
-          } else if (e.key === "ArrowUp") {
-            e.preventDefault();
-            setHl((h) => Math.max(h - 1, 0));
-          } else if (e.key === "Enter") {
-            e.preventDefault();
-            if (open && hl >= 0 && resultados[hl]) pick(resultados[hl]);
-          } else if (e.key === "Escape") {
-            setOpen(false);
-          }
+          if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setHl((h) => Math.min(h + 1, resultados.length - 1)); }
+          else if (e.key === "ArrowUp") { e.preventDefault(); setHl((h) => Math.max(h - 1, 0)); }
+          else if (e.key === "Enter") { e.preventDefault(); if (open && hl >= 0 && resultados[hl]) pick(resultados[hl]); }
+          else if (e.key === "Escape") { setOpen(false); }
         }}
         placeholder="Buscar producto por nombre o SKU…"
         autoComplete="off"
@@ -842,38 +765,31 @@ function ProductoCombobox({
       />
       {open && (
         <div className="absolute left-0 right-0 z-50 mt-1.5">
-          <ul
-            ref={listRef}
-            className="max-h-[280px] overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl ring-1 ring-[#4FAEB2]/15"
-          >
+          <ul ref={listRef} className="max-h-[280px] overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl ring-1 ring-[#4FAEB2]/15">
             {resultados.length === 0 ? (
-              <li className="px-3 py-3 text-center text-xs text-slate-400">Sin productos que coincidan.</li>
+              <li className="px-3 py-3 text-center text-xs text-slate-400">
+                {query.trim() ? "Sin productos que coincidan." : "No hay más productos para agregar."}
+              </li>
             ) : (
               resultados.map((p, i) => (
                 <li key={p.id}>
-                  <button
-                    type="button"
-                    data-idx={i}
-                    onMouseEnter={() => setHl(i)}
-                    onClick={() => pick(p)}
+                  <button type="button" data-idx={i}
+                    onMouseEnter={() => setHl(i)} onClick={() => pick(p)}
                     className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
                       i === hl ? "bg-[#4FAEB2]/10 text-[#2F6E71]" : "text-slate-700 hover:bg-slate-50"
-                    }`}
-                  >
+                    }`}>
                     <span className="min-w-0 flex-1 truncate">
                       <span className="font-medium">{p.nombre}</span>
                       <span className="ml-2 font-mono text-xs text-slate-400">{p.sku}</span>
                     </span>
-                    <span className={`shrink-0 text-xs ${p.stock_actual <= 0 ? "text-red-500" : "text-slate-400"}`}>
-                      stock: {p.stock_actual}
-                    </span>
+                    <span className={`shrink-0 text-xs ${p.stock_actual <= 0 ? "text-red-500" : "text-slate-400"}`}>stock: {p.stock_actual}</span>
                   </button>
                 </li>
               ))
             )}
-            {query.trim() === "" && productos.length > 50 && (
+            {query.trim() === "" && productos.length - excluidos.size > 50 && (
               <li className="px-3 py-1.5 text-center text-[11px] text-slate-400">
-                Mostrando 50 · escribí para filtrar entre {productos.length.toLocaleString("es-PY")} productos
+                Mostrando 50 · escribí para filtrar entre {(productos.length).toLocaleString("es-PY")} productos
               </li>
             )}
           </ul>
