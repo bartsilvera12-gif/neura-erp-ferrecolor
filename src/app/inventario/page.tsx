@@ -288,9 +288,9 @@ export default function InventarioPage() {
           </div>
 
           {/* Filtros */}
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_minmax(180px,250px)_minmax(100px,140px)]">
-            {/* Search */}
-            <div className="relative">
+          <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center">
+            {/* Search — ocupa el espacio disponible */}
+            <div className="relative lg:flex-1 lg:min-w-[240px]">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
@@ -310,51 +310,46 @@ export default function InventarioPage() {
                 </button>
               )}
             </div>
-            {/* Categoria */}
-            <select
-              value={categoriaId}
-              onChange={(e) => {
-                setCategoriaId(e.target.value);
-                setPage(1);
-              }}
-              className="h-10 rounded-lg border-2 border-slate-200 bg-white px-3 text-sm outline-none transition-all focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20"
-            >
-              <option value="">Todas las categorías</option>
-              <option value="__sin__">— Sin categoría —</option>
-              {categorias.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.nombre}
-                </option>
-              ))}
-            </select>
-            {/* Rango ABC */}
-            <select
-              value={filtroRango}
-              onChange={(e) => setFiltroRango(e.target.value as RangoABC | "")}
-              className="h-10 rounded-lg border-2 border-slate-200 bg-white px-3 text-sm outline-none transition-all focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20"
-              title="Clasificación ABC por ventas (últimos 3 meses)"
-            >
-              <option value="">Todos los rangos</option>
-              <option value="A">Rango A</option>
-              <option value="B">Rango B</option>
-              <option value="C">Rango C</option>
-            </select>
-            {/* Page size */}
-            <select
-              value={pageSize}
-              onChange={(e) => {
-                setPageSize(Number(e.target.value));
-                setPage(1);
-              }}
-              className="h-10 rounded-lg border-2 border-slate-200 bg-white px-3 text-sm outline-none transition-all focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20"
-              aria-label="Cantidad por página"
-            >
-              {PAGE_SIZE_OPTIONS.map((n) => (
-                <option key={n} value={n}>
-                  {n} / pág
-                </option>
-              ))}
-            </select>
+
+            {/* Selects agrupados, alineados a la derecha en desktop */}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:flex lg:items-center lg:gap-2">
+              <select
+                value={categoriaId}
+                onChange={(e) => { setCategoriaId(e.target.value); setPage(1); }}
+                className="h-10 w-full rounded-lg border-2 border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-all focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20 lg:w-[190px]"
+                aria-label="Filtrar por categoría"
+              >
+                <option value="">Todas las categorías</option>
+                <option value="__sin__">— Sin categoría —</option>
+                {categorias.map((c) => (
+                  <option key={c.id} value={c.id}>{c.nombre}</option>
+                ))}
+              </select>
+
+              <select
+                value={filtroRango}
+                onChange={(e) => setFiltroRango(e.target.value as RangoABC | "")}
+                className="h-10 w-full rounded-lg border-2 border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-all focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20 lg:w-[160px]"
+                aria-label="Filtrar por rango ABC"
+                title="Clasificación ABC por ventas (últimos 3 meses)"
+              >
+                <option value="">Todos los rangos</option>
+                <option value="A">Rango A · Muy vendido</option>
+                <option value="B">Rango B · Medio</option>
+                <option value="C">Rango C · Poca venta</option>
+              </select>
+
+              <select
+                value={pageSize}
+                onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+                className="col-span-2 h-10 w-full rounded-lg border-2 border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-all focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20 sm:col-span-1 lg:w-[120px]"
+                aria-label="Cantidad por página"
+              >
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>{n} / pág</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {hasFilters && (
