@@ -1,5 +1,24 @@
 import type { EstadoCuentaReporte, ProveedoresReporte, ComprasReporte, VentasReporte, ConciliacionReporte } from "./types";
 import type { CajasReporte, CajaDetalle } from "@/lib/caja/types";
+import type { RangoABC } from "@/lib/reportes/abc";
+
+export interface ProductoRotacion {
+  producto_id: string;
+  nombre: string;
+  sku: string | null;
+  stock_actual: number;
+  stock_minimo: number;
+  cantidad_vendida: number;
+  importe_vendido: number;
+  rango: RangoABC;
+}
+export interface RotacionAbc {
+  desde: string;
+  hasta: string;
+  meses: number;
+  totales: { total: number; a: number; b: number; c: number; sin_ventas: number };
+  productos: ProductoRotacion[];
+}
 
 async function getReporte<T>(url: string): Promise<T | null> {
   try {
@@ -29,3 +48,5 @@ export const getCajasReporte = (desde: string, hasta: string) =>
   getReporte<CajasReporte>(`/api/reportes/cajas?desde=${mq(desde)}&hasta=${mq(hasta)}`);
 export const getCajaDetalle = (id: string) =>
   getReporte<CajaDetalle>(`/api/reportes/cajas/${encodeURIComponent(id)}`);
+export const getRotacionAbcReporte = (meses: number) =>
+  getReporte<RotacionAbc>(`/api/reportes/rotacion-abc?meses=${meses}`);
