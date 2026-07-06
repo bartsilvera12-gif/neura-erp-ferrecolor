@@ -2,10 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import PageHeader from "@/components/ui/PageHeader";
-import StatCard from "@/components/ui/StatCard";
 import { getRotacionAbcReporte, type RotacionAbc } from "@/lib/reportes/storage";
 import type { RangoABC } from "@/lib/reportes/abc";
-import { ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from "lucide-react";
+import { ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, Boxes, TrendingUp, BarChart3, TrendingDown } from "lucide-react";
 
 function fmtGs(v: number) {
   return `Gs. ${Math.round(v).toLocaleString("es-PY")}`;
@@ -100,10 +99,49 @@ export default function RotacionAbcPage() {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard compact accent label="Productos" value={fmtNum(t.total)} hint={`período ${data.desde} → ${data.hasta}`} />
-            <StatCard compact label="Clase A" value={fmtNum(t.a)} hint="muy vendidos" />
-            <StatCard compact label="Clase B" value={fmtNum(t.b)} hint="medianamente vendidos" />
-            <StatCard compact label="Clase C" value={fmtNum(t.c)} hint={`${fmtNum(t.sin_ventas)} sin ventas`} />
+            {/* Productos (total) + distribución A/B/C */}
+            <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <span className="absolute inset-x-0 top-0 h-1 bg-[#4FAEB2]" />
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Productos</p>
+                  <p className="mt-1 text-3xl font-bold tabular-nums text-[#3F8E91]">{fmtNum(t.total)}</p>
+                </div>
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#4FAEB2]/12 text-[#3F8E91]">
+                  <Boxes className="h-5 w-5" />
+                </span>
+              </div>
+              {t.total > 0 && (
+                <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-slate-100">
+                  <span className="bg-emerald-400" style={{ width: `${(t.a / t.total) * 100}%` }} />
+                  <span className="bg-amber-400" style={{ width: `${(t.b / t.total) * 100}%` }} />
+                  <span className="bg-slate-300" style={{ width: `${(t.c / t.total) * 100}%` }} />
+                </div>
+              )}
+              <p className="mt-2 text-[11px] text-slate-400">período {data.desde} → {data.hasta}</p>
+            </div>
+
+            {/* Clase A / B / C */}
+            {([
+              { letra: "A" as const, valor: t.a, hint: "muy vendidos", chip: "bg-emerald-100 text-emerald-700", bar: "bg-emerald-400", Icon: TrendingUp },
+              { letra: "B" as const, valor: t.b, hint: "medianamente vendidos", chip: "bg-amber-100 text-amber-700", bar: "bg-amber-400", Icon: BarChart3 },
+              { letra: "C" as const, valor: t.c, hint: `${fmtNum(t.sin_ventas)} sin ventas`, chip: "bg-slate-200 text-slate-600", bar: "bg-slate-300", Icon: TrendingDown },
+            ]).map((c) => (
+              <div key={c.letra} className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+                <span className={`absolute inset-x-0 top-0 h-1 ${c.bar}`} />
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Clase {c.letra}</p>
+                    <p className="mt-1 text-3xl font-bold tabular-nums text-slate-900">{fmtNum(c.valor)}</p>
+                  </div>
+                  <span className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${c.chip}`}>
+                    <span className="text-base font-extrabold">{c.letra}</span>
+                    <c.Icon className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full bg-white p-0.5" strokeWidth={2.5} />
+                  </span>
+                </div>
+                <p className="mt-3 text-xs text-slate-500">{c.hint}</p>
+              </div>
+            ))}
           </div>
 
           <div className="rounded-2xl border border-[#4FAEB2]/30 bg-white p-6 shadow-sm ring-1 ring-[#4FAEB2]/10">
