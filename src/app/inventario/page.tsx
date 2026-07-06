@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { getProductosPaginated } from "@/lib/inventario/storage";
-import { getRotacionAbcReporte } from "@/lib/reportes/storage";
+import { getRotacionAbcMapa } from "@/lib/reportes/storage";
 import type { RangoABC } from "@/lib/reportes/abc";
 import type { Producto, MetodoValuacion } from "@/lib/inventario/types";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
@@ -144,13 +144,13 @@ export default function InventarioPage() {
     };
   }, [searchDraft]);
 
-  // Cargar clasificación ABC 1 sola vez (rango por producto).
+  // Cargar clasificación ABC 1 sola vez (mapa mínimo: solo A/B; el resto es C).
   useEffect(() => {
     let cancel = false;
-    getRotacionAbcReporte(3)
+    getRotacionAbcMapa(3)
       .then((d) => {
         if (cancel || !d) return;
-        setAbcMap(new Map(d.productos.map((p) => [p.producto_id, p.rango])));
+        setAbcMap(new Map(d.mapa.map((p) => [p.producto_id, p.rango])));
       })
       .catch(() => undefined);
     return () => { cancel = true; };

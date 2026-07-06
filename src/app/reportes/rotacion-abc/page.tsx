@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import PageHeader from "@/components/ui/PageHeader";
 import StatCard from "@/components/ui/StatCard";
 import { getRotacionAbcReporte, type RotacionAbc } from "@/lib/reportes/storage";
-import { productoMatchesQuery } from "@/lib/productos/token-search";
 import type { RangoABC } from "@/lib/reportes/abc";
+import { ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from "lucide-react";
 
 function fmtGs(v: number) {
   return `Gs. ${Math.round(v).toLocaleString("es-PY")}`;
@@ -25,33 +25,44 @@ const PERIODOS = [
   { meses: 2, label: "Últimos 2 meses" },
   { meses: 3, label: "Últimos 3 meses" },
 ];
+const PAGE_SIZES = [25, 50, 100, 200] as const;
 
 export default function RotacionAbcPage() {
   const [meses, setMeses] = useState(3);
   const [data, setData] = useState<RotacionAbc | null>(null);
   const [cargando, setCargando] = useState(true);
   const [rango, setRango] = useState<RangoABC | "">("");
+  const [busquedaDraft, setBusquedaDraft] = useState("");
   const [busqueda, setBusqueda] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  // Debounce de la búsqueda (350ms) → resetea a página 1.
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => { setBusqueda(busquedaDraft.trim()); setPage(1); }, 350);
+    return () => { if (timer.current) clearTimeout(timer.current); };
+  }, [busquedaDraft]);
+
+  // Reset de página al cambiar período / rango / tamaño.
+  useEffect(() => { setPage(1); }, [meses, rango, pageSize]);
 
   useEffect(() => {
     let cancel = false;
     setCargando(true);
-    getRotacionAbcReporte(meses).then((d) => {
+    getRotacionAbcReporte({ meses, page, pageSize, rango, q: busqueda }).then((d) => {
       if (!cancel) { setData(d); setCargando(false); }
     });
     return () => { cancel = true; };
-  }, [meses]);
-
-  const filtrados = useMemo(() => {
-    if (!data) return [];
-    return data.productos.filter((p) => {
-      if (rango && p.rango !== rango) return false;
-      if (busqueda.trim() && !productoMatchesQuery(busqueda, p.nombre, p.sku)) return false;
-      return true;
-    });
-  }, [data, rango, busqueda]);
+  }, [meses, page, pageSize, rango, busqueda]);
 
   const t = data?.totales;
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const fromIdx = total === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const toIdx = Math.min(safePage * pageSize, total);
 
   return (
     <div className="space-y-8">
@@ -80,7 +91,7 @@ export default function RotacionAbcPage() {
         }
       />
 
-      {cargando ? (
+      {!data && cargando ? (
         <p className="text-slate-500 animate-pulse">Cargando…</p>
       ) : !data || !t ? (
         <div className="rounded-xl border border-slate-200 bg-white p-6 text-slate-500 shadow-sm">
@@ -89,10 +100,10 @@ export default function RotacionAbcPage() {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard compact accent label="Productos" value={String(t.total)} hint={`período ${data.desde} → ${data.hasta}`} />
-            <StatCard compact label="Clase A" value={String(t.a)} hint="muy vendidos" />
-            <StatCard compact label="Clase B" value={String(t.b)} hint="medianamente vendidos" />
-            <StatCard compact label="Clase C" value={String(t.c)} hint={`${t.sin_ventas} sin ventas`} />
+            <StatCard compact accent label="Productos" value={fmtNum(t.total)} hint={`período ${data.desde} → ${data.hasta}`} />
+            <StatCard compact label="Clase A" value={fmtNum(t.a)} hint="muy vendidos" />
+            <StatCard compact label="Clase B" value={fmtNum(t.b)} hint="medianamente vendidos" />
+            <StatCard compact label="Clase C" value={fmtNum(t.c)} hint={`${fmtNum(t.sin_ventas)} sin ventas`} />
           </div>
 
           <div className="rounded-2xl border border-[#4FAEB2]/30 bg-white p-6 shadow-sm ring-1 ring-[#4FAEB2]/10">
@@ -100,8 +111,8 @@ export default function RotacionAbcPage() {
               <input
                 type="text"
                 placeholder="Buscar por nombre o SKU…"
-                value={busqueda}
-                onChange={(e) => setBusqueda(e.target.value)}
+                value={busquedaDraft}
+                onChange={(e) => setBusquedaDraft(e.target.value)}
                 className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#4FAEB2]/30 sm:min-w-72"
               />
               <select
@@ -114,7 +125,19 @@ export default function RotacionAbcPage() {
                 <option value="B">Rango B</option>
                 <option value="C">Rango C</option>
               </select>
-              <span className="ml-auto text-sm text-slate-400">{filtrados.length} de {t.total}</span>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="w-28 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#4FAEB2]/30"
+                title="Ítems por página"
+              >
+                {PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>{n} / pág.</option>
+                ))}
+              </select>
+              <span className="ml-auto text-sm text-slate-400 tabular-nums">
+                {cargando ? "…" : `${fromIdx}–${toIdx} de ${fmtNum(total)}`}
+              </span>
             </div>
 
             <div className="overflow-x-auto rounded-xl border border-slate-200">
@@ -131,9 +154,9 @@ export default function RotacionAbcPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filtrados.length === 0 ? (
+                  {data.productos.length === 0 ? (
                     <tr><td colSpan={7} className="py-8 text-center text-sm text-slate-400">Sin productos para el filtro.</td></tr>
-                  ) : filtrados.map((p) => (
+                  ) : data.productos.map((p) => (
                     <tr key={p.producto_id} className="transition-colors hover:bg-[#4FAEB2]/5">
                       <td className="px-3 py-2.5 text-xs font-semibold text-slate-900">{p.nombre}</td>
                       <td className="px-3 py-2.5 font-mono text-xs text-slate-500">{p.sku ?? "—"}</td>
@@ -148,6 +171,17 @@ export default function RotacionAbcPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            {/* Paginación */}
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <span className="text-xs text-slate-500 tabular-nums">Página {safePage} de {totalPages}</span>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setPage(1)} disabled={safePage <= 1} className="rounded-md border border-slate-200 p-1.5 text-slate-500 disabled:opacity-40 hover:bg-slate-50"><ChevronsLeft className="h-4 w-4" /></button>
+                <button onClick={() => setPage((n) => Math.max(1, n - 1))} disabled={safePage <= 1} className="rounded-md border border-slate-200 p-1.5 text-slate-500 disabled:opacity-40 hover:bg-slate-50"><ChevronLeft className="h-4 w-4" /></button>
+                <button onClick={() => setPage((n) => Math.min(totalPages, n + 1))} disabled={safePage >= totalPages} className="rounded-md border border-slate-200 p-1.5 text-slate-500 disabled:opacity-40 hover:bg-slate-50"><ChevronRight className="h-4 w-4" /></button>
+                <button onClick={() => setPage(totalPages)} disabled={safePage >= totalPages} className="rounded-md border border-slate-200 p-1.5 text-slate-500 disabled:opacity-40 hover:bg-slate-50"><ChevronsRight className="h-4 w-4" /></button>
+              </div>
             </div>
           </div>
         </>

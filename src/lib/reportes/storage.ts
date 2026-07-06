@@ -17,7 +17,21 @@ export interface RotacionAbc {
   hasta: string;
   meses: number;
   totales: { total: number; a: number; b: number; c: number; sin_ventas: number };
+  page: number;
+  pageSize: number;
+  total: number;
   productos: ProductoRotacion[];
+}
+export interface RotacionAbcMapa {
+  meses: number;
+  mapa: Array<{ producto_id: string; rango: RangoABC }>;
+}
+export interface RotacionAbcQuery {
+  meses: number;
+  page?: number;
+  pageSize?: number;
+  rango?: RangoABC | "";
+  q?: string;
 }
 
 async function getReporte<T>(url: string): Promise<T | null> {
@@ -48,5 +62,14 @@ export const getCajasReporte = (desde: string, hasta: string) =>
   getReporte<CajasReporte>(`/api/reportes/cajas?desde=${mq(desde)}&hasta=${mq(hasta)}`);
 export const getCajaDetalle = (id: string) =>
   getReporte<CajaDetalle>(`/api/reportes/cajas/${encodeURIComponent(id)}`);
-export const getRotacionAbcReporte = (meses: number) =>
-  getReporte<RotacionAbc>(`/api/reportes/rotacion-abc?meses=${meses}`);
+export const getRotacionAbcReporte = (opts: RotacionAbcQuery) => {
+  const p = new URLSearchParams({ meses: String(opts.meses) });
+  if (opts.page) p.set("page", String(opts.page));
+  if (opts.pageSize) p.set("pageSize", String(opts.pageSize));
+  if (opts.rango) p.set("rango", opts.rango);
+  if (opts.q && opts.q.trim()) p.set("q", opts.q.trim());
+  return getReporte<RotacionAbc>(`/api/reportes/rotacion-abc?${p.toString()}`);
+};
+/** Mapa mínimo producto→rango (solo A/B) para el listado de productos. */
+export const getRotacionAbcMapa = (meses: number) =>
+  getReporte<RotacionAbcMapa>(`/api/reportes/rotacion-abc?meses=${meses}&mapa=1`);
