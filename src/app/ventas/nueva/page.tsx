@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Search, Plus, Minus, Trash2 } from "lucide-react";
 import MontoInput from "@/components/ui/MontoInput";
 import ProductPickerModal, { type ProductoPickerItem, type AgregarVentaPayload } from "@/components/inventario/ProductPickerModal";
 import { saveVenta, type FaltanteStock } from "@/lib/ventas/storage";
@@ -551,6 +552,8 @@ export default function NuevaVentaPage() {
   const comboFiltrados = comboQuery.trim() === ""
     ? productosVendibles
     : productosVendibles.filter((p) => productoMatchesQuery(comboQuery, p.nombre, p.sku));
+  // Resultados acotados para el dropdown del autocomplete (rápido, sin saturar).
+  const comboResultados = comboFiltrados.slice(0, 15);
 
   // ── Selección de un producto desde el combobox ────────────────────────────
   function seleccionarProducto(p: Producto) {
@@ -662,6 +665,86 @@ export default function NuevaVentaPage() {
 
   function handleEliminarLinea(index: number) {
     setItems((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  // ── Autocomplete rápido + edición inline ──────────────────────────────────
+  // Recalcula subtotal/IVA/total de una línea (IVA incluido, igual que calcIva).
+  function recomputeLinea(l: LineaVenta): LineaVenta {
+    const total_linea = l.cantidad > 0 && l.precio_venta > 0 ? l.cantidad * l.precio_venta : 0;
+    const monto_iva = calcIva(l.tipo_iva, total_linea);
+    return { ...l, total_linea, monto_iva, subtotal: total_linea - monto_iva };
+  }
+
+  /** Agrega un producto directo desde el autocomplete: si ya está (sin presentación)
+   *  suma +1; si no, crea la línea. Luego limpia el input y devuelve el foco. */
+  function agregarProductoRapido(p: Producto) {
+    const precio = precioPorTipo(p, "minorista");
+    setItems((prev) => {
+      const idx = prev.findIndex((it) => it.producto_id === p.id && !it.presentacion_id);
+      if (idx >= 0) {
+        return prev.map((it, i) => (i === idx ? recomputeLinea({ ...it, cantidad: it.cantidad + 1 }) : it));
+      }
+      return [
+        ...prev,
+        recomputeLinea({
+          producto_id: p.id,
+          producto_nombre: p.nombre,
+          sku: p.sku,
+          cantidad: 1,
+          precio_venta_original: precio,
+          precio_venta: precio,
+          tipo_iva: "10%",
+          tipo_precio: "minorista",
+          subtotal: 0,
+          monto_iva: 0,
+          total_linea: 0,
+          presentacion_id: null,
+          presentacion_nombre: null,
+          presentacion_cantidad_base: null,
+        }),
+      ];
+    });
+    setComboQuery("");
+    setComboOpen(false);
+    setComboHighlight(-1);
+    setErrorLinea(null);
+    setTimeout(() => comboInputRef.current?.focus(), 0);
+  }
+
+  function updateItemCampo(idx: number, patch: Partial<LineaVenta>) {
+    setItems((prev) => prev.map((it, i) => (i === idx ? recomputeLinea({ ...it, ...patch }) : it)));
+  }
+  function changeCantidadItem(idx: number, delta: number) {
+    setItems((prev) => prev.map((it, i) => (i === idx ? recomputeLinea({ ...it, cantidad: Math.max(1, it.cantidad + delta) }) : it)));
+  }
+  function changeTipoPrecioItem(idx: number, tipo: TipoPrecioVenta) {
+    setItems((prev) =>
+      prev.map((it, i) => {
+        if (i !== idx) return it;
+        const prod = productos.find((p) => p.id === it.producto_id);
+        const precio = prod ? precioPorTipo(prod, tipo) : it.precio_venta;
+        return recomputeLinea({ ...it, tipo_precio: tipo, precio_venta: precio, precio_venta_original: precio });
+      })
+    );
+  }
+
+  /** Teclado del autocomplete: ↑/↓ navega, Enter agrega el resaltado, Esc cierra. */
+  function onComboKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setComboOpen(true);
+      setComboHighlight((h) => Math.min(h + 1, comboResultados.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setComboHighlight((h) => Math.max(h - 1, 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const sel = comboResultados[comboHighlight] ?? comboResultados[0];
+      if (sel) agregarProductoRapido(sel);
+    } else if (e.key === "Escape") {
+      setComboOpen(false);
+      setComboHighlight(-1);
+    }
   }
 
   /** Envía la venta. Con `permitirSinStock=true` autoriza vender aunque falte stock. */
@@ -786,20 +869,11 @@ export default function NuevaVentaPage() {
   return (
     <div className="space-y-8">
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">Nueva venta</h1>
-          <p className="text-gray-600">
-            Agregá productos de reventa o del catálogo. Al confirmar se registra la venta.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setPickerOpen(true)}
-          className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-[#0EA5E9] px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#0284C7] active:scale-95"
-        >
-          + Agregar producto
-        </button>
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">Nueva venta</h1>
+        <p className="text-gray-600">
+          Buscá un producto y se agrega al instante. Revisá cantidades y precios en la tabla.
+        </p>
       </div>
 
       {pedidoId && (
@@ -970,94 +1044,193 @@ export default function NuevaVentaPage() {
 
         {/* ── SECCIÓN 3: Carrito + totales + confirmar ─────────────────────── */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 sm:p-6">
-          <SectionTitle>Productos en esta venta</SectionTitle>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <SectionTitle>Productos en esta venta</SectionTitle>
+            <button
+              type="button"
+              onClick={() => setPickerOpen(true)}
+              className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-[#0EA5E9] hover:text-[#0284C7]"
+              title="Buscador avanzado (presentaciones, crear producto)"
+            >
+              Buscador avanzado
+            </button>
+          </div>
+
+          {/* Autocomplete compacto: al elegir un producto se agrega solo y se limpia. */}
+          <div ref={comboContainerRef} className="relative">
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#0EA5E9]" />
+            <input
+              ref={comboInputRef}
+              type="text"
+              value={comboQuery}
+              onChange={(e) => { setComboQuery(e.target.value); setComboOpen(true); setComboHighlight(-1); }}
+              onFocus={() => setComboOpen(true)}
+              onKeyDown={onComboKeyDown}
+              placeholder="Buscar producto por nombre, SKU o palabras clave…"
+              className="h-12 w-full rounded-xl border-2 border-[#0EA5E9]/30 bg-white pl-12 pr-4 text-base text-slate-800 outline-none transition-all focus:border-[#0EA5E9] focus:ring-4 focus:ring-[#0EA5E9]/15"
+              autoComplete="off"
+            />
+            {comboOpen && comboQuery.trim().length >= 1 && (
+              <div className="absolute left-0 right-0 top-full z-30 mt-2 max-h-[56vh] overflow-y-auto rounded-xl border-2 border-[#0EA5E9]/20 bg-white shadow-[0_16px_40px_-12px_rgba(15,23,42,0.28)]">
+                {comboResultados.length === 0 ? (
+                  <div className="px-4 py-5 text-center text-sm text-slate-400">Sin resultados para &quot;{comboQuery}&quot;.</div>
+                ) : (
+                  <ul className="divide-y divide-slate-100">
+                    {comboResultados.map((p, i) => {
+                      const controla = p.controla_stock !== false;
+                      const sinStock = controla && (p.stock_actual ?? 0) <= 0;
+                      return (
+                        <li key={p.id}>
+                          <button
+                            type="button"
+                            onMouseEnter={() => setComboHighlight(i)}
+                            onClick={() => agregarProductoRapido(p)}
+                            className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors ${i === comboHighlight ? "bg-[#0EA5E9]/8" : "hover:bg-slate-50"}`}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-semibold text-slate-800">{p.nombre}</p>
+                              <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
+                                <span className="font-mono">{p.sku}</span>
+                                <span className="text-slate-300">·</span>
+                                <span className={`font-semibold ${!controla ? "text-slate-400" : sinStock ? "text-red-600" : (p.stock_actual ?? 0) < 5 ? "text-amber-600" : "text-emerald-700"}`}>
+                                  {!controla ? "Sin control" : sinStock ? "Sin stock" : `${p.stock_actual} ${p.unidad_medida ?? ""}`}
+                                </span>
+                              </div>
+                            </div>
+                            <span className="shrink-0 text-sm font-bold tabular-nums text-slate-800">{formatGs(precioPorTipo(p, "minorista"))}</span>
+                            <span className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-[#0EA5E9]/10 px-2.5 py-1 text-xs font-bold text-[#0284C7]">
+                              <Plus className="h-3.5 w-3.5" strokeWidth={2.5} /> Agregar
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                    {comboFiltrados.length > comboResultados.length && (
+                      <li className="px-4 py-2 text-center text-[11px] text-slate-400">
+                        Mostrando {comboResultados.length} de {comboFiltrados.length}. Refiná la búsqueda.
+                      </li>
+                    )}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
 
           {items.length === 0 ? (
-            <div className="py-10 text-center text-gray-400 text-sm border-2 border-dashed border-gray-200 rounded-lg">
-              Todavía no agregaste productos a esta venta.
+            <div className="mt-4 py-10 text-center text-gray-400 text-sm border-2 border-dashed border-gray-200 rounded-lg">
+              Buscá un producto arriba y se agrega automáticamente a la venta.
             </div>
           ) : (
             <>
               {/* min-w fuerza scroll horizontal en mobile (9 columnas).
                   Columnas secundarias (SKU, Subtotal, IVA Gs) se ocultan
                   progresivamente: en mobile solo Producto/Cant/Precio/Total/eliminar. */}
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[760px] sm:min-w-0 text-sm text-left">
+              <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full min-w-[900px] text-sm text-left">
                   <thead>
-                    <tr className="bg-slate-50 text-slate-600 text-sm font-semibold">
-                      <th className="py-2.5 pr-3 font-medium">Producto</th>
-                      <th className="hidden py-2.5 pr-3 font-medium lg:table-cell">SKU</th>
-                      <th className="py-2.5 pr-3 font-medium text-right">Cant.</th>
-                      <th className="py-2.5 pr-3 font-medium text-right">Precio unit.</th>
-                      <th className="hidden py-2.5 pr-3 text-center font-medium lg:table-cell">IVA</th>
-                      <th className="py-2.5 pr-3 font-medium text-right hidden lg:table-cell">Subtotal</th>
-                      <th className="py-2.5 pr-3 font-medium text-right hidden lg:table-cell">IVA Gs.</th>
-                      <th className="py-2.5 pr-3 font-medium text-right">Total</th>
-                      <th className="py-2.5 font-medium"></th>
+                    <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                      <th className="px-3 py-3">Producto</th>
+                      <th className="hidden px-3 py-3 md:table-cell">Precio</th>
+                      <th className="hidden px-3 py-3 text-center md:table-cell">IVA</th>
+                      <th className="px-3 py-3 text-center">Cant.</th>
+                      <th className="px-3 py-3 text-right">Precio unit.</th>
+                      <th className="px-3 py-3 text-right">Stock</th>
+                      <th className="px-3 py-3 text-right">Subtotal</th>
+                      <th className="w-10 px-2 py-3"></th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {items.map((item, idx) => (
-                      <tr key={idx} className="border-b border-slate-200 last:border-0 hover:bg-slate-50 transition-colors">
-                        <td className="py-3 pr-3 font-medium text-gray-800">
-                          <span>{item.producto_nombre}</span>
-                          <span className={`ml-2 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold align-middle ${
-                            item.tipo_precio === "mayorista" ? "bg-indigo-100 text-indigo-700"
-                            : item.tipo_precio === "distribuidor" ? "bg-emerald-100 text-emerald-700"
-                            : item.tipo_precio === "costo" ? "bg-amber-100 text-amber-700"
-                            : "bg-slate-100 text-slate-600"
-                          }`}>
-                            {tipoPrecioLabel[item.tipo_precio ?? "minorista"]}
-                          </span>
-                        </td>
-                        <td className="hidden py-3 pr-3 font-mono text-xs text-gray-500 lg:table-cell">
-                          {item.sku}
-                        </td>
-                        <td className="py-3 pr-3 text-right tabular-nums">
-                          <span>{item.cantidad}</span>
-                          {item.presentacion_nombre && (
-                            <span className="ml-1 text-xs font-medium text-slate-600">
-                              {item.presentacion_nombre}
-                              {item.presentacion_cantidad_base != null &&
-                              item.presentacion_cantidad_base !== 1 ? (
-                                <span className="block text-[10px] text-slate-400 tabular-nums leading-tight">
-                                  = {item.cantidad * item.presentacion_cantidad_base}
-                                </span>
-                              ) : null}
+                  <tbody className="divide-y divide-slate-100">
+                    {items.map((item, idx) => {
+                      const prod = productos.find((p) => p.id === item.producto_id);
+                      const controla = prod ? prod.controla_stock !== false : true;
+                      const stock = prod?.stock_actual ?? 0;
+                      const stockBajo = controla && item.cantidad > stock;
+                      return (
+                        <tr key={idx} className="align-middle transition-colors hover:bg-[#0EA5E9]/5">
+                          {/* Producto + SKU */}
+                          <td className="px-3 py-2.5">
+                            <p className="font-semibold text-slate-900 leading-snug">{item.producto_nombre}</p>
+                            <p className="font-mono text-[11px] text-slate-500">{item.sku}</p>
+                            {item.presentacion_nombre && (
+                              <p className="text-[11px] text-slate-500">
+                                {item.presentacion_nombre}
+                                {item.presentacion_cantidad_base != null && item.presentacion_cantidad_base !== 1
+                                  ? ` = ${item.cantidad * item.presentacion_cantidad_base}` : ""}
+                              </p>
+                            )}
+                          </td>
+                          {/* Tipo de precio */}
+                          <td className="hidden px-3 py-2.5 md:table-cell">
+                            <div className="inline-flex overflow-hidden rounded-lg border border-slate-200">
+                              {(["minorista", "mayorista", "distribuidor"] as const).map((tp) => {
+                                const sel = (item.tipo_precio ?? "minorista") === tp;
+                                return (
+                                  <button key={tp} type="button" onClick={() => changeTipoPrecioItem(idx, tp)}
+                                    className={`px-2 py-1.5 text-[11px] font-semibold transition-colors ${sel ? "bg-[#0EA5E9] text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
+                                    {tp === "minorista" ? "Min" : tp === "mayorista" ? "May" : "Dist"}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </td>
+                          {/* IVA */}
+                          <td className="hidden px-3 py-2.5 md:table-cell">
+                            <div className="inline-flex overflow-hidden rounded-lg border border-slate-200">
+                              {(["EXENTA", "5%", "10%"] as const).map((iva) => {
+                                const sel = item.tipo_iva === iva;
+                                return (
+                                  <button key={iva} type="button" onClick={() => updateItemCampo(idx, { tipo_iva: iva })}
+                                    className={`px-2 py-1.5 text-[11px] font-semibold transition-colors ${sel ? "bg-[#0EA5E9] text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
+                                    {iva === "EXENTA" ? "Ex" : iva}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </td>
+                          {/* Cantidad */}
+                          <td className="px-3 py-2.5">
+                            <div className="mx-auto flex w-fit items-center rounded-md border border-slate-200 bg-white">
+                              <button type="button" onClick={() => changeCantidadItem(idx, -1)} className="h-8 w-8 rounded-l-md text-slate-500 hover:bg-slate-100"><Minus className="mx-auto h-3.5 w-3.5" /></button>
+                              <input
+                                type="number" min={1} value={item.cantidad}
+                                onChange={(e) => updateItemCampo(idx, { cantidad: Math.max(1, parseInt(e.target.value) || 1) })}
+                                className="h-8 w-12 text-center text-sm tabular-nums outline-none"
+                              />
+                              <button type="button" onClick={() => changeCantidadItem(idx, 1)} className="h-8 w-8 rounded-r-md text-slate-500 hover:bg-slate-100"><Plus className="mx-auto h-3.5 w-3.5" /></button>
+                            </div>
+                          </td>
+                          {/* Precio unitario editable */}
+                          <td className="px-3 py-2.5 text-right">
+                            <input
+                              type="number" min={0} value={item.precio_venta}
+                              onChange={(e) => updateItemCampo(idx, { precio_venta: Math.max(0, Number(e.target.value) || 0) })}
+                              className="h-8 w-28 rounded-md border border-slate-200 bg-white px-2 text-right text-sm tabular-nums"
+                            />
+                          </td>
+                          {/* Stock */}
+                          <td className="px-3 py-2.5 text-right">
+                            <span className={`text-xs font-semibold tabular-nums ${!controla ? "text-slate-400" : stockBajo ? "text-red-600" : "text-slate-600"}`}>
+                              {!controla ? "—" : stock}
                             </span>
-                          )}
-                        </td>
-                        <td className="py-3 pr-3 text-right tabular-nums text-gray-600 text-xs">
-                          {formatGs(item.precio_venta)}
-                        </td>
-                        <td className="hidden py-3 pr-3 text-center lg:table-cell">
-                          <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">
-                            {ivaLabel[item.tipo_iva]}
-                          </span>
-                        </td>
-                        <td className="py-3 pr-3 text-right tabular-nums text-gray-600 text-xs hidden lg:table-cell">
-                          {formatGs(item.subtotal)}
-                        </td>
-                        <td className="py-3 pr-3 text-right tabular-nums text-gray-500 text-xs hidden lg:table-cell">
-                          {item.monto_iva > 0 ? formatGs(item.monto_iva) : "—"}
-                        </td>
-                        <td className="py-3 pr-3 text-right tabular-nums font-semibold text-gray-800">
-                          {formatGs(item.total_linea)}
-                        </td>
-                        <td className="py-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleEliminarLinea(idx)}
-                            className="inline-flex items-center justify-center min-w-[40px] min-h-[40px] text-red-400 hover:text-red-700 transition-colors rounded hover:bg-red-50"
-                            title="Eliminar producto"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                              <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z" clipRule="evenodd" />
-                            </svg>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          {/* Subtotal (total de línea) */}
+                          <td className="px-3 py-2.5 text-right">
+                            <span className="text-sm font-bold tabular-nums text-slate-900">{formatGs(item.total_linea)}</span>
+                          </td>
+                          {/* Quitar */}
+                          <td className="px-2 py-2.5 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleEliminarLinea(idx)}
+                              className="rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                              title="Quitar producto"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
