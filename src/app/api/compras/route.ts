@@ -42,6 +42,8 @@ export async function POST(request: NextRequest) {
     if (!req("proveedor_id")) return NextResponse.json(errorResponse("Falta el proveedor."), { status: 400 });
     if (!req("nro_timbrado"))
       return NextResponse.json(errorResponse("Falta el N° de timbrado."), { status: 400 });
+    if (!req("numero_factura"))
+      return NextResponse.json(errorResponse("Falta el N° de factura."), { status: 400 });
 
     const ivaOk = (v: unknown) => (["exenta", "0", "5", "10"].includes(String(v)) ? (String(v) === "0" ? "exenta" : String(v)) : "10");
 
@@ -62,6 +64,8 @@ export async function POST(request: NextRequest) {
       plazo_dias: body.plazo_dias != null && String(body.plazo_dias).trim() !== ""
         ? parseInt(String(body.plazo_dias), 10) || null : null,
       nro_timbrado: String(body.nro_timbrado).trim().toUpperCase(),
+      numero_factura: req("numero_factura") ? String(body.numero_factura).trim() : null,
+      orden_compra_numero: req("orden_compra_numero") ? String(body.orden_compra_numero).trim() : null,
       comprobante_url: body.comprobante_url != null && String(body.comprobante_url).trim() !== "" ? String(body.comprobante_url) : null,
       comprobante_storage_path: body.comprobante_storage_path != null && String(body.comprobante_storage_path).trim() !== "" ? String(body.comprobante_storage_path) : null,
       comprobante_nombre: body.comprobante_nombre != null && String(body.comprobante_nombre).trim() !== "" ? String(body.comprobante_nombre) : null,

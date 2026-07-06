@@ -10,6 +10,7 @@ import { getProductos, productoExiste, saveProducto } from "@/lib/inventario/sto
 import type { TipoIva, TipoPago, Moneda } from "@/lib/compras/types";
 import type { Proveedor } from "@/lib/proveedores/types";
 import type { MetodoValuacion, Producto } from "@/lib/inventario/types";
+import { productoMatchesQuery } from "@/lib/productos/token-search";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -94,6 +95,7 @@ export default function NuevaCompraPage() {
   const [cab, setCab] = useState({
     proveedor_id: "",
     nro_timbrado: "",
+    numero_factura: "",
     tipo_pago: "contado" as TipoPago,
     plazo_dias: "",
     moneda: "PYG" as Moneda,
@@ -228,6 +230,7 @@ export default function NuevaCompraPage() {
     setErrorSubmit(null);
     if (!cab.proveedor_id) return setErrorSubmit("Seleccioná o agregá un proveedor.");
     if (!cab.nro_timbrado.trim()) return setErrorSubmit("Ingresá el N° de timbrado.");
+    if (!cab.numero_factura.trim()) return setErrorSubmit("Ingresá el N° de factura.");
     if (lineas.length === 0) return setErrorSubmit("Agregá al menos un producto a la compra.");
     if (cab.moneda === "USD" && tipoCambioNum <= 0)
       return setErrorSubmit("Cargá el tipo de cambio (USD → Gs.).");
@@ -272,6 +275,7 @@ export default function NuevaCompraPage() {
           tipo_pago: cab.tipo_pago,
           plazo_dias: cab.tipo_pago === "credito" && cab.plazo_dias ? parseInt(cab.plazo_dias) : undefined,
           nro_timbrado: cab.nro_timbrado,
+          numero_factura: cab.numero_factura,
           comprobante_storage_path: comprobante?.comprobante_storage_path ?? null,
           comprobante_nombre: comprobante?.comprobante_nombre ?? null,
           comprobante_mime_type: comprobante?.comprobante_mime_type ?? null,
@@ -400,6 +404,12 @@ export default function NuevaCompraPage() {
                   placeholder="Ej: 001-001-0000001" className={inputClass} />
               </div>
               <div>
+                <label className={labelClass}>N° de factura <span className="text-red-500">*</span></label>
+                <input type="text" name="numero_factura" value={cab.numero_factura}
+                  onChange={(e) => setCab((p) => ({ ...p, numero_factura: e.target.value }))}
+                  placeholder="Ej: 001-001-0000123" className={inputClass} />
+              </div>
+              <div className="sm:col-span-2">
                 <label className={labelClass}>Proveedor <span className="text-red-500">*</span></label>
                 <ProveedorBuscador
                   proveedores={proveedores}
@@ -745,10 +755,10 @@ function ProductoBuscador({
   const excluidos = useMemo(() => new Set(excludeIds), [excludeIds]);
 
   const resultados = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = query.trim();
     const base = productos.filter((p) => !excluidos.has(p.id));
     const filt = q
-      ? base.filter((p) => p.nombre.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q))
+      ? base.filter((p) => productoMatchesQuery(q, p.nombre, p.sku))
       : base;
     return filt.slice(0, 50);
   }, [productos, excluidos, query]);
