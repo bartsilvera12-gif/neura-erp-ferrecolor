@@ -493,8 +493,8 @@ function ModalAbrir({
       setBusy(false);
     }
   }
-  // Opciones de caja: 1..6, deshabilitando las ya activas.
-  const opciones = [1, 2, 3, 4, 5, 6];
+  // Opciones de caja: Caja 1 y Caja 2, deshabilitando las ya activas.
+  const opciones = [1, 2];
   return (
     <ModalBase
       title="Abrir caja"
