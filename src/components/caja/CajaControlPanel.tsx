@@ -494,38 +494,38 @@ function ModalConfirmar({
     }
   }
   return (
-    <ModalBase title={title} subtitle={subtitle} onClose={onClose}>
-      <div className="px-5 py-5 space-y-4">
+    <ModalBase title={title} subtitle={subtitle} onClose={busy ? () => {} : onClose}>
+      <div className="p-5 space-y-4">
         <div className="flex items-start gap-3">
-          <div className="h-9 w-9 shrink-0 rounded-xl bg-amber-100 border border-amber-200 flex items-center justify-center">
-            <AlertTriangle className="h-4.5 w-4.5 text-amber-600" />
+          <div className="h-9 w-9 shrink-0 rounded-xl bg-[#E5F4F4] border border-[#4FAEB2]/25 flex items-center justify-center">
+            <AlertTriangle className="h-4.5 w-4.5 text-[#3F8E91]" />
           </div>
           <p className="text-sm text-slate-600 leading-relaxed">{mensaje}</p>
         </div>
         {err && (
-          <p className="text-xs font-medium text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+          <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
             {err}
           </p>
         )}
-        <div className="flex items-center justify-end gap-2 pt-1">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={busy}
-            className="rounded-lg border border-slate-200 bg-white text-slate-600 text-sm font-semibold px-4 py-2 hover:bg-slate-50 transition-colors disabled:opacity-50"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold px-4 py-2 transition-colors shadow-sm disabled:opacity-50"
-          >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <AlertTriangle className="h-4 w-4" />}
-            {confirmLabel}
-          </button>
-        </div>
+      </div>
+      <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={busy}
+          className="text-sm font-semibold text-slate-600 hover:text-slate-900 px-4 py-2 rounded-lg disabled:opacity-50"
+        >
+          Cancelar
+        </button>
+        <button
+          type="button"
+          onClick={submit}
+          disabled={busy}
+          className="inline-flex items-center gap-2 rounded-lg bg-[#4FAEB2] hover:bg-[#3F8E91] disabled:opacity-50 text-white text-sm font-bold px-5 py-2 transition-colors"
+        >
+          {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          {confirmLabel}
+        </button>
       </div>
     </ModalBase>
   );
