@@ -9,7 +9,6 @@ import { getVentas } from "@/lib/ventas/storage";
 import PedidosPendientesCaja from "./PedidosPendientesCaja";
 import PedidosConsultaPendientes from "./PedidosConsultaPendientes";
 import CajaControlPanel from "@/components/caja/CajaControlPanel";
-import { esMismoDiaAsuncion } from "@/lib/fecha/asuncion";
 import type { Venta, TipoVenta, TipoIvaVenta } from "@/lib/ventas/types";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -48,65 +47,6 @@ const ivaLabel: Record<TipoIvaVenta, string> = {
   "10%":  "IVA 10%",
 };
 
-// ── Métricas del día ──────────────────────────────────────────────────────────
-
-function esDeHoy(iso: string): boolean {
-  // Compara por día calendario de Paraguay (America/Asuncion), no por el TZ del
-  // runtime: una venta hecha de noche PY se guarda con fecha UTC del día siguiente
-  // y con `getDate()` local se contaría/descartaría mal.
-  try {
-    return esMismoDiaAsuncion(iso);
-  } catch {
-    return false;
-  }
-}
-
-interface MetricasHoy {
-  facturacion:       number;
-  cantidadVentas:    number;
-  ticketPromedio:    number;
-  productosVendidos: number;  // suma de todas las cantidades en todos los ítems
-}
-
-function calcularMetricas(ventas: Venta[]): MetricasHoy {
-  const deHoy            = ventas.filter((v) => esDeHoy(v.fecha));
-  const facturacion      = deHoy.reduce((s, v) => s + v.total, 0);
-  const cantidadVentas   = deHoy.length;
-  const ticketPromedio   = cantidadVentas > 0 ? facturacion / cantidadVentas : 0;
-  const productosVendidos = deHoy.reduce(
-    (s, v) => s + v.items.reduce((si, i) => si + i.cantidad, 0),
-    0
-  );
-  return { facturacion, cantidadVentas, ticketPromedio, productosVendidos };
-}
-
-// ── Tarjeta métrica ───────────────────────────────────────────────────────────
-
-function MetricCard({
-  label, value, sub, accent,
-}: {
-  label: string; value: string; sub?: string; accent?: boolean;
-}) {
-  return (
-    <div className={`rounded-2xl border px-5 py-4 flex flex-col gap-1 shadow-sm ${
-      accent
-        ? "bg-[#4FAEB2] border-[#4FAEB2] ring-1 ring-[#4FAEB2]/25"
-        : "bg-white border-[#4FAEB2]/30 ring-1 ring-[#4FAEB2]/10"
-    }`}>
-      <span className={`text-[10px] font-semibold uppercase tracking-[0.14em] ${
-        accent ? "text-white/90" : "text-[#4FAEB2]"
-      }`}>
-        {label}
-      </span>
-      <span className={`text-2xl font-bold tabular-nums leading-tight ${
-        accent ? "text-white" : "text-[#3F8E91]"
-      }`}>
-        {value}
-      </span>
-      {sub && <span className={`text-xs ${accent ? "text-white/80" : "text-slate-500"}`}>{sub}</span>}
-    </div>
-  );
-}
 
 // ── Helpers de fila ───────────────────────────────────────────────────────────
 
@@ -167,8 +107,6 @@ export default function VentasPage() {
     };
   }, []);
 
-  const metricas = calcularMetricas(todas);
-
   const filtradas = todas.filter((v) => {
     // Búsqueda global: número de control, nombre o SKU de cualquier ítem
     if (busqueda.trim() !== "") {
@@ -215,43 +153,6 @@ export default function VentasPage() {
       <PedidosConsultaPendientes />
       <PedidosPendientesCaja />
 
-      {/* ── Métricas del día ──────────────────────────────────────────────────── */}
-      <div>
-        <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-3">
-          Resumen de hoy —{" "}
-          {new Date().toLocaleDateString("es-PY", {
-            weekday: "long", day: "numeric", month: "long", year: "numeric",
-            timeZone: "America/Asuncion",
-          })}
-        </p>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <MetricCard
-            label="Facturación de hoy"
-            value={`Gs. ${metricas.facturacion.toLocaleString("es-PY")}`}
-            sub="Total incl. IVA"
-            accent
-          />
-          <MetricCard
-            label="Ventas de hoy"
-            value={String(metricas.cantidadVentas)}
-            sub={metricas.cantidadVentas === 1 ? "orden registrada" : "órdenes registradas"}
-          />
-          <MetricCard
-            label="Ticket promedio"
-            value={
-              metricas.ticketPromedio > 0
-                ? `Gs. ${Math.round(metricas.ticketPromedio).toLocaleString("es-PY")}`
-                : "—"
-            }
-            sub="Por orden de venta"
-          />
-          <MetricCard
-            label="Unidades vendidas"
-            value={String(metricas.productosVendidos)}
-            sub="Unidades despachadas"
-          />
-        </div>
-      </div>
 
       {/* ── Tabla de ventas ───────────────────────────────────────────────────── */}
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-[#4FAEB2]/15 sm:p-5 lg:p-6">
