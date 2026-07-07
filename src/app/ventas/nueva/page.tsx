@@ -10,8 +10,8 @@ import { getProductos } from "@/lib/inventario/storage";
 import { saveCliente } from "@/lib/clientes/storage";
 import { generarYAbrirRecibo } from "@/lib/recibos/client";
 import type { TipoIvaVenta, TipoVenta, MonedaVenta, LineaVenta, MetodoPago, TipoPrecioVenta } from "@/lib/ventas/types";
-import { productoMatchesQuery } from "@/lib/productos/token-search";
-import type { Producto } from "@/lib/inventario/types";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
+import type { Producto, MetodoValuacion } from "@/lib/inventario/types";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -173,19 +173,15 @@ export default function NuevaVentaPage() {
   const [cobroModalOpen, setCobroModalOpen] = useState(false);
   const [entidadQuery, setEntidadQuery] = useState("");
 
-  // ── Línea en construcción ─────────────────────────────────────────────────
-  const [lineaProdId, setLineaProdId] = useState("");
-  const [lineaCant,   setLineaCant]   = useState("");
-  const [lineaPrecio, setLineaPrecio] = useState("");
-  const [lineaIva,    setLineaIva]    = useState<TipoIvaVenta>("10%");
-  const [lineaTipoPrecio, setLineaTipoPrecio] = useState<TipoPrecioVenta>("minorista");
-
-  // ── Combobox de producto ───────────────────────────────────────────────────
+  // ── Combobox de producto (búsqueda server-side por tokens sobre todo el catálogo) ──
   const [comboQuery,     setComboQuery]     = useState("");
   const [comboOpen,      setComboOpen]      = useState(false);
   const [comboHighlight, setComboHighlight] = useState(-1);
+  const [comboHits,      setComboHits]      = useState<Producto[]>([]);
+  const [comboBuscando,  setComboBuscando]  = useState(false);
   const comboInputRef    = useRef<HTMLInputElement>(null);
   const comboContainerRef = useRef<HTMLDivElement>(null);
+  const comboTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Modal buscador (F3) ────────────────────────────────────────────────────
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -208,13 +204,6 @@ export default function NuevaVentaPage() {
       imagen_path: null,
       imagen_url: p.imagen_url,
     };
-  }
-
-  function handleSelectFromPicker(p: ProductoPickerItem) {
-    const prod = pickerToProducto(p);
-    setProductos((prev) => (prev.find((x) => x.id === prod.id) ? prev : [...prev, prod]));
-    seleccionarProducto(prod);
-    setPickerOpen(false);
   }
 
   /**
@@ -445,6 +434,52 @@ export default function NuevaVentaPage() {
     return () => clearTimeout(t);
   }, []);
 
+  // Autocomplete: búsqueda server-side por tokens (todo el catálogo), con debounce.
+  useEffect(() => {
+    const q = comboQuery.trim();
+    if (comboTimerRef.current) clearTimeout(comboTimerRef.current);
+    if (q.length < 2) { setComboHits([]); setComboBuscando(false); return; }
+    setComboBuscando(true);
+    comboTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetchWithSupabaseSession(
+          `/api/productos/search?q=${encodeURIComponent(q)}&limit=20`,
+          { cache: "no-store" }
+        );
+        const j = await res.json();
+        const items = ((j?.data?.items ?? []) as Record<string, unknown>[]).map((p): Producto => ({
+          id: String(p.id),
+          nombre: String(p.nombre ?? ""),
+          sku: String(p.sku ?? ""),
+          costo_promedio: Number(p.costo_promedio) || 0,
+          precio_venta: Number(p.precio_venta) || 0,
+          precio_mayorista: p.precio_mayorista != null ? Number(p.precio_mayorista) : null,
+          precio_distribuidor: p.precio_distribuidor != null ? Number(p.precio_distribuidor) : null,
+          stock_actual: Number(p.stock_actual) || 0,
+          stock_minimo: Number(p.stock_minimo) || 0,
+          unidad_medida: String(p.unidad_medida ?? "UNIDAD"),
+          metodo_valuacion: (typeof p.metodo_valuacion === "string" ? p.metodo_valuacion : "CPP") as MetodoValuacion,
+          es_vendible: p.es_vendible !== false,
+          controla_stock: p.controla_stock !== false,
+        }));
+        setComboHits(items);
+        // Merge a `productos` para que los lookups (tipo de precio, stock) resuelvan.
+        if (items.length > 0) {
+          setProductos((prev) => {
+            const byId = new Map(prev.map((x) => [x.id, x]));
+            for (const it of items) byId.set(it.id, { ...byId.get(it.id), ...it });
+            return [...byId.values()];
+          });
+        }
+      } catch {
+        setComboHits([]);
+      } finally {
+        setComboBuscando(false);
+      }
+    }, 220);
+    return () => { if (comboTimerRef.current) clearTimeout(comboTimerRef.current); };
+  }, [comboQuery]);
+
   // Cerrar dropdown al hacer clic fuera
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -468,32 +503,6 @@ export default function NuevaVentaPage() {
 
   // ── Cálculos ───────────────────────────────────────────────────────────────
   const tipoCambioNum = 1;
-
-  const prodSel     = productos.find((p) => p.id === lineaProdId);
-  const cantNum     = parseInt(lineaCant) || 0;
-  const precioInput = parseFloat(lineaPrecio) || 0;
-  const precioGs    = precioInput;
-
-  // enCarrito en unidades BASE (cantidad * cantidad_base de la presentacion
-  // usada en cada item). Items legacy sin presentacion -> cantidad_base=1.
-  const enCarrito = items
-    .filter((i) => i.producto_id === lineaProdId)
-    .reduce((s, i) => s + i.cantidad * (i.presentacion_cantidad_base ?? 1), 0);
-  const prodSelControlaStock = prodSel ? prodSel.controla_stock !== false : true;
-  const stockDisp = (prodSel?.stock_actual ?? 0) - enCarrito;
-
-  // IVA incluido: el total de la línea es precio × cantidad; el IVA se desglosa
-  // desde adentro y el subtotal (base imponible) = total − IVA.
-  const lineaTotalLinea = cantNum > 0 && precioGs > 0 ? cantNum * precioGs : 0;
-  const lineaMontoIva   = calcIva(lineaIva, lineaTotalLinea);
-  const lineaSubtotal   = lineaTotalLinea - lineaMontoIva;
-
-  // Aviso de stock (no bloquea): si falta stock se permite agregar igual y se pide
-  // confirmación al confirmar la venta (venta sin stock con confirmación, Fase 5).
-  // Productos del Menú (controla_stock=false) no controlan stock.
-  const stockInsuf  = prodSel !== undefined && prodSelControlaStock && cantNum > 0 && cantNum > stockDisp;
-  const lineaValida =
-    !!prodSel && cantNum > 0 && precioGs > 0;
 
   const totalSubtotal = items.reduce((s, i) => s + i.subtotal, 0);
   const totalIva      = items.reduce((s, i) => s + i.monto_iva, 0);
@@ -540,25 +549,9 @@ export default function NuevaVentaPage() {
 
   // ── Productos filtrados para el combobox ──────────────────────────────────
   // Solo vendibles (Reventa + Menú). Excluye materia prima / insumos.
-  const productosVendibles = productos.filter((p) => p.es_vendible !== false);
-  const comboFiltrados = comboQuery.trim() === ""
-    ? productosVendibles
-    : productosVendibles.filter((p) => productoMatchesQuery(comboQuery, p.nombre, p.sku));
-  // Resultados acotados para el dropdown del autocomplete (rápido, sin saturar).
-  const comboResultados = comboFiltrados.slice(0, 15);
-
-  // ── Selección de un producto desde el combobox ────────────────────────────
-  function seleccionarProducto(p: Producto) {
-    setLineaProdId(String(p.id));
-    setLineaTipoPrecio("minorista");
-    setLineaPrecio(String(precioPorTipo(p, "minorista")));
-    setLineaCant("1");
-    setLineaIva("10%");
-    setComboQuery(`${p.nombre} — ${p.sku}`);
-    setComboOpen(false);
-    setComboHighlight(-1);
-    setErrorLinea(null);
-  }
+  // Resultados del autocomplete: vienen del endpoint de búsqueda server-side
+  // (token search sobre TODO el catálogo, no un subconjunto en memoria).
+  const comboResultados = comboHits;
 
   /** Selecciona método de cobro. Efectivo no pide datos; transferencia/tarjeta abren modal. */
   function handleSelectMetodo(m: MetodoPago) {
@@ -573,86 +566,6 @@ export default function NuevaVentaPage() {
       setEntidadQuery("");
       setCobroModalOpen(true);
     }
-  }
-
-  /** Cambia el tipo de precio de la línea en construcción y ajusta el precio unitario. */
-  function handleLineaTipoPrecio(tipo: TipoPrecioVenta) {
-    setLineaTipoPrecio(tipo);
-    if (prodSel) setLineaPrecio(String(precioPorTipo(prodSel, tipo)));
-    setErrorLinea(null);
-  }
-
-  // ── Handlers del combobox ─────────────────────────────────────────────────
-  function handleComboInput(e: React.ChangeEvent<HTMLInputElement>) {
-    setComboQuery(e.target.value);
-    setComboOpen(true);
-    setComboHighlight(-1);
-    // Si el usuario borra el texto, limpiar la selección
-    if (e.target.value === "") {
-      setLineaProdId("");
-      setLineaPrecio("");
-      setLineaCant("");
-    }
-    setErrorLinea(null);
-  }
-
-  function handleComboKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setComboOpen(true);
-      setComboHighlight((h) => Math.min(h + 1, comboFiltrados.length - 1));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setComboHighlight((h) => Math.max(h - 1, 0));
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      if (comboOpen && comboHighlight >= 0 && comboFiltrados[comboHighlight]) {
-        // Seleccionar el ítem destacado del dropdown
-        seleccionarProducto(comboFiltrados[comboHighlight]);
-      } else if (!comboOpen && lineaValida) {
-        // Dropdown cerrado + producto válido → agregar al carrito
-        handleAgregarLinea();
-      }
-    } else if (e.key === "Escape") {
-      setComboOpen(false);
-      setComboHighlight(-1);
-    }
-  }
-
-  // ── Agregar línea al carrito ──────────────────────────────────────────────
-  function handleAgregarLinea() {
-    setErrorLinea(null);
-    if (!prodSel)          return setErrorLinea("Seleccioná un producto.");
-    if (cantNum <= 0)      return setErrorLinea("La cantidad debe ser mayor a 0.");
-    if (precioGs <= 0)     return setErrorLinea("El precio de venta debe ser mayor a 0.");
-    // Nota: si falta stock NO se bloquea; se confirma al registrar la venta.
-
-    setItems((prev) => [
-      ...prev,
-      {
-        producto_id:           prodSel.id,
-        producto_nombre:       prodSel.nombre,
-        sku:                   prodSel.sku,
-        cantidad:              cantNum,
-        precio_venta_original: precioInput,
-        precio_venta:          precioGs,
-        tipo_iva:              lineaIva,
-        tipo_precio:           lineaTipoPrecio,
-        subtotal:              lineaSubtotal,
-        monto_iva:             lineaMontoIva,
-        total_linea:           lineaTotalLinea,
-      },
-    ]);
-
-    // Limpiar línea y devolver foco al buscador de producto
-    setLineaProdId("");
-    setLineaCant("");
-    setLineaPrecio("");
-    setLineaIva("10%");
-    setLineaTipoPrecio("minorista");
-    setComboQuery("");
-    setComboOpen(false);
-    setTimeout(() => comboInputRef.current?.focus(), 0);
   }
 
   function handleEliminarLinea(index: number) {
@@ -1062,9 +975,11 @@ export default function NuevaVentaPage() {
               className="h-12 w-full rounded-xl border-2 border-[#0EA5E9]/30 bg-white pl-12 pr-4 text-base text-slate-800 outline-none transition-all focus:border-[#0EA5E9] focus:ring-4 focus:ring-[#0EA5E9]/15"
               autoComplete="off"
             />
-            {comboOpen && comboQuery.trim().length >= 1 && (
+            {comboOpen && comboQuery.trim().length >= 2 && (
               <div className="absolute left-0 right-0 top-full z-30 mt-2 max-h-[56vh] overflow-y-auto rounded-xl border-2 border-[#0EA5E9]/20 bg-white shadow-[0_16px_40px_-12px_rgba(15,23,42,0.28)]">
-                {comboResultados.length === 0 ? (
+                {comboBuscando && comboResultados.length === 0 ? (
+                  <div className="px-4 py-5 text-center text-sm text-slate-400">Buscando…</div>
+                ) : comboResultados.length === 0 ? (
                   <div className="px-4 py-5 text-center text-sm text-slate-400">Sin resultados para &quot;{comboQuery}&quot;.</div>
                 ) : (
                   <ul className="divide-y divide-slate-100">
@@ -1075,6 +990,7 @@ export default function NuevaVentaPage() {
                         <li key={p.id}>
                           <button
                             type="button"
+                            id={`combo-opt-${i}`}
                             onMouseEnter={() => setComboHighlight(i)}
                             onClick={() => agregarProductoRapido(p)}
                             className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors ${i === comboHighlight ? "bg-[#0EA5E9]/8" : "hover:bg-slate-50"}`}
@@ -1097,9 +1013,9 @@ export default function NuevaVentaPage() {
                         </li>
                       );
                     })}
-                    {comboFiltrados.length > comboResultados.length && (
+                    {comboResultados.length >= 20 && (
                       <li className="px-4 py-2 text-center text-[11px] text-slate-400">
-                        Mostrando {comboResultados.length} de {comboFiltrados.length}. Refiná la búsqueda.
+                        Mostrando los primeros 20. Refiná la búsqueda para acotar.
                       </li>
                     )}
                   </ul>
@@ -1358,7 +1274,7 @@ export default function NuevaVentaPage() {
         excludeIds={items.map((i) => i.producto_id)}
         moneda={moneda}
         tipoCambio={tipoCambioNum}
-        ivaDefault={lineaIva}
+        ivaDefault="10%"
       />
 
       {/* Modal de cobro (transferencia / tarjeta-débito) */}
