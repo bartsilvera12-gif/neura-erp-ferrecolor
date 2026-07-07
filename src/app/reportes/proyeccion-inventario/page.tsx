@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import PageHeader from "@/components/ui/PageHeader";
 import { getProyeccionInventario, type ProyeccionInventario } from "@/lib/reportes/storage";
-import { ESTADO_STOCK_LABEL, type EstadoStock } from "@/lib/reportes/proyeccion";
+import { ESTADO_STOCK_LABEL, PROYECCION_CONFIG, type EstadoStock } from "@/lib/reportes/proyeccion";
 import { ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from "lucide-react";
 
 function fmtNum(v: number, dec = 0) {
@@ -27,6 +27,16 @@ const ESTADO_BADGE: Record<EstadoStock, string> = {
   bajo: "bg-amber-100 text-amber-700",
   normal: "bg-emerald-100 text-emerald-700",
   sobrestock: "bg-sky-100 text-sky-700",
+};
+
+// Rangos de días de cobertura por estado, derivados de los umbrales reales.
+const ESTADO_HINT: Record<EstadoStock, string> = {
+  critico: `0–${PROYECCION_CONFIG.critico} días`,
+  bajo: `${PROYECCION_CONFIG.critico + 1}–${PROYECCION_CONFIG.bajo} días`,
+  normal: `${PROYECCION_CONFIG.bajo + 1}–${PROYECCION_CONFIG.normal} días`,
+  sobrestock: `más de ${PROYECCION_CONFIG.normal} días`,
+  sin_movimiento: "sin ventas",
+  sin_stock: "stock en 0",
 };
 
 const DIAS_OPCIONES = [30, 60, 90];
@@ -105,11 +115,13 @@ export default function ProyeccionInventarioPage() {
             <button onClick={() => setEstado("")} className={`rounded-xl border p-3 text-left transition-colors ${estado === "" ? "border-[#4FAEB2] bg-[#4FAEB2]/5" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
               <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Productos</p>
               <p className="mt-1 text-2xl font-bold tabular-nums text-[#3F8E91]">{fmtNum(t.total)}</p>
+              <p className="mt-0.5 text-[11px] text-slate-400">últimos {data.dias} días</p>
             </button>
             {(["critico", "bajo", "normal", "sobrestock", "sin_movimiento"] as EstadoStock[]).map((e) => (
               <button key={e} onClick={() => setEstado(estado === e ? "" : e)} className={`rounded-xl border p-3 text-left transition-colors ${estado === e ? "border-[#4FAEB2] bg-[#4FAEB2]/5" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{ESTADO_STOCK_LABEL[e]}</p>
                 <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{fmtNum(t[e])}</p>
+                <p className="mt-0.5 text-[11px] text-slate-400">{ESTADO_HINT[e]}</p>
               </button>
             ))}
           </div>
