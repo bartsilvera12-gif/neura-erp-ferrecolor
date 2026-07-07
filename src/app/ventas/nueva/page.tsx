@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Plus, Minus, Trash2 } from "lucide-react";
+import { Search, Plus, Minus, Trash2, ImageIcon } from "lucide-react";
 import MontoInput from "@/components/ui/MontoInput";
 import ProductPickerModal, { type ProductoPickerItem, type AgregarVentaPayload } from "@/components/inventario/ProductPickerModal";
 import { saveVenta, type FaltanteStock } from "@/lib/ventas/storage";
@@ -12,6 +12,20 @@ import { generarYAbrirRecibo } from "@/lib/recibos/client";
 import type { TipoIvaVenta, TipoVenta, MonedaVenta, LineaVenta, MetodoPago, TipoPrecioVenta } from "@/lib/ventas/types";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import type { Producto, MetodoValuacion } from "@/lib/inventario/types";
+
+/** Miniatura de producto con fallback a un placeholder si no hay imagen o falla. */
+function ProductoThumb({ url, alt, size = "h-10 w-10" }: { url?: string | null; alt: string; size?: string }) {
+  const [err, setErr] = useState(false);
+  if (!url || err) {
+    return (
+      <div className={`flex ${size} shrink-0 items-center justify-center rounded-md border border-slate-100 bg-slate-50 text-slate-300`}>
+        <ImageIcon className="h-4 w-4" />
+      </div>
+    );
+  }
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={url} alt={alt} loading="lazy" onError={() => setErr(true)} className={`${size} shrink-0 rounded-md border border-slate-100 object-cover`} />;
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -461,6 +475,8 @@ export default function NuevaVentaPage() {
           metodo_valuacion: (typeof p.metodo_valuacion === "string" ? p.metodo_valuacion : "CPP") as MetodoValuacion,
           es_vendible: p.es_vendible !== false,
           controla_stock: p.controla_stock !== false,
+          imagen_url: (p.imagen_url as string | null) ?? null,
+          imagen_path: (p.imagen_path as string | null) ?? null,
         }));
         setComboHits(items);
         // Merge a `productos` para que los lookups (tipo de precio, stock) resuelvan.
@@ -995,6 +1011,7 @@ export default function NuevaVentaPage() {
                             onClick={() => agregarProductoRapido(p)}
                             className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors ${i === comboHighlight ? "bg-[#0EA5E9]/8" : "hover:bg-slate-50"}`}
                           >
+                            <ProductoThumb url={p.imagen_url} alt={p.nombre} />
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-sm font-semibold text-slate-800">{p.nombre}</p>
                               <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
@@ -1057,15 +1074,20 @@ export default function NuevaVentaPage() {
                         <tr key={idx} className="align-middle transition-colors hover:bg-[#0EA5E9]/5">
                           {/* Producto + SKU */}
                           <td className="px-3 py-2.5">
-                            <p className="font-semibold text-slate-900 leading-snug">{item.producto_nombre}</p>
-                            <p className="font-mono text-[11px] text-slate-500">{item.sku}</p>
-                            {item.presentacion_nombre && (
-                              <p className="text-[11px] text-slate-500">
-                                {item.presentacion_nombre}
-                                {item.presentacion_cantidad_base != null && item.presentacion_cantidad_base !== 1
-                                  ? ` = ${item.cantidad * item.presentacion_cantidad_base}` : ""}
-                              </p>
-                            )}
+                            <div className="flex items-center gap-3">
+                              <ProductoThumb url={prod?.imagen_url} alt={item.producto_nombre} />
+                              <div className="min-w-0">
+                                <p className="font-semibold text-slate-900 leading-snug">{item.producto_nombre}</p>
+                                <p className="font-mono text-[11px] text-slate-500">{item.sku}</p>
+                                {item.presentacion_nombre && (
+                                  <p className="text-[11px] text-slate-500">
+                                    {item.presentacion_nombre}
+                                    {item.presentacion_cantidad_base != null && item.presentacion_cantidad_base !== 1
+                                      ? ` = ${item.cantidad * item.presentacion_cantidad_base}` : ""}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
                           </td>
                           {/* Tipo de precio */}
                           <td className="hidden px-3 py-2.5 md:table-cell">
