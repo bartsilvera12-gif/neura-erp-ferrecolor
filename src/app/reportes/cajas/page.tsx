@@ -33,6 +33,7 @@ export default function CajasReportePage() {
   const [hasta, setHasta] = useState(hoyAsuncion());
   const [data, setData] = useState<CajasReporte | null>(null);
   const [cargando, setCargando] = useState(true);
+  const [filtroCaja, setFiltroCaja] = useState<number | "">("");
 
   useEffect(() => {
     let cancel = false;
@@ -47,6 +48,8 @@ export default function CajasReportePage() {
   }, [desde, hasta]);
 
   const t = data?.totales;
+  const numerosCajas = [...new Set((data?.cajas ?? []).map((c) => c.numero_caja))].sort((a, b) => a - b);
+  const cajasFiltradas = (data?.cajas ?? []).filter((c) => filtroCaja === "" || c.numero_caja === filtroCaja);
 
   return (
     <div className="space-y-8">
@@ -63,6 +66,17 @@ export default function CajasReportePage() {
               hasta={hasta}
               onChange={(r) => { setDesde(r.desde); setHasta(r.hasta); }}
             />
+            {numerosCajas.length > 1 && (
+              <select
+                value={filtroCaja}
+                onChange={(e) => setFiltroCaja(e.target.value === "" ? "" : Number(e.target.value))}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#4FAEB2]/30"
+                aria-label="Filtrar por caja"
+              >
+                <option value="">Todas las cajas</option>
+                {numerosCajas.map((n) => (<option key={n} value={n}>Caja {n}</option>))}
+              </select>
+            )}
             <ExportExcelButton url={`/api/reportes/cajas/export?desde=${desde}&hasta=${hasta}`} />
           </div>
         }
@@ -95,25 +109,26 @@ export default function CajasReportePage() {
                 <table className="w-full min-w-[1100px] text-sm">
                   <thead className="border-b-2 border-[#4FAEB2]/40 bg-[#E5F4F4]">
                     <tr>
-                      {["Apertura", "Cierre", "Estado", "Abrió / Cerró", "Apertura Gs.", "Ventas", "Vendido", "Efectivo", "Esperado", "Contado", "Diferencia"].map((h, i) => (
-                        <th key={h} className={`px-3 py-3 text-xs font-bold uppercase tracking-wide text-[#3F8E91] ${i >= 4 ? "text-right" : "text-left"}`}>{h}</th>
+                      {["Caja", "Apertura", "Cierre", "Estado", "Abrió / Cerró", "Apertura Gs.", "Ventas", "Vendido", "Efectivo", "Esperado", "Contado", "Diferencia"].map((h, i) => (
+                        <th key={h} className={`px-3 py-3 text-xs font-bold uppercase tracking-wide text-[#3F8E91] ${i >= 5 ? "text-right" : "text-left"}`}>{h}</th>
                       ))}
                       <th className="px-3 py-3 text-center text-xs font-bold uppercase tracking-wide text-[#3F8E91]">Detalle</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {data.cajas.map((c) => {
+                    {cajasFiltradas.map((c) => {
                       const dif = c.diferencia;
                       const difClass = dif == null ? "text-slate-400" : dif === 0 ? "text-emerald-600" : dif < 0 ? "text-red-600" : "text-amber-600";
+                      const estadoLbl = c.estado === "cerrada" ? "Cerrada" : c.estado === "en_cierre" ? "En cierre" : "Abierta";
+                      const estadoCls = c.estado === "cerrada" ? "bg-[var(--badge-success-bg)] text-[var(--badge-success-text)]" : "bg-[var(--badge-warning-bg)] text-[var(--badge-warning-text)]";
                       return (
                         <tr key={c.id} className="transition-colors hover:bg-[#4FAEB2]/10">
+                          <td className="px-3 py-2.5 text-xs font-bold text-[#3F8E91]">Caja {c.numero_caja}</td>
                           <td className="px-3 py-2.5 text-xs tabular-nums text-slate-700">{formatFechaHora(c.fecha_apertura)}</td>
                           <td className="px-3 py-2.5 text-xs tabular-nums text-slate-700">{formatFechaHora(c.fecha_cierre)}</td>
                           <td className="px-3 py-2.5">
-                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                              c.estado === "abierta" ? "bg-[var(--badge-warning-bg)] text-[var(--badge-warning-text)]" : "bg-[var(--badge-success-bg)] text-[var(--badge-success-text)]"
-                            }`}>
-                              {c.estado === "abierta" ? "Abierta" : "Cerrada"}
+                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${estadoCls}`}>
+                              {estadoLbl}
                             </span>
                           </td>
                           <td className="px-3 py-2.5 text-xs text-slate-600">

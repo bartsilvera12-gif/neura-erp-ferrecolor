@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * Panel de Caja para /ventas: muestra el estado del turno actual (abierta /
- * cerrada), totales en vivo y modales para abrir, registrar movimiento y
- * cerrar.
+ * Panel de Caja para /ventas: soporta MÚLTIPLES cajas activas (Caja 1, Caja 2, …).
+ * Muestra el estado de cada caja (abierta / en cierre), totales en vivo y modales
+ * para abrir, registrar movimiento, pasar a cierre y cerrar (arqueo) por caja.
  *
- * Una sola caja por empresa. Paleta turquesa del sistema #4FAEB2.
+ * Paleta turquesa del sistema #4FAEB2.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -25,7 +25,6 @@ import {
 } from "lucide-react";
 import MontoInput from "@/components/ui/MontoInput";
 import type {
-  Caja,
   CajaResumen,
   MedioPagoCaja,
   TipoMovimientoCaja,
@@ -56,8 +55,8 @@ interface Props {
 }
 
 export default function CajaControlPanel({ onStateChange }: Props) {
-  const [caja, setCaja] = useState<Caja | null>(null);
-  const [resumen, setResumen] = useState<CajaResumen | null>(null);
+  const [cajas, setCajas] = useState<CajaResumen[]>([]);
+  const [target, setTarget] = useState<CajaResumen | null>(null);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<ModalKind>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,8 +72,7 @@ export default function CajaControlPanel({ onStateChange }: Props) {
       });
       const j = await r.json();
       if (!r.ok || !j?.success) throw new Error(j?.error ?? "No se pudo cargar");
-      setCaja(j.data?.caja ?? null);
-      setResumen(j.data?.resumen ?? null);
+      setCajas((j.data?.cajas ?? []) as CajaResumen[]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error de red");
     } finally {
@@ -91,28 +89,32 @@ export default function CajaControlPanel({ onStateChange }: Props) {
     setTimeout(() => setOkMsg(null), 3000);
   }
 
-  async function handleAbrir(monto: number, observacion: string | null) {
+  const numerosOcupados = cajas.map((c) => c.caja.numero_caja);
+  let numeroSugerido = 1;
+  while (numerosOcupados.includes(numeroSugerido)) numeroSugerido++;
+
+  async function handleAbrir(monto: number, observacion: string | null, numeroCaja: number) {
     const r = await fetch("/api/caja/abrir", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ monto_apertura: monto, observacion }),
+      body: JSON.stringify({ monto_apertura: monto, observacion, numero_caja: numeroCaja }),
     });
     const j = await r.json();
     if (!r.ok || !j?.success) throw new Error(j?.error ?? `Error ${r.status}`);
     setModal(null);
     await load();
-    notifyOk("Caja abierta correctamente.");
+    notifyOk(`Caja ${numeroCaja} abierta correctamente.`);
     onStateChange?.();
   }
   async function handleCerrar(monto: number, observacion: string | null) {
-    if (!caja) return;
+    if (!target) return;
     const r = await fetch("/api/caja/cerrar", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        caja_id: caja.id,
+        caja_id: target.caja.id,
         monto_cierre_contado: monto,
         observacion,
       }),
@@ -120,8 +122,9 @@ export default function CajaControlPanel({ onStateChange }: Props) {
     const j = await r.json();
     if (!r.ok || !j?.success) throw new Error(j?.error ?? `Error ${r.status}`);
     setModal(null);
+    setTarget(null);
     await load();
-    notifyOk("Caja cerrada correctamente.");
+    notifyOk(`Caja ${target.caja.numero_caja} cerrada correctamente.`);
     onStateChange?.();
   }
   async function handleMov(opts: {
@@ -131,21 +134,40 @@ export default function CajaControlPanel({ onStateChange }: Props) {
     medio_pago: MedioPagoCaja;
     observacion: string | null;
   }) {
-    if (!caja) return;
+    if (!target) return;
     const r = await fetch("/api/caja/movimiento", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ caja_id: caja.id, ...opts }),
+      body: JSON.stringify({ caja_id: target.caja.id, ...opts }),
     });
     const j = await r.json();
     if (!r.ok || !j?.success) throw new Error(j?.error ?? `Error ${r.status}`);
     setModal(null);
+    setTarget(null);
     await load();
     notifyOk("Movimiento registrado.");
   }
+  async function handleEnCierre(cr: CajaResumen) {
+    if (!confirm(`¿Pasar la Caja ${cr.caja.numero_caja} a cierre/conteo? Deja de recibir ventas y movimientos.`)) return;
+    try {
+      const r = await fetch("/api/caja/en-cierre", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ caja_id: cr.caja.id }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j?.success) throw new Error(j?.error ?? `Error ${r.status}`);
+      await load();
+      notifyOk(`Caja ${cr.caja.numero_caja} en cierre/conteo.`);
+      onStateChange?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error");
+    }
+  }
 
-  if (loading && !caja) {
+  if (loading && cajas.length === 0) {
     return (
       <div className="rounded-2xl border-2 border-[#4FAEB2]/20 bg-white p-4 flex items-center gap-3">
         <Loader2 className="h-4 w-4 animate-spin text-[#4FAEB2]" />
@@ -154,8 +176,8 @@ export default function CajaControlPanel({ onStateChange }: Props) {
     );
   }
 
-  // === Sin caja abierta ===
-  if (!caja) {
+  // === Sin cajas activas ===
+  if (cajas.length === 0) {
     return (
       <div className="rounded-2xl border-2 border-amber-200 bg-amber-50/60 shadow-sm p-5 flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
@@ -185,6 +207,8 @@ export default function CajaControlPanel({ onStateChange }: Props) {
             onClose={() => setModal(null)}
             onConfirm={handleAbrir}
             error={error}
+            numeroSugerido={numeroSugerido}
+            numerosOcupados={numerosOcupados}
           />
         )}
 
@@ -193,135 +217,148 @@ export default function CajaControlPanel({ onStateChange }: Props) {
     );
   }
 
-  // === Caja abierta ===
-  const diferenciaPreview =
-    resumen != null
-      ? resumen.efectivo_esperado
-      : caja.monto_apertura;
-
+  // === Cajas activas (una o varias) ===
   return (
-    <div className="rounded-2xl border-2 border-[#4FAEB2]/25 bg-white shadow-[0_2px_10px_-2px_rgba(79,174,178,0.12)] overflow-hidden">
-      {/* Header */}
-      <div className="px-5 py-4 border-b border-[#4FAEB2]/15 bg-gradient-to-r from-[#4FAEB2]/5 to-transparent flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-[#4FAEB2] flex items-center justify-center shadow-sm shadow-[#4FAEB2]/30">
-            <Wallet className="h-4.5 w-4.5 text-white" />
-          </div>
-          <div>
-            <h2 className="text-[15px] font-bold text-slate-800 leading-none flex items-center gap-2">
-              Turno de caja
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 border border-emerald-200 px-2 py-0.5 text-[10.5px] font-bold text-emerald-700">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                Abierta
-              </span>
-            </h2>
-            <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-              <Clock className="h-3 w-3" />
-              Abierta el {fmtFechaHora(caja.fecha_apertura)}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setModal("mov")}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-xs font-semibold px-3 py-2 hover:border-[#4FAEB2] hover:text-[#3F8E91] hover:bg-[#4FAEB2]/5 transition-colors"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Movimiento
-          </button>
-          <button
-            type="button"
-            onClick={() => setModal("cerrar")}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3 py-2 transition-colors shadow-sm"
-          >
-            <Lock className="h-3.5 w-3.5" />
-            Cerrar caja
-          </button>
-        </div>
+    <div className="space-y-3">
+      {/* Barra superior: título + abrir otra caja */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h2 className="flex items-center gap-2 text-[15px] font-bold text-slate-800">
+          <Wallet className="h-4 w-4 text-[#4FAEB2]" />
+          Cajas ({cajas.length})
+        </h2>
+        <button
+          type="button"
+          onClick={() => setModal("abrir")}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-[#4FAEB2] hover:bg-[#3F8E91] text-white text-xs font-bold px-3 py-2 transition-colors shadow-sm shadow-[#4FAEB2]/30"
+        >
+          <Unlock className="h-3.5 w-3.5" />
+          Abrir otra caja
+        </button>
       </div>
 
-      {/* Metricas en vivo */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-px bg-slate-100">
-        <Metric
-          label="Apertura"
-          value={fmtGs(caja.monto_apertura)}
-          icon={<Wallet className="h-3.5 w-3.5" />}
-        />
-        <Metric
-          label="Ventas hoy"
-          value={resumen ? String(resumen.cantidad_ventas) : "—"}
-          icon={<CheckCircle2 className="h-3.5 w-3.5" />}
-        />
-        <Metric
-          label="Efectivo"
-          value={fmtGs(resumen?.total_efectivo ?? 0)}
-          icon={<ArrowDownRight className="h-3.5 w-3.5 text-emerald-600" />}
-          highlight="emerald"
-        />
-        <Metric
-          label="Transfer"
-          value={fmtGs(resumen?.total_transferencia ?? 0)}
-          icon={<ArrowDownRight className="h-3.5 w-3.5 text-sky-600" />}
-        />
-        <Metric
-          label="Tarjeta"
-          value={fmtGs(resumen?.total_tarjeta ?? 0)}
-          icon={<ArrowDownRight className="h-3.5 w-3.5 text-violet-600" />}
-        />
-        <Metric
-          label="Esperado efectivo"
-          value={fmtGs(diferenciaPreview)}
-          icon={<Wallet className="h-3.5 w-3.5 text-[#4FAEB2]" />}
-          highlight="turquesa"
-        />
-      </div>
-
-      {/* Movimientos manuales recientes */}
-      {resumen && resumen.movimientos.length > 0 && (
-        <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/40">
-          <p className="text-[10.5px] uppercase tracking-wider font-bold text-slate-500 mb-2">
-            Movimientos manuales
-          </p>
-          <ul className="space-y-1">
-            {resumen.movimientos.slice(-5).reverse().map((m) => (
-              <li
-                key={m.id}
-                className="flex items-center justify-between gap-2 text-xs"
-              >
-                <span className="flex items-center gap-1.5 min-w-0">
-                  <MovIcon tipo={m.tipo} />
-                  <span className="truncate font-medium text-slate-700">{m.concepto}</span>
-                  <span className="text-slate-400">·</span>
-                  <span className="text-slate-500 capitalize">{m.medio_pago}</span>
-                </span>
-                <span
-                  className={`tabular-nums font-bold ${
-                    m.tipo === "ingreso"
-                      ? "text-emerald-700"
-                      : m.tipo === "egreso" || m.tipo === "retiro"
-                      ? "text-red-600"
-                      : "text-amber-700"
-                  }`}
+      {cajas.map((cr) => {
+        const c = cr.caja;
+        const enCierre = c.estado === "en_cierre";
+        return (
+          <div key={c.id} className="rounded-2xl border-2 border-[#4FAEB2]/25 bg-white shadow-[0_2px_10px_-2px_rgba(79,174,178,0.12)] overflow-hidden">
+            {/* Header por caja */}
+            <div className="px-5 py-4 border-b border-[#4FAEB2]/15 bg-gradient-to-r from-[#4FAEB2]/5 to-transparent flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-3">
+                <div className={`h-10 w-10 rounded-xl flex items-center justify-center shadow-sm ${enCierre ? "bg-amber-500 shadow-amber-500/30" : "bg-[#4FAEB2] shadow-[#4FAEB2]/30"}`}>
+                  <Wallet className="h-4.5 w-4.5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-[15px] font-bold text-slate-800 leading-none flex items-center gap-2">
+                    Caja {c.numero_caja}
+                    {enCierre ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 border border-amber-200 px-2 py-0.5 text-[10.5px] font-bold text-amber-700">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                        En cierre
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 border border-emerald-200 px-2 py-0.5 text-[10.5px] font-bold text-emerald-700">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        Abierta
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    Abierta el {fmtFechaHora(c.fecha_apertura)}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {!enCierre && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => { setTarget(cr); setModal("mov"); }}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-xs font-semibold px-3 py-2 hover:border-[#4FAEB2] hover:text-[#3F8E91] hover:bg-[#4FAEB2]/5 transition-colors"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Movimiento
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleEnCierre(cr)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 text-xs font-semibold px-3 py-2 hover:bg-amber-100 transition-colors"
+                    >
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      Pasar a cierre
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => { setTarget(cr); setModal("cerrar"); }}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3 py-2 transition-colors shadow-sm"
                 >
-                  {m.tipo === "egreso" || m.tipo === "retiro" ? "−" : "+"}
-                  {fmtGs(Math.abs(m.monto))}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+                  <Lock className="h-3.5 w-3.5" />
+                  Cerrar
+                </button>
+              </div>
+            </div>
 
-      {modal === "cerrar" && resumen && (
-        <ModalCerrar
-          resumen={resumen}
+            {enCierre && (
+              <div className="px-5 py-2 bg-amber-50/60 border-b border-amber-100 text-[11px] font-medium text-amber-800">
+                En conteo — no recibe nuevas ventas ni movimientos. Cargá el efectivo contado para cerrar.
+              </div>
+            )}
+
+            {/* Metricas en vivo por caja */}
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-px bg-slate-100">
+              <Metric label="Apertura" value={fmtGs(c.monto_apertura)} icon={<Wallet className="h-3.5 w-3.5" />} />
+              <Metric label="Ventas" value={String(cr.cantidad_ventas)} icon={<CheckCircle2 className="h-3.5 w-3.5" />} />
+              <Metric label="Efectivo" value={fmtGs(cr.total_efectivo)} icon={<ArrowDownRight className="h-3.5 w-3.5 text-emerald-600" />} highlight="emerald" />
+              <Metric label="Transfer" value={fmtGs(cr.total_transferencia)} icon={<ArrowDownRight className="h-3.5 w-3.5 text-sky-600" />} />
+              <Metric label="Tarjeta" value={fmtGs(cr.total_tarjeta)} icon={<ArrowDownRight className="h-3.5 w-3.5 text-violet-600" />} />
+              <Metric label="Esperado efectivo" value={fmtGs(cr.efectivo_esperado)} icon={<Wallet className="h-3.5 w-3.5 text-[#4FAEB2]" />} highlight="turquesa" />
+            </div>
+
+            {cr.movimientos.length > 0 && (
+              <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/40">
+                <p className="text-[10.5px] uppercase tracking-wider font-bold text-slate-500 mb-2">Movimientos manuales</p>
+                <ul className="space-y-1">
+                  {cr.movimientos.slice(-5).reverse().map((m) => (
+                    <li key={m.id} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <MovIcon tipo={m.tipo} />
+                        <span className="truncate font-medium text-slate-700">{m.concepto}</span>
+                        <span className="text-slate-400">·</span>
+                        <span className="text-slate-500 capitalize">{m.medio_pago}</span>
+                      </span>
+                      <span className={`tabular-nums font-bold ${m.tipo === "ingreso" ? "text-emerald-700" : m.tipo === "egreso" || m.tipo === "retiro" ? "text-red-600" : "text-amber-700"}`}>
+                        {m.tipo === "egreso" || m.tipo === "retiro" ? "−" : "+"}
+                        {fmtGs(Math.abs(m.monto))}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {modal === "abrir" && (
+        <ModalAbrir
           onClose={() => setModal(null)}
+          onConfirm={handleAbrir}
+          error={error}
+          numeroSugerido={numeroSugerido}
+          numerosOcupados={numerosOcupados}
+        />
+      )}
+      {modal === "cerrar" && target && (
+        <ModalCerrar
+          resumen={target}
+          onClose={() => { setModal(null); setTarget(null); }}
           onConfirm={handleCerrar}
         />
       )}
-      {modal === "mov" && (
-        <ModalMovimiento onClose={() => setModal(null)} onConfirm={handleMov} />
+      {modal === "mov" && target && (
+        <ModalMovimiento onClose={() => { setModal(null); setTarget(null); }} onConfirm={handleMov} />
       )}
       {okMsg && <ToastOk msg={okMsg} />}
     </div>
@@ -423,13 +460,18 @@ function ModalAbrir({
   onClose,
   onConfirm,
   error,
+  numeroSugerido,
+  numerosOcupados,
 }: {
   onClose: () => void;
-  onConfirm: (monto: number, obs: string | null) => Promise<void>;
+  onConfirm: (monto: number, obs: string | null, numeroCaja: number) => Promise<void>;
   error: string | null;
+  numeroSugerido: number;
+  numerosOcupados: number[];
 }) {
   const [monto, setMonto] = useState("0");
   const [obs, setObs] = useState("");
+  const [numero, setNumero] = useState(numeroSugerido);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(error);
   async function submit() {
@@ -438,22 +480,54 @@ function ModalAbrir({
       setErr("Ingresá un monto válido.");
       return;
     }
+    if (numerosOcupados.includes(numero)) {
+      setErr(`La Caja ${numero} ya está activa. Elegí otro número.`);
+      return;
+    }
     setBusy(true);
     setErr(null);
     try {
-      await onConfirm(n, obs.trim() || null);
+      await onConfirm(n, obs.trim() || null, numero);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Error");
       setBusy(false);
     }
   }
+  // Opciones de caja: 1..6, deshabilitando las ya activas.
+  const opciones = [1, 2, 3, 4, 5, 6];
   return (
     <ModalBase
       title="Abrir caja"
-      subtitle="Ingresá el efectivo inicial con el que arrancás el turno."
+      subtitle="Elegí el número de caja e ingresá el efectivo inicial del turno."
       onClose={busy ? () => {} : onClose}
     >
       <div className="p-5 space-y-4">
+        <div>
+          <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">
+            Número de caja
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {opciones.map((n) => {
+              const ocupada = numerosOcupados.includes(n);
+              const sel = numero === n;
+              return (
+                <button
+                  key={n}
+                  type="button"
+                  disabled={ocupada}
+                  onClick={() => setNumero(n)}
+                  className={`rounded-lg border-2 px-3 py-1.5 text-sm font-bold transition-colors ${
+                    ocupada ? "border-slate-100 bg-slate-50 text-slate-300 cursor-not-allowed"
+                    : sel ? "border-[#4FAEB2] bg-[#4FAEB2] text-white"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  Caja {n}
+                </button>
+              );
+            })}
+          </div>
+        </div>
         <div>
           <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">
             Monto inicial (Gs.)

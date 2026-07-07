@@ -9,12 +9,13 @@
  * indice unique parcial en DB garantiza que solo haya una abierta a la vez.
  */
 
-export type EstadoCaja = "abierta" | "cerrada";
+export type EstadoCaja = "abierta" | "en_cierre" | "cerrada";
 export type TipoMovimientoCaja = "ingreso" | "egreso" | "retiro" | "ajuste";
 export type MedioPagoCaja = "efectivo" | "tarjeta" | "transferencia" | "otro";
 
 export interface Caja {
   id: string;
+  numero_caja: number;
   estado: EstadoCaja;
   abierta_por: string | null;
   cerrada_por: string | null;
@@ -71,6 +72,7 @@ export interface CajaResumen {
  */
 export interface CajaReporteRow {
   id: string;
+  numero_caja: number;
   estado: EstadoCaja;
   fecha_apertura: string;
   fecha_cierre: string | null;

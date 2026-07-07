@@ -23,17 +23,20 @@ export async function POST(request: NextRequest) {
     }
     const observacion =
       o.observacion == null || o.observacion === "" ? null : String(o.observacion).slice(0, 2000);
+    const numeroRaw = Number(o.numero_caja);
+    const numeroCaja = Number.isFinite(numeroRaw) && numeroRaw >= 1 ? Math.floor(numeroRaw) : null;
 
     const caja = await abrirCaja(ctx.supabase, {
       empresaId: ctx.auth.empresa_id,
       montoApertura,
       observacion,
       usuarioId: ctx.auth.usuarioCatalogId ?? null,
+      numeroCaja,
     });
     return NextResponse.json(successResponse({ caja }));
   } catch (err) {
     const msg = err instanceof Error ? err.message : "No se pudo abrir la caja.";
-    const status = /ya hay una caja abierta/i.test(msg) ? 409 : 500;
+    const status = /ya está activa/i.test(msg) ? 409 : 500;
     return NextResponse.json(errorResponse(msg), { status });
   }
 }

@@ -22,12 +22,13 @@ function num(v: unknown): number {
 }
 
 const CAJA_COLS =
-  "id, estado, abierta_por, cerrada_por, fecha_apertura, fecha_cierre, " +
+  "id, numero_caja, estado, abierta_por, cerrada_por, fecha_apertura, fecha_cierre, " +
   "monto_apertura, monto_cierre_contado, monto_esperado_efectivo, diferencia, " +
   "observacion_apertura, observacion_cierre";
 
 interface CajaRow {
   id: string;
+  numero_caja: number | string;
   estado: string;
   abierta_por: string | null;
   cerrada_por: string | null;
@@ -41,10 +42,16 @@ interface CajaRow {
   observacion_cierre: string | null;
 }
 
+/** Normaliza el estado del turno a uno de los 3 válidos. */
+function estadoCaja(v: string): EstadoCaja {
+  return v === "cerrada" ? "cerrada" : v === "en_cierre" ? "en_cierre" : "abierta";
+}
+
 function mapCaja(r: CajaRow): Caja {
   return {
     id: r.id,
-    estado: (r.estado === "cerrada" ? "cerrada" : "abierta") as EstadoCaja,
+    numero_caja: num(r.numero_caja) || 1,
+    estado: estadoCaja(r.estado),
     abierta_por: r.abierta_por,
     cerrada_por: r.cerrada_por,
     fecha_apertura: r.fecha_apertura,
@@ -75,6 +82,42 @@ export async function getCajaAbierta(
     .maybeSingle();
   if (q.error) throw new Error(q.error.message);
   return q.data ? mapCaja(q.data as unknown as CajaRow) : null;
+}
+
+/** Cajas ACTIVAS (abiertas o en cierre/conteo) de la empresa, por número. */
+export async function listarCajasActivas(
+  sb: AppSupabaseClient,
+  empresaId: string
+): Promise<Caja[]> {
+  const q = await sb
+    .from("cajas")
+    .select(CAJA_COLS)
+    .eq("empresa_id", empresaId)
+    .in("estado", ["abierta", "en_cierre"])
+    .order("numero_caja", { ascending: true });
+  if (q.error) throw new Error(q.error.message);
+  return ((q.data ?? []) as unknown as CajaRow[]).map(mapCaja);
+}
+
+/** Estado de todas las cajas activas (abiertas/en_cierre) con su resumen/arqueo en vivo. */
+export async function getEstadoCajas(
+  sb: AppSupabaseClient,
+  empresaId: string
+): Promise<CajaResumen[]> {
+  const cajas = await listarCajasActivas(sb, empresaId);
+  const resumenes = await Promise.all(cajas.map((c) => computeResumen(sb, empresaId, c)));
+  return resumenes;
+}
+
+/** Números de caja actualmente activos (para asignar el próximo libre). */
+async function numerosActivos(sb: AppSupabaseClient, empresaId: string): Promise<number[]> {
+  const q = await sb
+    .from("cajas")
+    .select("numero_caja")
+    .eq("empresa_id", empresaId)
+    .in("estado", ["abierta", "en_cierre"]);
+  if (q.error) throw new Error(q.error.message);
+  return ((q.data ?? []) as Array<{ numero_caja: number | string }>).map((r) => num(r.numero_caja) || 1);
 }
 
 /** Historial de cajas (mas reciente primero). */
@@ -247,6 +290,7 @@ export async function getReporteCajas(
       a.ajustes_efectivo;
     return {
       id: c.id,
+      numero_caja: c.numero_caja,
       estado: c.estado,
       fecha_apertura: c.fecha_apertura,
       fecha_cierre: c.fecha_cierre,
@@ -273,8 +317,8 @@ export async function getReporteCajas(
   const totales = empty.totales;
   totales.cantidad_cajas = filas.length;
   for (const f of filas) {
-    if (f.estado === "abierta") totales.cajas_abiertas++;
-    else totales.cajas_cerradas++;
+    if (f.estado === "cerrada") totales.cajas_cerradas++;
+    else totales.cajas_abiertas++;
     totales.total_vendido += f.total_vendido;
     totales.total_efectivo += f.total_efectivo;
     totales.total_tarjeta += f.total_tarjeta;
@@ -433,6 +477,7 @@ export async function getDetalleCaja(
 
   const row: CajaReporteRow = {
     id: caja.id,
+    numero_caja: caja.numero_caja,
     estado: caja.estado,
     fecha_apertura: caja.fecha_apertura,
     fecha_cierre: caja.fecha_cierre,
@@ -476,9 +521,10 @@ export async function getResumenCaja(
 }
 
 /**
- * Abre una nueva caja. El indice unique parcial en DB protege contra doble
- * apertura concurrente; ademas hacemos un check explicito para devolver un
- * error humano-leible.
+ * Abre una nueva caja (turno). Permite MULTIPLES cajas activas: cada una con su
+ * `numero_caja`. El índice único parcial en DB garantiza que no haya dos turnos
+ * activos (abierta/en_cierre) sobre el mismo número. Si no se pasa número, se
+ * asigna el más bajo libre (1, 2, …).
  */
 export async function abrirCaja(
   sb: AppSupabaseClient,
@@ -487,23 +533,25 @@ export async function abrirCaja(
     montoApertura: number;
     observacion: string | null;
     usuarioId: string | null;
+    numeroCaja?: number | null;
   }
 ): Promise<Caja> {
-  const ya = await sb
-    .from("cajas")
-    .select("id")
-    .eq("empresa_id", params.empresaId)
-    .eq("estado", "abierta")
-    .limit(1)
-    .maybeSingle();
-  if (ya.error) throw new Error(ya.error.message);
-  if (ya.data) {
-    throw new Error("Ya hay una caja abierta. Cerrala antes de abrir otra.");
+  const activos = await numerosActivos(sb, params.empresaId);
+  let numero = params.numeroCaja ?? null;
+  if (numero != null) {
+    if (activos.includes(numero)) {
+      throw new Error(`La Caja ${numero} ya está activa. Cerrala antes de reabrir ese número.`);
+    }
+  } else {
+    numero = 1;
+    while (activos.includes(numero)) numero++;
   }
+
   const ins = await sb
     .from("cajas")
     .insert({
       empresa_id: params.empresaId,
+      numero_caja: numero,
       estado: "abierta",
       abierta_por: params.usuarioId,
       monto_apertura: Math.round(params.montoApertura),
@@ -513,14 +561,34 @@ export async function abrirCaja(
     .single();
   if (ins.error) {
     if (/duplicate|23505/i.test(ins.error.message)) {
-      throw new Error("Ya hay una caja abierta. Cerrala antes de abrir otra.");
+      throw new Error(`La Caja ${numero} ya está activa. Cerrala antes de reabrir ese número.`);
     }
     throw new Error(ins.error.message);
   }
   return mapCaja(ins.data as unknown as CajaRow);
 }
 
-/** Cierra la caja: calcula esperado + diferencia y persiste el arqueo. */
+/** Pasa una caja abierta a estado 'en_cierre' (conteo): deja de recibir ventas/movimientos. */
+export async function ponerCajaEnCierre(
+  sb: AppSupabaseClient,
+  empresaId: string,
+  cajaId: string
+): Promise<Caja> {
+  const upd = await sb
+    .from("cajas")
+    .update({ estado: "en_cierre", updated_at: new Date().toISOString() })
+    .eq("empresa_id", empresaId)
+    .eq("id", cajaId)
+    .eq("estado", "abierta")
+    .select(CAJA_COLS)
+    .maybeSingle();
+  if (upd.error) throw new Error(upd.error.message);
+  if (!upd.data) throw new Error("La caja no está abierta.");
+  return mapCaja(upd.data as unknown as CajaRow);
+}
+
+/** Cierra la caja (turno): calcula esperado + diferencia y persiste el arqueo.
+ *  Cierra tanto desde 'abierta' como desde 'en_cierre'. */
 export async function cerrarCaja(
   sb: AppSupabaseClient,
   params: {
@@ -533,7 +601,7 @@ export async function cerrarCaja(
 ): Promise<CajaResumen> {
   const resumen = await getResumenCaja(sb, params.empresaId, params.cajaId);
   if (!resumen) throw new Error("Caja no encontrada.");
-  if (resumen.caja.estado !== "abierta") {
+  if (resumen.caja.estado === "cerrada") {
     throw new Error("La caja ya está cerrada.");
   }
   const contado = Math.round(params.montoCierreContado);
@@ -553,7 +621,7 @@ export async function cerrarCaja(
     })
     .eq("empresa_id", params.empresaId)
     .eq("id", params.cajaId)
-    .eq("estado", "abierta")
+    .in("estado", ["abierta", "en_cierre"])
     .select(CAJA_COLS)
     .single();
   if (upd.error) throw new Error(upd.error.message);
@@ -590,7 +658,7 @@ export async function registrarMovimiento(
   if (cQ.error) throw new Error(cQ.error.message);
   if (!cQ.data) throw new Error("Caja no encontrada.");
   if ((cQ.data as { estado: string }).estado !== "abierta") {
-    throw new Error("La caja está cerrada; no se pueden registrar movimientos.");
+    throw new Error("La caja no está abierta; no se pueden registrar movimientos.");
   }
 
   const ins = await sb
@@ -843,7 +911,7 @@ export async function listOtrosIngresos(
     if (!cQ.error) {
       for (const c of (cQ.data ?? []) as Array<{ id: string; estado: string; fecha_apertura: string }>) {
         cajasById.set(c.id, {
-          estado: (c.estado === "cerrada" ? "cerrada" : "abierta") as EstadoCaja,
+          estado: estadoCaja(c.estado),
           fecha_apertura: c.fecha_apertura,
         });
       }

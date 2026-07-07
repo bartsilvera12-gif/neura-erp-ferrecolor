@@ -86,6 +86,8 @@ export interface CreateVentaPgParams {
   permitirSinStock?: boolean;
   /** Si true y hay cliente, la venta emite nota de remisión (documento NO fiscal) con número NR-XXXXXX. */
   generaNotaRemision?: boolean;
+  /** Caja (turno) a la que se asocia la venta. La elige el cajero cuando hay varias abiertas. */
+  cajaId?: string | null;
 }
 
 function recalcTotals(items: CreateVentaItemInput[]) {
@@ -489,24 +491,35 @@ export async function createVentaTransaccionalPg(
     notaRemisionNumero = `NR-${String(nextNr).padStart(6, "0")}`;
   }
 
-  // 4c) Estampar caja_id si hay una caja abierta. Best-effort: si falla la
-  //     lectura, la venta sigue (caja_id queda null). Si no hay caja abierta,
-  //     tambien null (compat con flujo legacy sin turnos).
-  let cajaIdActual: string | null = null;
-  try {
-    const cQ = await sb
-      .from("cajas")
-      .select("id")
-      .eq("empresa_id", params.empresaId)
-      .eq("estado", "abierta")
-      .order("fecha_apertura", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (!cQ.error && cQ.data) {
-      cajaIdActual = String((cQ.data as { id: string }).id);
+  // 4c) Resolver la caja (turno) a la que se asocia la venta. Soporta múltiples
+  //     cajas abiertas: el cajero elige cuál (params.cajaId). Reglas:
+  //       - Si viene cajaId, debe estar ABIERTA (no 'en_cierre' ni cerrada).
+  //       - Si no viene y hay 1 sola abierta, se usa esa.
+  //       - Si no hay ninguna abierta → bloquea la venta.
+  //       - Si hay varias y no se especificó → pide elegir.
+  const cQ = await sb
+    .from("cajas")
+    .select("id, numero_caja")
+    .eq("empresa_id", params.empresaId)
+    .eq("estado", "abierta")
+    .order("numero_caja", { ascending: true });
+  if (cQ.error) throw new Error(cQ.error.message);
+  const abiertas = (cQ.data ?? []) as Array<{ id: string; numero_caja: number | string }>;
+
+  let cajaIdActual: string;
+  const pedida = params.cajaId ? String(params.cajaId) : null;
+  if (pedida) {
+    const match = abiertas.find((c) => String(c.id) === pedida);
+    if (!match) {
+      throw new Error("La caja seleccionada no está abierta. Elegí una caja abierta para registrar la venta.");
     }
-  } catch {
-    /* best-effort */
+    cajaIdActual = String(match.id);
+  } else if (abiertas.length === 1) {
+    cajaIdActual = String(abiertas[0].id);
+  } else if (abiertas.length === 0) {
+    throw new Error("Debe abrir una caja para registrar ventas/cobros.");
+  } else {
+    throw new Error("Hay varias cajas abiertas: seleccioná la caja para registrar la venta.");
   }
 
   // 5) Insertar venta
