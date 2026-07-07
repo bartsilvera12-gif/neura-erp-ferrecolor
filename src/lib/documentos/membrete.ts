@@ -6,17 +6,23 @@
  * SOLO presentación: no toca datos de negocio. Los datos comerciales son fijos
  * de la empresa (Ferretería República).
  *
- * TODO: confirmar datos comerciales reales (razón social, actividad SIFEN,
- * teléfono y dirección) con el equipo. Los valores actuales son placeholders.
+ * Datos comerciales reales confirmados por el cliente (2026-07). RUC, razón
+ * social, dirección y teléfono son los oficiales; el timbrado/numeración fiscal
+ * vive aparte en empresa_autoimpresor_config (factura autoimpresor).
  */
 
 export const EMPRESA_DOC = {
   nombre: "Ferretería República",
+  razonSocial: "FERRETERIA REPUBLICA E.A.S.",
+  ruc: "80155895-6",
   actividad: [
-    "Comercio al por menor de artículos de ferretería, materiales de construcción y herramientas",
+    "Comercio al por menor de artículos de ferretería y materiales de construcción",
   ],
-  telefono: "",
-  direccion: ["Paraguay"],
+  telefono: "0983908535",
+  direccion: [
+    "Defensores del Chaco esq. Juan Andrés Gelly",
+    "Barrio San Isidro · Lambaré · Paraguay",
+  ],
   /** Logo del cliente (alta calidad, sin fondo). Servido desde /public. */
   logoUrl: "/brand/ferreteriarepublica-doc-logo.png",
 };
@@ -43,6 +49,7 @@ export function membreteA4(origin = ""): string {
     </div>
     <div style="flex:1;min-width:0;text-align:right;font-size:11px;color:#374151;line-height:1.55;">
       <div style="font-size:14px;font-weight:800;color:#1f2937;">${esc(e.nombre)}</div>
+      <div style="color:#6b7280;">${esc(e.razonSocial)} · RUC ${esc(e.ruc)}</div>
       ${e.actividad.map((a) => `<div style="color:#6b7280;">${esc(a)}</div>`).join("")}
       <div style="margin-top:4px;"><strong>Tel:</strong> ${esc(e.telefono)}</div>
       <div>${e.direccion.map(esc).join(" · ")}</div>
@@ -60,6 +67,7 @@ export function membreteTicket(origin = ""): string {
   <div style="text-align:center;padding-bottom:6px;margin-bottom:6px;border-bottom:1px dashed #000;">
     <img src="${esc(logo)}" alt="${esc(e.nombre)}" style="max-width:150px;max-height:72px;width:auto;height:auto;object-fit:contain;display:inline-block;margin:0 auto 4px;" />
     <div style="font-weight:700;font-size:12px;">${esc(e.nombre)}</div>
+    <div style="font-size:10px;">RUC ${esc(e.ruc)}</div>
     <div style="font-size:10px;">Tel: ${esc(e.telefono)}</div>
     <div style="font-size:10px;">${esc(e.direccion[0])}</div>
     <div style="font-size:10px;">${esc(e.direccion.slice(1).join(" · "))}</div>
