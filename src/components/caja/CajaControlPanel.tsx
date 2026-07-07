@@ -48,7 +48,7 @@ function fmtFechaHora(iso: string | null) {
   }
 }
 
-type ModalKind = null | "abrir" | "cerrar" | "mov";
+type ModalKind = null | "abrir" | "cerrar" | "mov" | "en_cierre";
 
 interface Props {
   onStateChange?: () => void;
@@ -148,23 +148,22 @@ export default function CajaControlPanel({ onStateChange }: Props) {
     await load();
     notifyOk("Movimiento registrado.");
   }
-  async function handleEnCierre(cr: CajaResumen) {
-    if (!confirm(`¿Pasar la Caja ${cr.caja.numero_caja} a cierre/conteo? Deja de recibir ventas y movimientos.`)) return;
-    try {
-      const r = await fetch("/api/caja/en-cierre", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caja_id: cr.caja.id }),
-      });
-      const j = await r.json();
-      if (!r.ok || !j?.success) throw new Error(j?.error ?? `Error ${r.status}`);
-      await load();
-      notifyOk(`Caja ${cr.caja.numero_caja} en cierre/conteo.`);
-      onStateChange?.();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Error");
-    }
+  async function handleEnCierre() {
+    if (!target) return;
+    const cr = target;
+    const r = await fetch("/api/caja/en-cierre", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ caja_id: cr.caja.id }),
+    });
+    const j = await r.json();
+    if (!r.ok || !j?.success) throw new Error(j?.error ?? `Error ${r.status}`);
+    setModal(null);
+    setTarget(null);
+    await load();
+    notifyOk(`Caja ${cr.caja.numero_caja} en cierre/conteo.`);
+    onStateChange?.();
   }
 
   if (loading && cajas.length === 0) {
@@ -281,7 +280,7 @@ export default function CajaControlPanel({ onStateChange }: Props) {
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleEnCierre(cr)}
+                      onClick={() => { setTarget(cr); setModal("en_cierre"); }}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 text-xs font-semibold px-3 py-2 hover:bg-amber-100 transition-colors"
                     >
                       <AlertTriangle className="h-3.5 w-3.5" />
@@ -359,6 +358,16 @@ export default function CajaControlPanel({ onStateChange }: Props) {
       )}
       {modal === "mov" && target && (
         <ModalMovimiento onClose={() => { setModal(null); setTarget(null); }} onConfirm={handleMov} />
+      )}
+      {modal === "en_cierre" && target && (
+        <ModalConfirmar
+          title={`Pasar Caja ${target.caja.numero_caja} a cierre`}
+          subtitle="Conteo / arqueo del turno"
+          mensaje={`La Caja ${target.caja.numero_caja} dejará de recibir ventas y movimientos. Después vas a cargar el efectivo contado para cerrarla. ¿Continuar?`}
+          confirmLabel="Pasar a cierre"
+          onClose={() => { setModal(null); setTarget(null); }}
+          onConfirm={handleEnCierre}
+        />
       )}
       {okMsg && <ToastOk msg={okMsg} />}
     </div>
@@ -453,6 +462,72 @@ function ModalBase({
         {children}
       </div>
     </div>
+  );
+}
+
+/** Modal de confirmación genérico (reemplaza al confirm() nativo). */
+function ModalConfirmar({
+  title,
+  subtitle,
+  mensaje,
+  confirmLabel,
+  onClose,
+  onConfirm,
+}: {
+  title: string;
+  subtitle?: string;
+  mensaje: string;
+  confirmLabel: string;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function submit() {
+    setBusy(true);
+    setErr(null);
+    try {
+      await onConfirm();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Error");
+      setBusy(false);
+    }
+  }
+  return (
+    <ModalBase title={title} subtitle={subtitle} onClose={onClose}>
+      <div className="px-5 py-5 space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="h-9 w-9 shrink-0 rounded-xl bg-amber-100 border border-amber-200 flex items-center justify-center">
+            <AlertTriangle className="h-4.5 w-4.5 text-amber-600" />
+          </div>
+          <p className="text-sm text-slate-600 leading-relaxed">{mensaje}</p>
+        </div>
+        {err && (
+          <p className="text-xs font-medium text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+            {err}
+          </p>
+        )}
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="rounded-lg border border-slate-200 bg-white text-slate-600 text-sm font-semibold px-4 py-2 hover:bg-slate-50 transition-colors disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold px-4 py-2 transition-colors shadow-sm disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <AlertTriangle className="h-4 w-4" />}
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </ModalBase>
   );
 }
 
