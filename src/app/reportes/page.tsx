@@ -2,7 +2,7 @@
 
 import PageHeader from "@/components/ui/PageHeader";
 import { ReportCard } from "@/components/reportes/ReportCard";
-import { Wallet, Truck, Package, ShoppingCart, ArrowLeftRight, Lock, BarChart3 } from "lucide-react";
+import { Wallet, Truck, Package, ShoppingCart, ArrowLeftRight, Lock, BarChart3, CalendarClock } from "lucide-react";
 
 /** Hub de reportería operativa (Fase 1: Estado de cuenta + Proveedores). */
 export default function ReportesPage() {
@@ -76,6 +76,15 @@ export default function ReportesPage() {
             icon={BarChart3}
             description="Productos muy vendidos (A), medios (B) y con poca o ninguna venta (C) en el último 1, 2 o 3 meses."
             href="/reportes/rotacion-abc"
+          />
+        </li>
+        <li>
+          <ReportCard
+            title="Proyección de inventario"
+            subtitle="Cobertura de stock en días"
+            icon={CalendarClock}
+            description="Días estimados que dura el stock según el ritmo de venta (30/60/90 días), fecha de quiebre y estado (crítico/bajo/normal/sobrestock)."
+            href="/reportes/proyeccion-inventario"
           />
         </li>
       </ul>

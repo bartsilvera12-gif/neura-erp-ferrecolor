@@ -1,6 +1,7 @@
 import type { EstadoCuentaReporte, ProveedoresReporte, ComprasReporte, VentasReporte, ConciliacionReporte } from "./types";
 import type { CajasReporte, CajaDetalle } from "@/lib/caja/types";
 import type { RangoABC } from "@/lib/reportes/abc";
+import type { EstadoStock } from "@/lib/reportes/proyeccion";
 
 export interface ProductoRotacion {
   producto_id: string;
@@ -31,6 +32,35 @@ export interface RotacionAbcQuery {
   page?: number;
   pageSize?: number;
   rango?: RangoABC | "";
+  q?: string;
+}
+
+export interface ProyeccionRowCli {
+  producto_id: string;
+  nombre: string;
+  sku: string | null;
+  stock_actual: number;
+  stock_minimo: number;
+  cantidad_vendida: number;
+  promedio_diario: number;
+  dias_cobertura: number | null;
+  estado: EstadoStock;
+}
+export interface ProyeccionInventario {
+  desde: string;
+  hasta: string;
+  dias: number;
+  totales: Record<EstadoStock, number> & { total: number };
+  page: number;
+  pageSize: number;
+  total: number;
+  productos: ProyeccionRowCli[];
+}
+export interface ProyeccionQuery {
+  dias: number;
+  page?: number;
+  pageSize?: number;
+  estado?: EstadoStock | "";
   q?: string;
 }
 
@@ -73,3 +103,11 @@ export const getRotacionAbcReporte = (opts: RotacionAbcQuery) => {
 /** Mapa mínimo producto→rango (solo A/B) para el listado de productos. */
 export const getRotacionAbcMapa = (meses: number) =>
   getReporte<RotacionAbcMapa>(`/api/reportes/rotacion-abc?meses=${meses}&mapa=1`);
+export const getProyeccionInventario = (opts: ProyeccionQuery) => {
+  const p = new URLSearchParams({ dias: String(opts.dias) });
+  if (opts.page) p.set("page", String(opts.page));
+  if (opts.pageSize) p.set("pageSize", String(opts.pageSize));
+  if (opts.estado) p.set("estado", opts.estado);
+  if (opts.q && opts.q.trim()) p.set("q", opts.q.trim());
+  return getReporte<ProyeccionInventario>(`/api/reportes/proyeccion-inventario?${p.toString()}`);
+};
