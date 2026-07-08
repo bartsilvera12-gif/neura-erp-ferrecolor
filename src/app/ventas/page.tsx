@@ -90,6 +90,7 @@ export default function VentasPage() {
   const [busqueda,   setBusqueda]   = useState("");
   const [filtroTipo, setFiltroTipo] = useState<TipoVenta | "">("");
   const [filtroIva,  setFiltroIva]  = useState<TipoIvaVenta | "">("");
+  const [detalle,    setDetalle]    = useState<Venta | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -228,6 +229,7 @@ export default function VentasPage() {
                 <th className="py-3 pr-4 font-medium text-right">Total</th>
                 <th className="hidden py-3 pr-4 font-medium lg:table-cell">Tipo</th>
                 <th className="hidden py-3 pr-4 font-medium lg:table-cell">Pago</th>
+                <th className="hidden py-3 pr-4 font-medium lg:table-cell">Vendedor</th>
                 <th className="py-3 pr-4 font-medium">Fecha</th>
                 <th className="py-3 font-medium text-center">Ticket</th>
               </tr>
@@ -235,7 +237,7 @@ export default function VentasPage() {
             <tbody>
               {filtradas.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-gray-400">
+                  <td colSpan={11} className="py-12 text-center text-gray-400">
                     {todas.length === 0
                       ? "No hay ventas registradas"
                       : "Ninguna venta coincide con los filtros"}
@@ -245,7 +247,7 @@ export default function VentasPage() {
                 filtradas.map((v) => {
                   const cantTotal = v.items.reduce((s, i) => s + i.cantidad, 0);
                   return (
-                    <tr key={v.id} className="border-b border-slate-200 last:border-0 hover:bg-[#4FAEB2]/[0.04] transition-colors">
+                    <tr key={v.id} onClick={() => setDetalle(v)} className="border-b border-slate-200 last:border-0 hover:bg-[#4FAEB2]/[0.04] transition-colors cursor-pointer">
                       <td className="py-4 pr-4 font-mono text-xs text-gray-500 align-middle">
                         {v.numero_control}
                       </td>
@@ -281,10 +283,13 @@ export default function VentasPage() {
                           : v.metodo_pago === "efectivo" ? "Efectivo"
                           : "—"}
                       </td>
+                      <td className="hidden py-4 pr-4 align-middle text-xs text-gray-600 lg:table-cell">
+                        {v.usuario_nombre ?? "—"}
+                      </td>
                       <td className="py-4 pr-4 text-gray-500 text-xs tabular-nums align-middle">
                         {formatFecha(v.fecha)}
                       </td>
-                      <td className="py-4 text-center align-middle">
+                      <td className="py-4 text-center align-middle" onClick={(e) => e.stopPropagation()}>
                         <div className="inline-flex items-center gap-1.5">
                           <a
                             href={`/api/ventas/${v.id}/ticket?mode=comandas`}
@@ -329,6 +334,120 @@ export default function VentasPage() {
 
       {/* FAB mobile: acceso 1-tap a "+ Nueva venta" desde cualquier scroll position */}
       <MobileFab href="/ventas/nueva" label="Nueva venta" />
+
+      {detalle && <VentaDetalleModal venta={detalle} onClose={() => setDetalle(null)} />}
+    </div>
+  );
+}
+
+// ── Modal de detalle de venta ───────────────────────────────────────────────────
+
+function VentaDetalleModal({ venta, onClose }: { venta: Venta; onClose: () => void }) {
+  const cantTotal = venta.items.reduce((s, i) => s + i.cantidad, 0);
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl overflow-hidden rounded-2xl border-2 border-[#4FAEB2]/20 bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-[#4FAEB2]/5 to-transparent px-5 py-4">
+          <div>
+            <h3 className="font-mono text-sm font-bold text-[#3F8E91]">{venta.numero_control}</h3>
+            <p className="mt-0.5 text-xs text-slate-500">Detalle de la venta</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Cerrar"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Meta: fecha/hora, vendedor, tipo, pago */}
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3 px-5 py-4 sm:grid-cols-4">
+          <Meta label="Fecha y hora" value={formatFecha(venta.fecha)} />
+          <Meta label="Vendedor" value={venta.usuario_nombre ?? "—"} />
+          <Meta
+            label="Tipo"
+            value={venta.tipo_venta === "CONTADO" ? "Contado" : `Crédito ${venta.plazo_dias ?? ""}d`}
+          />
+          <Meta
+            label="Pago"
+            value={
+              venta.metodo_pago === "tarjeta" ? "Tarjeta"
+              : venta.metodo_pago === "transferencia" ? "Transferencia"
+              : venta.metodo_pago === "efectivo" ? "Efectivo"
+              : "—"
+            }
+          />
+        </div>
+
+        {/* Ítems */}
+        <div className="max-h-[50vh] overflow-y-auto px-5 pb-2">
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="w-full min-w-[520px] text-sm">
+              <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-3 py-2 text-left font-semibold">Producto</th>
+                  <th className="px-3 py-2 text-center font-semibold">Cant.</th>
+                  <th className="px-3 py-2 text-right font-semibold">P. Unit.</th>
+                  <th className="px-3 py-2 text-center font-semibold">IVA</th>
+                  <th className="px-3 py-2 text-right font-semibold">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {venta.items.map((it, idx) => (
+                  <tr key={`${it.producto_id}-${idx}`}>
+                    <td className="px-3 py-2">
+                      <div className="font-medium text-slate-800">{it.producto_nombre}</div>
+                      <div className="font-mono text-xs text-slate-400">{it.sku}</div>
+                    </td>
+                    <td className="px-3 py-2 text-center tabular-nums text-slate-700">{it.cantidad}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-slate-600">{formatGs(it.precio_venta)}</td>
+                    <td className="px-3 py-2 text-center text-xs text-slate-500">{ivaLabel[it.tipo_iva]}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-800">{formatGs(it.total_linea)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Totales */}
+        <div className="border-t border-slate-100 px-5 py-4">
+          <div className="ml-auto max-w-xs space-y-1 text-sm">
+            <Fila label={`Subtotal (${venta.items.length} ítem(s), ${cantTotal} u.)`} value={formatGs(venta.subtotal)} />
+            <Fila label="IVA" value={formatGs(venta.monto_iva)} />
+            <div className="mt-1 flex items-center justify-between border-t border-slate-200 pt-2 text-base font-bold text-slate-900">
+              <span>Total</span>
+              <span className="tabular-nums">{formatGs(venta.total)}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Meta({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+      <p className="mt-0.5 text-sm font-medium text-slate-800">{value}</p>
+    </div>
+  );
+}
+
+function Fila({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between text-slate-600">
+      <span>{label}</span>
+      <span className="tabular-nums">{value}</span>
     </div>
   );
 }

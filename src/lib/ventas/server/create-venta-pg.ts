@@ -541,6 +541,8 @@ export async function createVentaTransaccionalPg(
       fecha: fechaIso,
       observaciones: observacionesFinal,
       caja_id: cajaIdActual,
+      created_by: params.usuarioId ?? null,
+      usuario_nombre: params.usuarioNombre ?? null,
     })
     .select("id")
     .single();

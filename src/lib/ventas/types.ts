@@ -58,4 +58,7 @@ export interface Venta {
   nota_remision_numero?: string | null;
 
   fecha: string;             // ISO string, generado automáticamente
+
+  /** Nombre del usuario que registró la venta (auditoría). */
+  usuario_nombre?: string | null;
 }
