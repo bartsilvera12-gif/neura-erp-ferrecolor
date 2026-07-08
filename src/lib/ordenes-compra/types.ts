@@ -1,6 +1,6 @@
 import type { TipoIva, TipoPago, Moneda } from "@/lib/compras/types";
 
-export type EstadoOrdenCompra = "abierta" | "recibida" | "cancelada";
+export type EstadoOrdenCompra = "pendiente" | "recibida_parcial" | "recibida_total" | "cancelada";
 
 /**
  * Orden de Compra (OC) — modelo PLANO igual que `compras`: una fila por
@@ -18,6 +18,10 @@ export interface OrdenCompra {
   producto_nombre: string;
 
   cantidad: number;
+  /** Acumulado recibido de esta línea a través de una o más compras. */
+  cantidad_recibida: number;
+  /** Derivado: cantidad - cantidad_recibida (nunca negativo). */
+  cantidad_pendiente: number;
 
   moneda: Moneda;
   tipo_cambio: number;

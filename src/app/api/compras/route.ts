@@ -65,6 +65,8 @@ export async function POST(request: NextRequest) {
         ? parseInt(String(body.plazo_dias), 10) || null : null,
       nro_timbrado: String(body.nro_timbrado).trim().toUpperCase(),
       numero_factura: req("numero_factura") ? String(body.numero_factura).trim() : null,
+      fecha_factura: req("fecha_factura") ? String(body.fecha_factura).trim().slice(0, 10) : null,
+      observacion: req("observacion") ? String(body.observacion).trim().slice(0, 2000) : null,
       orden_compra_numero: req("orden_compra_numero") ? String(body.orden_compra_numero).trim() : null,
       comprobante_url: body.comprobante_url != null && String(body.comprobante_url).trim() !== "" ? String(body.comprobante_url) : null,
       comprobante_storage_path: body.comprobante_storage_path != null && String(body.comprobante_storage_path).trim() !== "" ? String(body.comprobante_storage_path) : null,

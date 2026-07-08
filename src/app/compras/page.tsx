@@ -45,6 +45,7 @@ type GrupoCompra = {
   items: Compra[];
   total: number;
   comprobante: boolean;
+  orden_compra_numero: string | null;
 };
 
 function agrupar(rows: Compra[]): GrupoCompra[] {
@@ -62,6 +63,7 @@ function agrupar(rows: Compra[]): GrupoCompra[] {
         items: [],
         total: 0,
         comprobante: false,
+        orden_compra_numero: c.orden_compra_numero ?? null,
       };
       map.set(key, g);
     }
@@ -153,6 +155,10 @@ export default function ComprasPage() {
           <h2 className="text-xl font-semibold">Compras registradas</h2>
           <div className="flex items-center gap-3">
             <ExportExcelButton url="/api/compras/export" />
+            <Link href="/compras/desde-orden"
+              className="rounded-lg border border-[#4FAEB2]/40 bg-[#4FAEB2]/[0.08] px-3 py-1.5 text-xs font-semibold text-[#3F8E91] transition-colors hover:bg-[#4FAEB2]/[0.16] active:scale-95">
+              Desde Orden de Compra
+            </Link>
             <Link href="/compras/nueva"
               className="rounded-lg bg-[#4FAEB2] px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-[#4FAEB2]/25 transition-colors hover:bg-[#3F8E91] active:scale-95">
               + Nueva compra
@@ -221,6 +227,15 @@ export default function ComprasPage() {
                         <td className="py-4 pr-4 font-medium text-gray-800">{g.proveedor_nombre}</td>
                         <td className="py-4 pr-4 text-gray-600">
                           <div>{resumenProductos(g.items)}</div>
+                          {g.orden_compra_numero && (
+                            <Link
+                              href={`/compras/ordenes/${encodeURIComponent(g.orden_compra_numero)}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-[#E5F4F4] px-2 py-0.5 text-[11px] font-semibold text-[#3F8E91] hover:underline"
+                            >
+                              {g.orden_compra_numero}
+                            </Link>
+                          )}
                           {g.comprobante && (
                             <a
                               href={`/api/compras/comprobante?numero_control=${encodeURIComponent(g.numero_control)}`}

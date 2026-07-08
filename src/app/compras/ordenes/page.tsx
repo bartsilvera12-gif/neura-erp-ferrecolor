@@ -18,13 +18,15 @@ function fmtFecha(iso: string) {
 }
 
 const ESTADO_BADGE: Record<EstadoOrdenCompra, string> = {
-  abierta: "bg-[var(--badge-warning-bg)] text-[var(--badge-warning-text)]",
-  recibida: "bg-[var(--badge-success-bg)] text-[var(--badge-success-text)]",
+  pendiente: "bg-[var(--badge-warning-bg)] text-[var(--badge-warning-text)]",
+  recibida_parcial: "bg-sky-100 text-sky-700",
+  recibida_total: "bg-[var(--badge-success-bg)] text-[var(--badge-success-text)]",
   cancelada: "bg-slate-100 text-slate-500",
 };
 const ESTADO_LBL: Record<EstadoOrdenCompra, string> = {
-  abierta: "Abierta",
-  recibida: "Recibida",
+  pendiente: "Pendiente",
+  recibida_parcial: "Recibida parcial",
+  recibida_total: "Recibida total",
   cancelada: "Cancelada",
 };
 
@@ -116,8 +118,9 @@ export default function OrdenesCompraPage() {
           <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value as EstadoOrdenCompra | "")}
             className="w-44 rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-[#4FAEB2]/30">
             <option value="">Todos los estados</option>
-            <option value="abierta">Abiertas</option>
-            <option value="recibida">Recibidas</option>
+            <option value="pendiente">Pendientes</option>
+            <option value="recibida_parcial">Recibidas parcial</option>
+            <option value="recibida_total">Recibidas total</option>
             <option value="cancelada">Canceladas</option>
           </select>
           <span className="ml-auto text-sm text-slate-400">{filtrados.length} de {grupos.length} órdenes</span>
@@ -151,8 +154,14 @@ export default function OrdenesCompraPage() {
                       </span>
                     </td>
                     <td className="px-3 py-2.5 text-center">
-                      <Link href={`/compras/ordenes/${encodeURIComponent(g.numero_oc)}`}
-                        className="text-xs font-semibold text-[#3F8E91] hover:underline">Ver</Link>
+                      <div className="inline-flex items-center gap-3">
+                        <Link href={`/compras/ordenes/${encodeURIComponent(g.numero_oc)}`}
+                          className="text-xs font-semibold text-[#3F8E91] hover:underline">Ver</Link>
+                        {(g.estado === "pendiente" || g.estado === "recibida_parcial") && (
+                          <Link href={`/compras/desde-orden/${encodeURIComponent(g.numero_oc)}`}
+                            className="text-xs font-semibold text-emerald-700 hover:underline">Recibir</Link>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

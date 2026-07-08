@@ -9,7 +9,7 @@
 import { getChatPostgresPool, quoteSchemaTable } from "@/lib/supabase/chat-pg-pool";
 import { assertAllowedChatDataSchema } from "@/lib/supabase/chat-data-schema";
 import {
-  insertComprasConImpacto,
+  insertComprasConImpactoTx,
   type CompraHeaderInput,
   type CompraItemInput,
 } from "@/lib/compras/server/compras-pg";
@@ -29,6 +29,7 @@ export interface OrdenCompraRow {
   producto_id: string;
   producto_nombre: string;
   cantidad: string | number;
+  cantidad_recibida: string | number;
   moneda: string;
   tipo_cambio: string | number;
   costo_unitario_original: string | number;
@@ -56,7 +57,7 @@ export interface OrdenCompraRow {
 
 const COLS = `
   id, empresa_id, numero_oc, proveedor_id, proveedor_nombre, producto_id, producto_nombre,
-  cantidad, moneda, tipo_cambio, costo_unitario_original, costo_unitario,
+  cantidad, cantidad_recibida, moneda, tipo_cambio, costo_unitario_original, costo_unitario,
   iva_tipo, subtotal, monto_iva, total, precio_venta, margen_venta,
   tipo_pago, plazo_dias, estado, observacion,
   compra_numero_control, recibida_at, cancelada_at, cancelada_motivo,
@@ -173,7 +174,7 @@ export async function insertOrdenCompra(
            $1::uuid, $2, $3::uuid, $4, $5::uuid, $6,
            $7::numeric, $8, $9::numeric, $10::numeric, $11::numeric,
            $12, $13::numeric, $14::numeric, $15::numeric, $16::numeric, $17::numeric,
-           $18, $19::integer, 'abierta', $20, now(), $21::uuid, $22
+           $18, $19::integer, 'pendiente', $20, now(), $21::uuid, $22
          )
          RETURNING ${COLS}`,
         [
@@ -198,7 +199,11 @@ export async function insertOrdenCompra(
   }
 }
 
-/** Cancela una OC abierta (todas sus líneas). Idempotente si ya no está abierta. */
+/**
+ * Cancela una OC (todas sus líneas). Solo mientras esté 'pendiente' (nada
+ * recibido todavía) — si ya tiene alguna recepción parcial, no se puede
+ * cancelar por acá para no perder la trazabilidad de lo ya comprado/recibido.
+ */
 export async function cancelarOrdenCompra(
   schemaRaw: string,
   empresaId: string,
@@ -211,104 +216,214 @@ export async function cancelarOrdenCompra(
     `UPDATE ${t}
         SET estado = 'cancelada', cancelada_at = now(),
             cancelada_motivo = $3, updated_at = now()
-      WHERE empresa_id = $1::uuid AND numero_oc = $2 AND estado = 'abierta'`,
+      WHERE empresa_id = $1::uuid AND numero_oc = $2 AND estado = 'pendiente'`,
     [empresaId, numeroOc, (motivo ?? "").trim().slice(0, 500) || null]
   );
   return rowCount ?? 0;
 }
 
-export interface RecibirOrdenCompraParams {
+function num(v: unknown): number {
+  const n = typeof v === "number" ? v : Number(v ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * IVA incluido (igual criterio que en la creación de la OC/compra): el monto
+ * ya contiene el IVA; se desglosa desde adentro. Se usa para recalcular
+ * subtotal/monto_iva cuando la cantidad recibida es menor a la pedida.
+ */
+function desglosarIva(bruto: number, ivaTipo: string): { subtotal: number; monto_iva: number } {
+  if (ivaTipo === "exenta") return { subtotal: bruto, monto_iva: 0 };
+  const factor = ivaTipo === "5" ? 1.05 : 1.1;
+  const subtotal = bruto / factor;
+  return { subtotal, monto_iva: bruto - subtotal };
+}
+
+/** Se intentó recibir más cantidad que la pendiente sin autorizar el excedente. */
+export class ExcedenteRecepcionError extends Error {
+  detalle: Array<{ producto_nombre: string; pendiente: number; intentado: number }>;
+  constructor(detalle: Array<{ producto_nombre: string; pendiente: number; intentado: number }>) {
+    super("Se intentó recibir más cantidad que la pendiente.");
+    this.name = "ExcedenteRecepcionError";
+    this.detalle = detalle;
+  }
+}
+
+export interface RecepcionItemInput {
+  /** id de la fila de ordenes_compra (línea/producto) que se está recibiendo. */
+  ordenItemId: string;
+  /** Cantidad recibida EN ESTA recepción (no acumulada). */
+  cantidadRecibidaAhora: number;
+  observacion?: string | null;
+}
+
+export interface ConfirmarRecepcionParams {
   numeroOc: string;
   nroTimbrado: string;
   numeroFactura: string;
+  fechaFactura: string | null;
   tipoPago: string;
   plazoDias: number | null;
+  observacionCompra: string | null;
   comprobante: {
     url: string | null;
     storage_path: string | null;
     nombre: string | null;
     mime_type: string | null;
   };
+  items: RecepcionItemInput[];
+  /** Autoriza explícitamente recibir más de lo pendiente (excedente). */
+  permitirExcedente: boolean;
   createdBy: string | null;
   usuarioNombre: string | null;
 }
 
-export interface RecibirOrdenCompraResult {
+export interface ConfirmarRecepcionResult {
   numero_oc: string;
   numero_control: string;
+  estado_oc: "recibida_parcial" | "recibida_total";
   movimiento_warning: string | null;
 }
 
 /**
- * Recibe una OC: crea la COMPRA real (impacta stock) con los ítems tal cual la
- * OC, y marca la OC como 'recibida' con el numero_control de la compra.
- * Los ítems NO son editables: se toman de la OC (fuente de verdad en DB).
+ * Confirma la recepción (parcial o total) de una OC: genera la COMPRA real
+ * SOLO con los productos y cantidades efectivamente recibidas (impacta stock
+ * solo por eso), acumula `cantidad_recibida` por línea, y deja la OC en
+ * 'recibida_parcial' o 'recibida_total' según corresponda. Puede llamarse
+ * varias veces sobre la misma OC hasta completar la recepción.
+ *
+ * Todo en una única transacción: lockea las filas de la OC (FOR UPDATE) para
+ * que dos recepciones concurrentes de la misma OC nunca duplican stock ni
+ * pisan `cantidad_recibida`.
  */
-export async function recibirOrdenCompra(
+export async function confirmarRecepcionOrdenCompra(
   schemaRaw: string,
   empresaId: string,
-  params: RecibirOrdenCompraParams
-): Promise<RecibirOrdenCompraResult> {
+  params: ConfirmarRecepcionParams
+): Promise<ConfirmarRecepcionResult> {
   const schema = assertAllowedChatDataSchema(schemaRaw);
-  const filas = await getOrdenCompra(schema, empresaId, params.numeroOc);
-  if (filas.length === 0) throw new Error("Orden de compra no encontrada.");
-  if (filas.some((f) => f.estado !== "abierta")) {
-    throw new Error("La orden de compra ya fue recibida o cancelada.");
+  const tOC = quoteSchemaTable(schema, "ordenes_compra");
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+
+    const { rows: filas } = await client.query<OrdenCompraRow>(
+      `SELECT ${COLS} FROM ${tOC} WHERE empresa_id = $1::uuid AND numero_oc = $2 FOR UPDATE`,
+      [empresaId, params.numeroOc]
+    );
+    if (filas.length === 0) throw new Error("Orden de compra no encontrada.");
+    if (filas.some((f) => f.estado === "cancelada")) {
+      throw new Error("La orden de compra está cancelada.");
+    }
+    if (filas.every((f) => f.estado === "recibida_total")) {
+      throw new Error("La orden de compra ya fue recibida por completo.");
+    }
+    const cab = filas[0];
+    const filaPorId = new Map(filas.map((f) => [f.id, f]));
+
+    // Validar ítems recibidos contra la OC (fuente de verdad).
+    const excedentes: Array<{ producto_nombre: string; pendiente: number; intentado: number }> = [];
+    for (const it of params.items) {
+      if (it.cantidadRecibidaAhora <= 0) continue;
+      const fila = filaPorId.get(it.ordenItemId);
+      if (!fila) throw new Error("Ítem de la orden de compra inválido.");
+      if (it.cantidadRecibidaAhora < 0) throw new Error("La cantidad recibida no puede ser negativa.");
+      const pendiente = Math.max(0, num(fila.cantidad) - num(fila.cantidad_recibida));
+      if (it.cantidadRecibidaAhora > pendiente) {
+        excedentes.push({ producto_nombre: fila.producto_nombre, pendiente, intentado: it.cantidadRecibidaAhora });
+      }
+    }
+    if (excedentes.length > 0 && !params.permitirExcedente) {
+      throw new ExcedenteRecepcionError(excedentes);
+    }
+
+    const itemsARecibir = params.items.filter((it) => it.cantidadRecibidaAhora > 0);
+    if (itemsARecibir.length === 0) {
+      throw new Error("Debés confirmar al menos un producto recibido.");
+    }
+
+    // Compra real: SOLO los productos/cantidades efectivamente recibidas,
+    // recalculando subtotal/IVA/total en base a la cantidad recibida ahora.
+    const compraItems: CompraItemInput[] = itemsARecibir.map((it) => {
+      const fila = filaPorId.get(it.ordenItemId)!;
+      const totalLinea = num(fila.costo_unitario) * it.cantidadRecibidaAhora;
+      const { subtotal, monto_iva } = desglosarIva(totalLinea, fila.iva_tipo);
+      return {
+        producto_id: fila.producto_id,
+        producto_nombre: fila.producto_nombre,
+        cantidad: it.cantidadRecibidaAhora,
+        costo_unitario_original: num(fila.costo_unitario_original),
+        costo_unitario: num(fila.costo_unitario),
+        iva_tipo: fila.iva_tipo,
+        subtotal: Math.round(subtotal),
+        monto_iva: Math.round(monto_iva),
+        total: Math.round(totalLinea),
+        precio_venta: num(fila.precio_venta),
+        margen_venta: fila.margen_venta != null ? num(fila.margen_venta) : null,
+        orden_compra_item_id: fila.id,
+      };
+    });
+
+    const header: CompraHeaderInput = {
+      proveedor_id: cab.proveedor_id,
+      proveedor_nombre: cab.proveedor_nombre,
+      moneda: cab.moneda === "USD" ? "USD" : "PYG",
+      tipo_cambio: num(cab.tipo_cambio) || 1,
+      tipo_pago: params.tipoPago === "credito" ? "credito" : "contado",
+      plazo_dias: params.plazoDias,
+      nro_timbrado: params.nroTimbrado.trim().toUpperCase(),
+      numero_factura: params.numeroFactura.trim(),
+      fecha_factura: params.fechaFactura,
+      observacion: params.observacionCompra,
+      orden_compra_numero: params.numeroOc,
+      comprobante_url: params.comprobante.url,
+      comprobante_storage_path: params.comprobante.storage_path,
+      comprobante_nombre: params.comprobante.nombre,
+      comprobante_mime_type: params.comprobante.mime_type,
+      created_by: params.createdBy,
+      usuario_nombre: params.usuarioNombre,
+    };
+
+    const out = await insertComprasConImpactoTx(client, schema, empresaId, header, compraItems);
+
+    // Acumular cantidad_recibida por línea.
+    for (const it of itemsARecibir) {
+      await client.query(
+        `UPDATE ${tOC} SET cantidad_recibida = cantidad_recibida + $2::numeric, updated_at = now()
+          WHERE id = $1::uuid`,
+        [it.ordenItemId, it.cantidadRecibidaAhora]
+      );
+    }
+
+    // Recalcular estado global de la OC con los valores ya actualizados.
+    const { rows: actualizadas } = await client.query<{ cantidad: string; cantidad_recibida: string }>(
+      `SELECT cantidad, cantidad_recibida FROM ${tOC} WHERE empresa_id = $1::uuid AND numero_oc = $2`,
+      [empresaId, params.numeroOc]
+    );
+    const completa = actualizadas.every((f) => num(f.cantidad_recibida) >= num(f.cantidad));
+    const estadoFinal: "recibida_parcial" | "recibida_total" = completa ? "recibida_total" : "recibida_parcial";
+
+    await client.query(
+      `UPDATE ${tOC}
+          SET estado = $3,
+              compra_numero_control = $4,
+              recibida_at = CASE WHEN $3 = 'recibida_total' THEN now() ELSE recibida_at END,
+              updated_at = now()
+        WHERE empresa_id = $1::uuid AND numero_oc = $2`,
+      [empresaId, params.numeroOc, estadoFinal, out.numero_control]
+    );
+
+    await client.query("COMMIT");
+    return {
+      numero_oc: params.numeroOc,
+      numero_control: out.numero_control,
+      estado_oc: estadoFinal,
+      movimiento_warning: out.movimiento_warning,
+    };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => null);
+    throw err;
+  } finally {
+    client.release();
   }
-  const cab = filas[0];
-
-  const num = (v: unknown) => {
-    const n = typeof v === "number" ? v : Number(v ?? 0);
-    return Number.isFinite(n) ? n : 0;
-  };
-
-  const header: CompraHeaderInput = {
-    proveedor_id: cab.proveedor_id,
-    proveedor_nombre: cab.proveedor_nombre,
-    moneda: cab.moneda === "USD" ? "USD" : "PYG",
-    tipo_cambio: num(cab.tipo_cambio) || 1,
-    tipo_pago: params.tipoPago === "credito" ? "credito" : "contado",
-    plazo_dias: params.plazoDias,
-    nro_timbrado: params.nroTimbrado.trim().toUpperCase(),
-    numero_factura: params.numeroFactura.trim(),
-    orden_compra_numero: params.numeroOc,
-    comprobante_url: params.comprobante.url,
-    comprobante_storage_path: params.comprobante.storage_path,
-    comprobante_nombre: params.comprobante.nombre,
-    comprobante_mime_type: params.comprobante.mime_type,
-    created_by: params.createdBy,
-    usuario_nombre: params.usuarioNombre,
-  };
-
-  const items: CompraItemInput[] = filas.map((f) => ({
-    producto_id: f.producto_id,
-    producto_nombre: f.producto_nombre,
-    cantidad: num(f.cantidad),
-    costo_unitario_original: num(f.costo_unitario_original),
-    costo_unitario: num(f.costo_unitario),
-    iva_tipo: f.iva_tipo,
-    subtotal: num(f.subtotal),
-    monto_iva: num(f.monto_iva),
-    total: num(f.total),
-    precio_venta: num(f.precio_venta),
-    margen_venta: f.margen_venta != null ? num(f.margen_venta) : null,
-  }));
-
-  const out = await insertComprasConImpacto(schema, empresaId, header, items);
-
-  // Marcar OC recibida (solo si sigue abierta — evita doble recepción).
-  const t = quoteSchemaTable(schema, "ordenes_compra");
-  await pool().query(
-    `UPDATE ${t}
-        SET estado = 'recibida', recibida_at = now(),
-            compra_numero_control = $3, updated_at = now()
-      WHERE empresa_id = $1::uuid AND numero_oc = $2 AND estado = 'abierta'`,
-    [empresaId, params.numeroOc, out.numero_control]
-  );
-
-  return {
-    numero_oc: params.numeroOc,
-    numero_control: out.numero_control,
-    movimiento_warning: out.movimiento_warning,
-  };
 }

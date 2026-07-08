@@ -2,7 +2,8 @@ import type { OrdenCompra } from "./types";
 
 interface OrdenApiRow {
   id: string; numero_oc: string; proveedor_id: string; proveedor_nombre: string;
-  producto_id: string; producto_nombre: string; cantidad: string | number; moneda: string;
+  producto_id: string; producto_nombre: string; cantidad: string | number;
+  cantidad_recibida: string | number; moneda: string;
   tipo_cambio: string | number; costo_unitario_original: string | number;
   costo_unitario: string | number; iva_tipo: string;
   subtotal: string | number; monto_iva: string | number; total: string | number;
@@ -13,6 +14,8 @@ interface OrdenApiRow {
 }
 
 function mapRow(r: OrdenApiRow): OrdenCompra {
+  const cantidad = Number(r.cantidad);
+  const cantidadRecibida = Number(r.cantidad_recibida) || 0;
   return {
     id: r.id,
     numero_oc: r.numero_oc,
@@ -20,7 +23,9 @@ function mapRow(r: OrdenApiRow): OrdenCompra {
     proveedor_nombre: r.proveedor_nombre,
     producto_id: r.producto_id,
     producto_nombre: r.producto_nombre,
-    cantidad: Number(r.cantidad),
+    cantidad,
+    cantidad_recibida: cantidadRecibida,
+    cantidad_pendiente: Math.max(0, cantidad - cantidadRecibida),
     moneda: (r.moneda === "USD" ? "USD" : "PYG") as OrdenCompra["moneda"],
     tipo_cambio: Number(r.tipo_cambio),
     costo_unitario_original: Number(r.costo_unitario_original),
@@ -136,20 +141,37 @@ export async function cancelarOrdenCompra(
   }
 }
 
-export interface RecibirPayload {
+export interface RecepcionItemPayload {
+  orden_item_id: string;
+  cantidad_recibida: number;
+  observacion?: string | null;
+}
+
+export interface ConfirmarRecepcionPayload {
   numero_factura: string;
   nro_timbrado: string;
+  fecha_factura?: string | null;
+  observacion?: string | null;
   tipo_pago: "contado" | "credito";
   plazo_dias?: number;
   comprobante_storage_path?: string | null;
   comprobante_nombre?: string | null;
   comprobante_mime_type?: string | null;
+  items: RecepcionItemPayload[];
+  permitir_excedente?: boolean;
 }
 
-export async function recibirOrdenCompra(
+export interface ExcedenteDetalle { producto_nombre: string; pendiente: number; intentado: number }
+
+export type ConfirmarRecepcionResult =
+  | { success: true; numero_control: string; estado_oc: "recibida_parcial" | "recibida_total"; warning?: string | null }
+  | { success: false; error: string; excedentes?: ExcedenteDetalle[] };
+
+/** Confirma la recepción (parcial o total) de una OC. Puede llamarse varias veces. */
+export async function confirmarRecepcionOrdenCompra(
   numeroOc: string,
-  payload: RecibirPayload
-): Promise<{ success: true; numero_control: string; warning?: string | null } | ErrOrden> {
+  payload: ConfirmarRecepcionPayload
+): Promise<ConfirmarRecepcionResult> {
   try {
     const r = await fetch(`/api/ordenes-compra/${encodeURIComponent(numeroOc)}/recibir`, {
       method: "POST",
@@ -158,9 +180,20 @@ export async function recibirOrdenCompra(
       body: JSON.stringify(payload),
     });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok || !j?.success) return { success: false, error: (j as { error?: string })?.error ?? `Error ${r.status}` };
-    const data = j.data as { numero_control?: string; warning?: string | null };
-    return { success: true, numero_control: data.numero_control ?? "", warning: data.warning ?? null };
+    if (!r.ok || !j?.success) {
+      return {
+        success: false,
+        error: (j as { error?: string })?.error ?? `Error ${r.status}`,
+        excedentes: (j as { excedentes?: ExcedenteDetalle[] })?.excedentes,
+      };
+    }
+    const data = j.data as { numero_control?: string; estado_oc?: string; warning?: string | null };
+    return {
+      success: true,
+      numero_control: data.numero_control ?? "",
+      estado_oc: data.estado_oc === "recibida_total" ? "recibida_total" : "recibida_parcial",
+      warning: data.warning ?? null,
+    };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Error de red" };
   }

@@ -9,6 +9,11 @@ interface CompraApiRow {
   precio_venta: string | number; margen_venta: string | number | null;
   tipo_pago: string; plazo_dias: number | null; nro_timbrado: string; estado: string;
   fecha: string;
+  numero_factura?: string | null;
+  fecha_factura?: string | null;
+  observacion?: string | null;
+  orden_compra_numero?: string | null;
+  orden_compra_item_id?: string | null;
   comprobante_storage_path?: string | null;
   comprobante_nombre?: string | null;
   comprobante_mime_type?: string | null;
@@ -36,6 +41,11 @@ function mapRow(r: CompraApiRow): Compra {
     tipo_pago: r.tipo_pago as Compra["tipo_pago"],
     plazo_dias: r.plazo_dias ?? undefined,
     nro_timbrado: r.nro_timbrado,
+    numero_factura: r.numero_factura ?? null,
+    fecha_factura: r.fecha_factura ?? null,
+    observacion: r.observacion ?? null,
+    orden_compra_numero: r.orden_compra_numero ?? null,
+    orden_compra_item_id: r.orden_compra_item_id ?? null,
     comprobante_storage_path: r.comprobante_storage_path ?? null,
     comprobante_nombre: r.comprobante_nombre ?? null,
     comprobante_mime_type: r.comprobante_mime_type ?? null,
