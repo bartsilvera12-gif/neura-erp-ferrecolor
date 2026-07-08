@@ -1,4 +1,4 @@
-import type { EstadoCuentaReporte, ProveedoresReporte, ComprasReporte, VentasReporte, ConciliacionReporte } from "./types";
+import type { EstadoCuentaReporte, ProveedoresReporte, ComprasReporte, VentasReporte, ConciliacionReporte, ComprasPanel } from "./types";
 import type { CajasReporte, CajaDetalle } from "@/lib/caja/types";
 import type { RangoABC } from "@/lib/reportes/abc";
 import type { EstadoStock } from "@/lib/reportes/proyeccion";
@@ -90,6 +90,8 @@ export const getConciliacionReporte = (mes: string) =>
   getReporte<ConciliacionReporte>(`/api/reportes/conciliacion?mes=${mq(mes)}`);
 export const getCajasReporte = (desde: string, hasta: string) =>
   getReporte<CajasReporte>(`/api/reportes/cajas?desde=${mq(desde)}&hasta=${mq(hasta)}`);
+export const getComprasPanel = (desde: string, hasta: string) =>
+  getReporte<ComprasPanel>(`/api/reportes/compras-panel?desde=${mq(desde)}&hasta=${mq(hasta)}`);
 export const getCajaDetalle = (id: string) =>
   getReporte<CajaDetalle>(`/api/reportes/cajas/${encodeURIComponent(id)}`);
 export const getRotacionAbcReporte = (opts: RotacionAbcQuery) => {

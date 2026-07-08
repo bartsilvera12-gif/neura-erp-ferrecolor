@@ -187,3 +187,51 @@ export interface ConciliacionReporte {
   porEntidad: ConciliacionAgrupado[];
   movimientos: ConciliacionMovRow[];
 }
+
+// ── Panel de Compras (rango desde/hasta): compras + ordenados no comprados ──
+
+/** Una compra registrada (agrupada por numero_control) dentro del período. */
+export interface CompraPanelFila {
+  numero_control: string;
+  fecha: string;
+  numero_factura: string | null;
+  proveedor_nombre: string;
+  items_count: number;
+  total: number;
+  estado: string;
+  orden_compra_numero: string | null;
+}
+
+/**
+ * Una línea de orden de compra con saldo pendiente de recibir/comprar.
+ * (El modelo de OC es plano: una fila por producto, con cantidad_recibida
+ * acumulada; por eso una recepción parcial nunca duplica la línea.)
+ */
+export interface OrdenPendienteFila {
+  orden_item_id: string;
+  numero_oc: string;
+  fecha: string;
+  proveedor_nombre: string;
+  producto_id: string;
+  producto_nombre: string;
+  sku: string | null;
+  cantidad_ordenada: number;
+  cantidad_recibida: number;
+  cantidad_pendiente: number;
+  costo_unitario: number;
+  subtotal_pendiente: number;
+  estado: string; // 'pendiente' | 'recibida_parcial'
+}
+
+export interface ComprasPanel {
+  desde: string;
+  hasta: string;
+  compras: CompraPanelFila[];
+  pendientes: OrdenPendienteFila[];
+  totales: {
+    total_compras: number;      // cantidad de compras (por numero_control)
+    monto_comprado: number;     // suma de totales de compras del período
+    ordenes_pendientes: number; // cantidad de OC distintas con pendiente
+    monto_pendiente: number;    // suma de subtotales pendientes estimados
+  };
+}
