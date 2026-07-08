@@ -56,49 +56,21 @@ export default function ArqueoDenominaciones({
     onChange({ ...value, [denominacion]: n });
   }
 
-  const secciones: { tipo: TipoDenominacion; titulo: string }[] = [
-    { tipo: "moneda", titulo: "Monedas" },
-    { tipo: "billete", titulo: "Billetes" },
-  ];
-
   return (
-    <div className="rounded-xl border-2 border-slate-200 overflow-hidden">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="bg-slate-50 text-[10.5px] uppercase tracking-wide text-slate-500">
-            <th className="px-3 py-2 text-left font-bold">Denominación</th>
-            <th className="px-3 py-2 text-center font-bold">Cantidad</th>
-            <th className="px-3 py-2 text-right font-bold">Valor</th>
-          </tr>
-        </thead>
-        <tbody>
-          {secciones.map((sec) => (
-            <SeccionArqueo
-              key={sec.tipo}
-              titulo={sec.titulo}
-              tipo={sec.tipo}
-              value={value}
-              onSet={setCantidad}
-              disabled={disabled}
-            />
-          ))}
-        </tbody>
-        <tfoot>
-          <tr className="border-t-2 border-[#4FAEB2]/40 bg-[#E5F4F4]">
-            <td className="px-3 py-2.5 text-sm font-bold text-[#3F8E91]" colSpan={2}>
-              Total contado
-            </td>
-            <td className="px-3 py-2.5 text-right text-base font-bold tabular-nums text-[#3F8E91]">
-              {fmtGs(total)}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
+    <div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <PanelDenom titulo="Monedas" tipo="moneda" value={value} onSet={setCantidad} disabled={disabled} />
+        <PanelDenom titulo="Billetes" tipo="billete" value={value} onSet={setCantidad} disabled={disabled} />
+      </div>
+      <div className="mt-3 flex items-center justify-between rounded-xl border-2 border-[#4FAEB2]/40 bg-[#E5F4F4] px-4 py-3">
+        <span className="text-sm font-bold uppercase tracking-wide text-[#3F8E91]">Total contado</span>
+        <span className="text-lg font-bold tabular-nums text-[#3F8E91]">{fmtGs(total)}</span>
+      </div>
     </div>
   );
 }
 
-function SeccionArqueo({
+function PanelDenom({
   titulo,
   tipo,
   value,
@@ -113,18 +85,17 @@ function SeccionArqueo({
 }) {
   const filas = DENOMINACIONES.filter((d) => d.tipo === tipo);
   return (
-    <>
-      <tr className="bg-slate-100/70">
-        <td colSpan={3} className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-600">
-          {titulo}
-        </td>
-      </tr>
-      {filas.map((d) => {
-        const cantidad = Math.max(0, Math.floor(value[d.valor] || 0));
-        return (
-          <tr key={d.valor} className="border-t border-slate-100">
-            <td className="px-3 py-2 font-medium tabular-nums text-slate-700">{fmtGs(d.valor)}</td>
-            <td className="px-3 py-2 text-center">
+    <div className="rounded-xl border-2 border-slate-200 overflow-hidden">
+      <div className="flex items-center justify-between bg-slate-100/80 px-3 py-2">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600">{titulo}</span>
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Cant. · Valor</span>
+      </div>
+      <div className="divide-y divide-slate-100">
+        {filas.map((d) => {
+          const cantidad = Math.max(0, Math.floor(value[d.valor] || 0));
+          return (
+            <div key={d.valor} className="flex items-center gap-2 px-3 py-2">
+              <span className="w-20 shrink-0 text-sm font-semibold tabular-nums text-slate-700">{fmtGs(d.valor)}</span>
               <input
                 type="number"
                 min={0}
@@ -135,15 +106,15 @@ function SeccionArqueo({
                 placeholder="0"
                 onChange={(e) => onSet(d.valor, e.target.value)}
                 onFocus={(e) => e.target.select()}
-                className="w-24 rounded-lg border-2 border-slate-200 px-2 py-1.5 text-center text-sm font-semibold tabular-nums outline-none focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20 disabled:bg-slate-50 disabled:text-slate-400"
+                className="w-16 shrink-0 rounded-lg border-2 border-slate-200 px-2 py-1.5 text-center text-sm font-semibold tabular-nums outline-none focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20 disabled:bg-slate-50 disabled:text-slate-400"
               />
-            </td>
-            <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-800">
-              {fmtGs(d.valor * cantidad)}
-            </td>
-          </tr>
-        );
-      })}
-    </>
+              <span className="ml-auto text-right text-sm tabular-nums font-semibold text-slate-800">
+                {fmtGs(d.valor * cantidad)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }

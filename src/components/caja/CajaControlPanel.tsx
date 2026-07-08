@@ -450,11 +450,14 @@ function ModalBase({
   subtitle,
   onClose,
   children,
+  maxWidthClass = "max-w-md",
 }: {
   title: string;
   subtitle?: string;
   onClose: () => void;
   children: React.ReactNode;
+  /** Ancho máximo del modal (default max-w-md). El arqueo usa uno más ancho. */
+  maxWidthClass?: string;
 }) {
   return (
     <div
@@ -462,7 +465,7 @@ function ModalBase({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-md border-2 border-[#4FAEB2]/20 overflow-hidden"
+        className={`bg-white rounded-2xl shadow-2xl w-full ${maxWidthClass} border-2 border-[#4FAEB2]/20 overflow-hidden`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-[#4FAEB2]/5 to-transparent flex items-start justify-between">
@@ -604,6 +607,7 @@ function ModalAbrir({
       title="Abrir caja"
       subtitle="Elegí el número de caja y cargá el efectivo inicial del turno."
       onClose={busy ? () => {} : onClose}
+      maxWidthClass={modo === "arqueo" ? "max-w-2xl" : "max-w-md"}
     >
       <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
         <div>
@@ -768,6 +772,7 @@ function ModalCerrar({
       title="Cerrar caja"
       subtitle="Contá el efectivo en mano. El sistema calcula la diferencia."
       onClose={busy ? () => {} : onClose}
+      maxWidthClass={modo === "arqueo" ? "max-w-2xl" : "max-w-md"}
     >
       <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
         {/* Resumen del arqueo */}
