@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { getCompras } from "@/lib/compras/storage";
+import { getOrdenesCompra } from "@/lib/ordenes-compra/storage";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import EdgeScrollArea from "@/components/ui/EdgeScrollArea";
 import { FancySelect } from "@/components/ui/FancySelect";
 import MobileFab from "@/components/ui/MobileFab";
 import { productoMatchesQuery } from "@/lib/productos/token-search";
 import type { Compra, TipoPago } from "@/lib/compras/types";
+import type { OrdenCompra, EstadoOrdenCompra } from "@/lib/ordenes-compra/types";
 
 const inputFilterClass =
   "border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none bg-white";
@@ -85,20 +87,33 @@ function resumenProductos(items: Compra[]): string {
 
 export default function ComprasPage() {
   const [todas, setTodas] = useState<Compra[]>([]);
+  const [ordenes, setOrdenes] = useState<OrdenCompra[]>([]);
   const [busqueda, setBusqueda] = useState("");
   const [filtroTipoPago, setFiltroTipoPago] = useState<TipoPago | "">("");
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let cancel = false;
-    getCompras().then((data) => {
-      if (cancel) return;
-      setTodas(data);
-    });
+    getCompras().then((data) => { if (!cancel) setTodas(data); });
+    getOrdenesCompra().then((data) => { if (!cancel) setOrdenes(data); });
     return () => { cancel = true; };
   }, []);
 
   const grupos = useMemo(() => agrupar(todas), [todas]);
+
+  // Órdenes de compra por confirmar: pendientes o recibidas parcialmente.
+  // El encargado las revisa y confirma la recepción desde acá.
+  const ordenesPorConfirmar = useMemo(() => {
+    const map = new Map<string, { numero_oc: string; proveedor_nombre: string; fecha: string; estado: EstadoOrdenCompra; items: number; totalPendiente: number }>();
+    for (const o of ordenes) {
+      if (o.estado !== "pendiente" && o.estado !== "recibida_parcial") continue;
+      const g = map.get(o.numero_oc);
+      const pendienteLinea = o.cantidad_pendiente * o.costo_unitario;
+      if (g) { g.items += 1; g.totalPendiente += pendienteLinea; }
+      else map.set(o.numero_oc, { numero_oc: o.numero_oc, proveedor_nombre: o.proveedor_nombre, fecha: o.fecha, estado: o.estado, items: 1, totalPendiente: pendienteLinea });
+    }
+    return [...map.values()].sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+  }, [ordenes]);
 
   const filtrados = useMemo(() => {
     return grupos.filter((g) => {
@@ -148,6 +163,67 @@ export default function ComprasPage() {
         >
           Órdenes de compra
         </Link>
+      </div>
+
+      {/* Órdenes de compra por confirmar (revisar + recibir) */}
+      <div className="rounded-xl border-2 border-amber-200 bg-amber-50/40 p-4 shadow-sm sm:p-5 lg:p-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-base font-semibold text-amber-900">
+              <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-amber-500 px-1.5 text-xs font-bold text-white">
+                {ordenesPorConfirmar.length}
+              </span>
+              Órdenes de compra por confirmar
+            </h2>
+            <p className="mt-0.5 text-xs text-amber-700/80">
+              Pedidos al proveedor pendientes de recibir. Revisá cada uno y confirmá lo que llegó.
+            </p>
+          </div>
+          <Link href="/compras/ordenes/nueva"
+            className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 transition-colors hover:bg-amber-100">
+            + Nueva orden de compra
+          </Link>
+        </div>
+
+        {ordenesPorConfirmar.length === 0 ? (
+          <p className="py-4 text-center text-sm text-amber-700/70">
+            No hay órdenes de compra pendientes de confirmar. Las órdenes recibidas por completo pasan a “Compras registradas”.
+          </p>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-amber-200 bg-white">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead className="border-b-2 border-amber-200 bg-amber-100/60">
+                <tr>
+                  {["N° OC", "Fecha", "Proveedor", "Ítems", "Pendiente (Gs.)", "Estado", ""].map((h, i) => (
+                    <th key={h} className={`px-3 py-2.5 text-xs font-bold uppercase tracking-wide text-amber-800 ${i === 3 || i === 4 ? "text-right" : i === 5 || i === 6 ? "text-center" : "text-left"}`}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-amber-100">
+                {ordenesPorConfirmar.map((o) => (
+                  <tr key={o.numero_oc} className="transition-colors hover:bg-amber-50">
+                    <td className="px-3 py-2.5 font-mono text-xs font-semibold text-amber-900">{o.numero_oc}</td>
+                    <td className="px-3 py-2.5 text-xs tabular-nums text-slate-600">{formatFecha(o.fecha)}</td>
+                    <td className="px-3 py-2.5 text-xs font-medium text-slate-800">{o.proveedor_nombre || "—"}</td>
+                    <td className="px-3 py-2.5 text-right text-xs tabular-nums text-slate-600">{o.items}</td>
+                    <td className="px-3 py-2.5 text-right text-xs tabular-nums font-bold text-slate-900">{formatGs(o.totalPendiente)}</td>
+                    <td className="px-3 py-2.5 text-center">
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${o.estado === "pendiente" ? "bg-amber-200 text-amber-800" : "bg-sky-100 text-sky-700"}`}>
+                        {o.estado === "pendiente" ? "Pendiente" : "Recibida parcial"}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-center">
+                      <div className="inline-flex items-center gap-3">
+                        <Link href={`/compras/ordenes/${encodeURIComponent(o.numero_oc)}`} className="text-xs font-semibold text-slate-500 hover:underline">Revisar</Link>
+                        <Link href={`/compras/desde-orden/${encodeURIComponent(o.numero_oc)}`} className="rounded-lg bg-[#4FAEB2] px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-[#3F8E91]">Confirmar recepción</Link>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-[#4FAEB2]/15 sm:p-5 lg:p-6">
