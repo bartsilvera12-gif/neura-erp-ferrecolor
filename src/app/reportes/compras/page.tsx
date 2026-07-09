@@ -7,9 +7,11 @@ import StatCard from "@/components/ui/StatCard";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import RangoFechasSelector from "@/components/reportes/RangoFechasSelector";
 import { getComprasPanel } from "@/lib/reportes/storage";
+import { getCompras } from "@/lib/compras/storage";
 import { productoMatchesQuery } from "@/lib/productos/token-search";
 import { mesActualAsuncion } from "@/lib/fechas/asuncion-bounds";
 import type { ComprasPanel } from "@/lib/reportes/types";
+import type { Compra } from "@/lib/compras/types";
 
 function formatGs(v: number) {
   return `Gs. ${Math.round(v).toLocaleString("es-PY")}`;
@@ -50,6 +52,22 @@ export default function ComprasReportePage() {
   const [busqueda, setBusqueda] = useState("");
   const [filtroProveedor, setFiltroProveedor] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("");
+
+  // Detalle de una compra (modal, sin salir del reporte). Las líneas se cargan
+  // una vez (getCompras devuelve las filas planas) y se filtran por numero_control.
+  const [detalle, setDetalle] = useState<ComprasPanel["compras"][number] | null>(null);
+  const [comprasFull, setComprasFull] = useState<Compra[] | null>(null);
+  const [cargandoDetalle, setCargandoDetalle] = useState(false);
+
+  async function abrirDetalle(c: ComprasPanel["compras"][number]) {
+    setDetalle(c);
+    if (comprasFull == null) {
+      setCargandoDetalle(true);
+      const full = await getCompras();
+      setComprasFull(full);
+      setCargandoDetalle(false);
+    }
+  }
 
   useEffect(() => {
     let cancel = false;
@@ -176,15 +194,105 @@ export default function ComprasReportePage() {
           No se pudo cargar el reporte de compras.
         </div>
       ) : vista === "compras" ? (
-        <VistaCompras filas={comprasFiltradas} />
+        <VistaCompras filas={comprasFiltradas} onVer={abrirDetalle} />
       ) : (
         <VistaPendientes filas={pendientesFiltrados} />
+      )}
+
+      {detalle && (
+        <CompraDetalleModal
+          compra={detalle}
+          items={(comprasFull ?? []).filter((r) => r.numero_control === detalle.numero_control)}
+          cargando={cargandoDetalle}
+          onClose={() => setDetalle(null)}
+        />
       )}
     </div>
   );
 }
 
-function VistaCompras({ filas }: { filas: ComprasPanel["compras"] }) {
+function CompraDetalleModal({
+  compra,
+  items,
+  cargando,
+  onClose,
+}: {
+  compra: ComprasPanel["compras"][number];
+  items: Compra[];
+  cargando: boolean;
+  onClose: () => void;
+}) {
+  const ivaLbl: Record<string, string> = { exenta: "Exenta", "5": "5%", "10": "10%" };
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-2xl overflow-hidden rounded-2xl border-2 border-[#4FAEB2]/20 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-[#4FAEB2]/5 to-transparent px-5 py-4">
+          <div>
+            <h3 className="font-mono text-sm font-bold text-[#3F8E91]">{compra.numero_control}</h3>
+            <p className="mt-0.5 text-xs text-slate-500">Detalle de la compra</p>
+          </div>
+          <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Cerrar">✕</button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3 px-5 py-4 sm:grid-cols-4">
+          <Meta label="Fecha" value={formatFecha(compra.fecha)} />
+          <Meta label="N° Factura" value={compra.numero_factura || "—"} />
+          <Meta label="Proveedor" value={compra.proveedor_nombre} />
+          <Meta label="Orden de compra" value={compra.orden_compra_numero || "—"} />
+        </div>
+
+        <div className="max-h-[50vh] overflow-y-auto px-5 pb-2">
+          {cargando ? (
+            <p className="py-6 text-center text-sm text-slate-400 animate-pulse">Cargando detalle…</p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-slate-200">
+              <table className="w-full min-w-[520px] text-sm">
+                <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-semibold">Producto</th>
+                    <th className="px-3 py-2 text-center font-semibold">Cant.</th>
+                    <th className="px-3 py-2 text-right font-semibold">Costo unit.</th>
+                    <th className="px-3 py-2 text-center font-semibold">IVA</th>
+                    <th className="px-3 py-2 text-right font-semibold">Total</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {items.map((it) => (
+                    <tr key={it.id}>
+                      <td className="px-3 py-2 text-slate-800">{it.producto_nombre}</td>
+                      <td className="px-3 py-2 text-center tabular-nums text-slate-700">{it.cantidad}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-slate-600">{formatGs(it.costo_unitario)}</td>
+                      <td className="px-3 py-2 text-center text-xs text-slate-500">{ivaLbl[it.iva_tipo] ?? it.iva_tipo}</td>
+                      <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-800">{formatGs(it.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-slate-100 px-5 py-4">
+          <div className="ml-auto flex max-w-xs items-center justify-between text-base font-bold text-slate-900">
+            <span>Total</span>
+            <span className="tabular-nums">{formatGs(compra.total)}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Meta({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+      <p className="mt-0.5 text-sm font-medium text-slate-800">{value}</p>
+    </div>
+  );
+}
+
+function VistaCompras({ filas, onVer }: { filas: ComprasPanel["compras"]; onVer: (c: ComprasPanel["compras"][number]) => void }) {
   return (
     <div className="rounded-2xl border border-[#4FAEB2]/30 bg-white p-6 shadow-sm ring-1 ring-[#4FAEB2]/10">
       {filas.length === 0 ? (
@@ -217,7 +325,7 @@ function VistaCompras({ filas }: { filas: ComprasPanel["compras"] }) {
                     </span>
                   </td>
                   <td className="px-3 py-2.5 text-center">
-                    <Link href="/compras" className="text-xs font-semibold text-[#3F8E91] hover:underline">Ver</Link>
+                    <button type="button" onClick={() => onVer(c)} className="text-xs font-semibold text-[#3F8E91] hover:underline">Ver</button>
                   </td>
                 </tr>
               ))}
