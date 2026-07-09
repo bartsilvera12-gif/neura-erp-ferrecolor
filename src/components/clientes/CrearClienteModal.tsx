@@ -45,6 +45,7 @@ export default function CrearClienteModal({
   const [email, setEmail] = useState("");
   const [direccion, setDireccion] = useState("");
   const [ciudad, setCiudad] = useState("");
+  const [pais, setPais] = useState("PARAGUAY");
   const [usaNotaRemision, setUsaNotaRemision] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -71,6 +72,7 @@ export default function CrearClienteModal({
         email: email.trim() || undefined,
         direccion: direccion.trim() || undefined,
         ciudad: ciudad.trim().toUpperCase() || undefined,
+        pais: pais.trim().toUpperCase() || undefined,
         estado: "activo",
         usa_nota_remision: usaNotaRemision,
       });
@@ -161,6 +163,10 @@ export default function CrearClienteModal({
             <div>
               <label className={labelClass}>Ciudad</label>
               <input className={`${inputClass} uppercase`} value={ciudad} onChange={(e) => setCiudad(e.target.value)} placeholder="Ciudad" />
+            </div>
+            <div>
+              <label className={labelClass}>País</label>
+              <input className={`${inputClass} uppercase`} value={pais} onChange={(e) => setPais(e.target.value)} placeholder="País" />
             </div>
           </div>
 
