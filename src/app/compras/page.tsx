@@ -166,55 +166,55 @@ export default function ComprasPage() {
       </div>
 
       {/* Órdenes de compra por confirmar (revisar + recibir) */}
-      <div className="rounded-xl border-2 border-amber-200 bg-amber-50/40 p-4 shadow-sm sm:p-5 lg:p-6">
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-[#4FAEB2]/15 sm:p-5 lg:p-6">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="flex items-center gap-2 text-base font-semibold text-amber-900">
-              <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-amber-500 px-1.5 text-xs font-bold text-white">
+            <h2 className="flex items-center gap-2 text-base font-semibold text-slate-800">
+              <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[#4FAEB2] px-1.5 text-xs font-bold text-white">
                 {ordenesPorConfirmar.length}
               </span>
               Órdenes de compra por confirmar
             </h2>
-            <p className="mt-0.5 text-xs text-amber-700/80">
+            <p className="mt-0.5 text-xs text-slate-500">
               Pedidos al proveedor pendientes de recibir. Revisá cada uno y confirmá lo que llegó.
             </p>
           </div>
           <Link href="/compras/ordenes/nueva"
-            className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 transition-colors hover:bg-amber-100">
+            className="rounded-lg border border-[#4FAEB2]/40 bg-[#4FAEB2]/[0.08] px-3 py-1.5 text-xs font-semibold text-[#3F8E91] transition-colors hover:bg-[#4FAEB2]/[0.16] active:scale-95">
             + Nueva orden de compra
           </Link>
         </div>
 
         {ordenesPorConfirmar.length === 0 ? (
-          <p className="py-4 text-center text-sm text-amber-700/70">
+          <p className="py-4 text-center text-sm text-slate-400">
             No hay órdenes de compra pendientes de confirmar. Las órdenes recibidas por completo pasan a “Compras registradas”.
           </p>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-amber-200 bg-white">
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
             <table className="w-full min-w-[720px] text-sm">
-              <thead className="border-b-2 border-amber-200 bg-amber-100/60">
+              <thead className="border-b-2 border-[#4FAEB2]/40 bg-[#E5F4F4]">
                 <tr>
                   {["N° OC", "Fecha", "Proveedor", "Ítems", "Pendiente (Gs.)", "Estado", ""].map((h, i) => (
-                    <th key={h} className={`px-3 py-2.5 text-xs font-bold uppercase tracking-wide text-amber-800 ${i === 3 || i === 4 ? "text-right" : i === 5 || i === 6 ? "text-center" : "text-left"}`}>{h}</th>
+                    <th key={h} className={`px-3 py-2.5 text-xs font-bold uppercase tracking-wide text-[#3F8E91] ${i === 3 || i === 4 ? "text-right" : i === 5 || i === 6 ? "text-center" : "text-left"}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-amber-100">
+              <tbody className="divide-y divide-slate-100">
                 {ordenesPorConfirmar.map((o) => (
-                  <tr key={o.numero_oc} className="transition-colors hover:bg-amber-50">
-                    <td className="px-3 py-2.5 font-mono text-xs font-semibold text-amber-900">{o.numero_oc}</td>
+                  <tr key={o.numero_oc} className="transition-colors hover:bg-[#4FAEB2]/5">
+                    <td className="px-3 py-2.5 font-mono text-xs font-semibold text-[#3F8E91]">{o.numero_oc}</td>
                     <td className="px-3 py-2.5 text-xs tabular-nums text-slate-600">{formatFecha(o.fecha)}</td>
                     <td className="px-3 py-2.5 text-xs font-medium text-slate-800">{o.proveedor_nombre || "—"}</td>
                     <td className="px-3 py-2.5 text-right text-xs tabular-nums text-slate-600">{o.items}</td>
                     <td className="px-3 py-2.5 text-right text-xs tabular-nums font-bold text-slate-900">{formatGs(o.totalPendiente)}</td>
                     <td className="px-3 py-2.5 text-center">
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${o.estado === "pendiente" ? "bg-amber-200 text-amber-800" : "bg-sky-100 text-sky-700"}`}>
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${o.estado === "pendiente" ? "bg-[var(--badge-warning-bg)] text-[var(--badge-warning-text)]" : "bg-sky-100 text-sky-700"}`}>
                         {o.estado === "pendiente" ? "Pendiente" : "Recibida parcial"}
                       </span>
                     </td>
                     <td className="px-3 py-2.5 text-center">
                       <div className="inline-flex items-center gap-3">
-                        <Link href={`/compras/ordenes/${encodeURIComponent(o.numero_oc)}`} className="text-xs font-semibold text-slate-500 hover:underline">Revisar</Link>
+                        <Link href={`/compras/ordenes/${encodeURIComponent(o.numero_oc)}`} className="text-xs font-semibold text-slate-500 hover:text-[#3F8E91] hover:underline">Revisar</Link>
                         <Link href={`/compras/desde-orden/${encodeURIComponent(o.numero_oc)}`} className="rounded-lg bg-[#4FAEB2] px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-[#3F8E91]">Confirmar recepción</Link>
                       </div>
                     </td>
