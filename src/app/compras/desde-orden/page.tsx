@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { getOrdenesCompra } from "@/lib/ordenes-compra/storage";
+import { productoMatchesQuery } from "@/lib/productos/token-search";
 import type { OrdenCompra } from "@/lib/ordenes-compra/types";
 
 function fmtGs(v: number) {
@@ -59,11 +60,8 @@ export default function DesdeOrdenListaPage() {
   }, [ordenes]);
 
   const filtrados = useMemo(() => {
-    const q = busqueda.trim().toLowerCase();
-    if (!q) return grupos;
-    return grupos.filter(
-      (g) => g.numero_oc.toLowerCase().includes(q) || g.proveedor_nombre.toLowerCase().includes(q)
-    );
+    if (!busqueda.trim()) return grupos;
+    return grupos.filter((g) => productoMatchesQuery(busqueda, g.numero_oc, g.proveedor_nombre));
   }, [grupos, busqueda]);
 
   return (

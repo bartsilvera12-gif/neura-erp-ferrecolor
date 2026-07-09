@@ -7,6 +7,7 @@ import StatCard from "@/components/ui/StatCard";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import RangoFechasSelector from "@/components/reportes/RangoFechasSelector";
 import { getComprasPanel } from "@/lib/reportes/storage";
+import { productoMatchesQuery } from "@/lib/productos/token-search";
 import { mesActualAsuncion } from "@/lib/fechas/asuncion-bounds";
 import type { ComprasPanel } from "@/lib/reportes/types";
 
@@ -69,32 +70,19 @@ export default function ComprasReportePage() {
 
   const comprasFiltradas = useMemo(() => {
     if (!data) return [];
-    const q = busqueda.trim().toLowerCase();
     return data.compras.filter((c) => {
       if (filtroProveedor && c.proveedor_nombre !== filtroProveedor) return false;
       if (filtroEstado && c.estado !== filtroEstado) return false;
-      if (!q) return true;
-      return (
-        c.numero_control.toLowerCase().includes(q) ||
-        (c.numero_factura ?? "").toLowerCase().includes(q) ||
-        c.proveedor_nombre.toLowerCase().includes(q)
-      );
+      return productoMatchesQuery(busqueda, c.numero_control, c.numero_factura, c.proveedor_nombre);
     });
   }, [data, busqueda, filtroProveedor, filtroEstado]);
 
   const pendientesFiltrados = useMemo(() => {
     if (!data) return [];
-    const q = busqueda.trim().toLowerCase();
     return data.pendientes.filter((p) => {
       if (filtroProveedor && p.proveedor_nombre !== filtroProveedor) return false;
       if (filtroEstado && p.estado !== filtroEstado) return false;
-      if (!q) return true;
-      return (
-        p.numero_oc.toLowerCase().includes(q) ||
-        p.producto_nombre.toLowerCase().includes(q) ||
-        (p.sku ?? "").toLowerCase().includes(q) ||
-        p.proveedor_nombre.toLowerCase().includes(q)
-      );
+      return productoMatchesQuery(busqueda, p.numero_oc, p.producto_nombre, p.sku, p.proveedor_nombre);
     });
   }, [data, busqueda, filtroProveedor, filtroEstado]);
 

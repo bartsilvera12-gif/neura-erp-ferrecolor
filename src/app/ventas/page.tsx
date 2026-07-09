@@ -9,6 +9,7 @@ import { getVentas } from "@/lib/ventas/storage";
 import PedidosPendientesCaja from "./PedidosPendientesCaja";
 import PedidosConsultaPendientes from "./PedidosConsultaPendientes";
 import CajaControlPanel from "@/components/caja/CajaControlPanel";
+import { productoMatchesQuery } from "@/lib/productos/token-search";
 import type { Venta, TipoVenta, TipoIvaVenta } from "@/lib/ventas/types";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -109,18 +110,13 @@ export default function VentasPage() {
   }, []);
 
   const filtradas = todas.filter((v) => {
-    // Búsqueda global: número de control, nombre o SKU de cualquier ítem
-    if (busqueda.trim() !== "") {
-      const t = busqueda.toLowerCase().trim();
-      const coincide =
-        v.numero_control.toLowerCase().includes(t) ||
-        v.items.some(
-          (i) =>
-            i.producto_nombre.toLowerCase().includes(t) ||
-            i.sku.toLowerCase().includes(t)
-        );
-      if (!coincide) return false;
-    }
+    // Búsqueda por tokens: número de control, nombre o SKU de cualquier ítem.
+    if (busqueda.trim() !== "" && !productoMatchesQuery(
+      busqueda,
+      v.numero_control,
+      ...v.items.map((i) => i.producto_nombre),
+      ...v.items.map((i) => i.sku),
+    )) return false;
     // Tipo de venta
     if (filtroTipo !== "" && v.tipo_venta !== filtroTipo) return false;
     // IVA: coincide si al menos un ítem tiene ese tipo

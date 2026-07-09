@@ -16,6 +16,7 @@ import type {
   TipoMovimientoCaja,
 } from "./types";
 import { calcularTotalArqueo, type ArqueoItem } from "./denominaciones";
+import { applyTokenSearch } from "@/lib/productos/token-search";
 
 function num(v: unknown): number {
   const n = typeof v === "number" ? v : Number(v ?? 0);
@@ -906,8 +907,8 @@ export async function listOtrosIngresos(
   if (opts.fechaDesde) q = q.gte("created_at", `${opts.fechaDesde}T00:00:00`);
   if (opts.fechaHasta) q = q.lte("created_at", `${opts.fechaHasta}T23:59:59.999`);
   if (opts.q && opts.q.trim()) {
-    const safe = opts.q.trim().replace(/,/g, "").replace(/\(/g, "").replace(/\)/g, "");
-    q = q.or(`concepto.ilike.%${safe}%,observacion.ilike.%${safe}%`);
+    // Búsqueda por tokens (cada palabra en cualquier orden) en concepto + observación.
+    q = applyTokenSearch(q, opts.q, ["concepto", "observacion"]);
   }
 
   const { data, error } = await q;

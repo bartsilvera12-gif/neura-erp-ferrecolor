@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { getOrdenesCompra } from "@/lib/ordenes-compra/storage";
+import { productoMatchesQuery } from "@/lib/productos/token-search";
 import type { OrdenCompra, EstadoOrdenCompra } from "@/lib/ordenes-compra/types";
 
 function fmtGs(v: number) {
@@ -71,11 +72,9 @@ export default function OrdenesCompraPage() {
   }, [ordenes]);
 
   const filtrados = useMemo(() => {
-    const q = busqueda.trim().toLowerCase();
     return grupos.filter((g) => {
       if (filtroEstado && g.estado !== filtroEstado) return false;
-      if (!q) return true;
-      return g.numero_oc.toLowerCase().includes(q) || g.proveedor_nombre.toLowerCase().includes(q);
+      return productoMatchesQuery(busqueda, g.numero_oc, g.proveedor_nombre);
     });
   }, [grupos, busqueda, filtroEstado]);
 

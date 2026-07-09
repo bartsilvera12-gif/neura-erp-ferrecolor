@@ -7,6 +7,7 @@ import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import EdgeScrollArea from "@/components/ui/EdgeScrollArea";
 import { FancySelect } from "@/components/ui/FancySelect";
 import MobileFab from "@/components/ui/MobileFab";
+import { productoMatchesQuery } from "@/lib/productos/token-search";
 import type { Compra, TipoPago } from "@/lib/compras/types";
 
 const inputFilterClass =
@@ -100,13 +101,13 @@ export default function ComprasPage() {
   const grupos = useMemo(() => agrupar(todas), [todas]);
 
   const filtrados = useMemo(() => {
-    const texto = busqueda.toLowerCase().trim();
     return grupos.filter((g) => {
-      const coincideTexto =
-        texto === "" ||
-        g.proveedor_nombre.toLowerCase().includes(texto) ||
-        g.numero_control.toLowerCase().includes(texto) ||
-        g.items.some((i) => i.producto_nombre.toLowerCase().includes(texto));
+      const coincideTexto = busqueda.trim() === "" || productoMatchesQuery(
+        busqueda,
+        g.proveedor_nombre,
+        g.numero_control,
+        ...g.items.map((i) => i.producto_nombre),
+      );
       const coincideTipoPago = filtroTipoPago === "" || g.tipo_pago === filtroTipoPago;
       return coincideTexto && coincideTipoPago;
     });

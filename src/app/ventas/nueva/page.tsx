@@ -11,6 +11,7 @@ import { saveCliente } from "@/lib/clientes/storage";
 import { generarYAbrirRecibo } from "@/lib/recibos/client";
 import type { TipoIvaVenta, TipoVenta, MonedaVenta, LineaVenta, MetodoPago, TipoPrecioVenta } from "@/lib/ventas/types";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
+import { productoMatchesQuery } from "@/lib/productos/token-search";
 import type { Producto, MetodoValuacion } from "@/lib/inventario/types";
 
 /** Miniatura de producto con fallback a un placeholder si no hay imagen o falla. */
@@ -576,20 +577,14 @@ export default function NuevaVentaPage() {
   const clienteSel = clientes.find((c) => c.id === clienteId) ?? null;
   const clientesFiltrados = (clienteQuery.trim() === ""
     ? clientes
-    : clientes.filter((c) => {
-        const q = clienteQuery.toLowerCase();
-        return c.label.toLowerCase().includes(q) || (c.ruc ?? "").toLowerCase().includes(q);
-      })
+    : clientes.filter((c) => productoMatchesQuery(clienteQuery, c.label, c.ruc))
   ).slice(0, 50);
 
-  // Cobro: entidad seleccionada + filtrado por código/nombre.
+  // Cobro: entidad seleccionada + filtrado por código/nombre (tokens).
   const entidadSel = entidades.find((e) => e.id === pagoEntidadId) ?? null;
   const entidadesFiltradas = (entidadQuery.trim() === ""
     ? entidades
-    : entidades.filter((e) => {
-        const q = entidadQuery.toLowerCase();
-        return e.nombre.toLowerCase().includes(q) || (e.codigo ?? "").toLowerCase().includes(q);
-      })
+    : entidades.filter((e) => productoMatchesQuery(entidadQuery, e.nombre, e.codigo))
   ).slice(0, 50);
 
   // Vuelto (solo informativo, no se persiste)

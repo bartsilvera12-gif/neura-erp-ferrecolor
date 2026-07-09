@@ -20,6 +20,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Search, Check, X } from "lucide-react";
+import { productoMatchesQuery } from "@/lib/productos/token-search";
 
 interface Option {
   id: string;
@@ -37,13 +38,6 @@ interface Props {
   /** Compat: si se pasa, se usa como emptyShort. */
   emptyText?: string;
   className?: string;
-}
-
-function normalize(s: string): string {
-  return s
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "");
 }
 
 export default function SelectFromList({
@@ -70,14 +64,11 @@ export default function SelectFromList({
     [options, value]
   );
 
-  // Lista filtrada por query (normalizada, busca en label + sublabel).
+  // Lista filtrada por tokens (cada palabra en cualquier orden, sin acentos),
+  // sobre label + sublabel. Misma inteligencia que el buscador de Caja.
   const filtered = useMemo(() => {
-    const q = normalize(query.trim());
-    if (!q) return options;
-    return options.filter((o) => {
-      const hay = normalize(o.label) + " " + normalize(o.sublabel ?? "");
-      return hay.includes(q);
-    });
+    if (!query.trim()) return options;
+    return options.filter((o) => productoMatchesQuery(query, o.label, o.sublabel));
   }, [options, query]);
 
   // Reset highlight cuando cambia el filtro.

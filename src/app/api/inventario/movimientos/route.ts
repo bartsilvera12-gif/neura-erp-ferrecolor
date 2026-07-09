@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
+import { applyTokenSearch } from "@/lib/productos/token-search";
 
 /**
  * GET /api/inventario/movimientos
@@ -51,11 +52,8 @@ export async function GET(request: NextRequest) {
     if (origen) query = query.eq("origen", origen);
 
     if (q.length > 0) {
-      // PostgREST OR con ILIKE en producto_nombre y producto_sku.
-      const safe = q.replace(/,/g, "").replace(/\(/g, "").replace(/\)/g, "");
-      query = query.or(
-        `producto_nombre.ilike.%${safe}%,producto_sku.ilike.%${safe}%`
-      );
+      // Búsqueda por tokens (cada palabra en cualquier orden) sobre nombre y SKU.
+      query = applyTokenSearch(query, q, ["producto_nombre", "producto_sku"]);
     }
 
     if (fechaDesde) {

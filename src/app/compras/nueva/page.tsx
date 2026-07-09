@@ -861,9 +861,8 @@ function ProveedorBuscador({
   const selected = useMemo(() => proveedores.find((p) => String(p.id) === value) ?? null, [proveedores, value]);
 
   const resultados = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const filt = q
-      ? proveedores.filter((p) => p.nombre.toLowerCase().includes(q) || String(p.ruc ?? "").toLowerCase().includes(q))
+    const filt = query.trim()
+      ? proveedores.filter((p) => productoMatchesQuery(query, p.nombre, p.ruc))
       : proveedores;
     return filt.slice(0, 50);
   }, [proveedores, query]);
