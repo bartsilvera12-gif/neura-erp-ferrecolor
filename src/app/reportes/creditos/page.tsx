@@ -4,9 +4,26 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import PageHeader from "@/components/ui/PageHeader";
 import StatCard from "@/components/ui/StatCard";
+import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import { getCreditosReporte } from "@/lib/reportes/storage";
 import { productoMatchesQuery } from "@/lib/productos/token-search";
-import type { CreditosReporte } from "@/lib/reportes/types";
+import type { CreditosReporte, AgingBucket } from "@/lib/reportes/types";
+
+const AGING_OPCIONES: { value: AgingBucket; label: string }[] = [
+  { value: "todos", label: "Toda la antigüedad" },
+  { value: "por_vencer", label: "Por vencer" },
+  { value: "d_1_30", label: "Vencido 1–30 días" },
+  { value: "d_31_60", label: "Vencido 31–60 días" },
+  { value: "d_61_90", label: "Vencido 61–90 días" },
+  { value: "d_90_mas", label: "Vencido +90 días" },
+];
+const AGING_CAMPO: Record<Exclude<AgingBucket, "todos">, keyof CreditosReporte["clientes"][number]> = {
+  por_vencer: "por_vencer",
+  d_1_30: "vencido_1_30",
+  d_31_60: "vencido_31_60",
+  d_61_90: "vencido_61_90",
+  d_90_mas: "vencido_90_mas",
+};
 
 function formatGs(v: number) {
   return `Gs. ${Math.round(v).toLocaleString("es-PY")}`;
@@ -23,6 +40,7 @@ export default function CreditosReportePage() {
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState("");
   const [soloConSaldo, setSoloConSaldo] = useState(true);
+  const [aging, setAging] = useState<AgingBucket>("todos");
 
   useEffect(() => {
     let cancel = false;
@@ -37,9 +55,10 @@ export default function CreditosReportePage() {
     if (!data) return [];
     return data.clientes.filter((c) => {
       if (soloConSaldo && c.saldo <= 0) return false;
+      if (aging !== "todos" && Number(c[AGING_CAMPO[aging]]) <= 0) return false;
       return productoMatchesQuery(busqueda, c.cliente_nombre, c.cliente_ruc);
     });
-  }, [data, busqueda, soloConSaldo]);
+  }, [data, busqueda, soloConSaldo, aging]);
 
   return (
     <div className="space-y-6">
@@ -49,6 +68,7 @@ export default function CreditosReportePage() {
         description="Ventas a crédito y saldos por cliente. Abrí el extracto de cada uno para seguimiento."
         backHref="/reportes"
         backLabel="Reportes"
+        actions={<ExportExcelButton url="/api/reportes/creditos/export" />}
       />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -66,6 +86,10 @@ export default function CreditosReportePage() {
           onChange={(e) => setBusqueda(e.target.value)}
           className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#4FAEB2]/30 sm:min-w-72"
         />
+        <select value={aging} onChange={(e) => setAging(e.target.value as AgingBucket)}
+          className="w-52 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#4FAEB2]/30">
+          {AGING_OPCIONES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
         <label className="flex items-center gap-2 text-sm text-slate-600">
           <input type="checkbox" checked={soloConSaldo} onChange={(e) => setSoloConSaldo(e.target.checked)} />
           Solo con saldo pendiente

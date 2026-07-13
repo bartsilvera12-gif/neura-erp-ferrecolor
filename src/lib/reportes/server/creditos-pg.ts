@@ -47,6 +47,16 @@ export async function getCreditosReporte(
             sum(c.saldo)                                   AS saldo,
             sum(CASE WHEN c.saldo > 0 AND c.fecha_vencimiento IS NOT NULL
                      AND c.fecha_vencimiento < CURRENT_DATE THEN c.saldo ELSE 0 END) AS vencido,
+            sum(CASE WHEN c.saldo > 0 AND (c.fecha_vencimiento IS NULL OR c.fecha_vencimiento >= CURRENT_DATE)
+                     THEN c.saldo ELSE 0 END) AS por_vencer,
+            sum(CASE WHEN c.saldo > 0 AND (CURRENT_DATE - c.fecha_vencimiento) BETWEEN 1 AND 30
+                     THEN c.saldo ELSE 0 END) AS vencido_1_30,
+            sum(CASE WHEN c.saldo > 0 AND (CURRENT_DATE - c.fecha_vencimiento) BETWEEN 31 AND 60
+                     THEN c.saldo ELSE 0 END) AS vencido_31_60,
+            sum(CASE WHEN c.saldo > 0 AND (CURRENT_DATE - c.fecha_vencimiento) BETWEEN 61 AND 90
+                     THEN c.saldo ELSE 0 END) AS vencido_61_90,
+            sum(CASE WHEN c.saldo > 0 AND (CURRENT_DATE - c.fecha_vencimiento) > 90
+                     THEN c.saldo ELSE 0 END) AS vencido_90_mas,
             min(CASE WHEN c.saldo > 0 THEN c.fecha_vencimiento END) AS proximo_vencimiento,
             max(c.fecha_emision)                           AS ultima_venta
        FROM ${tCxc} c
@@ -71,16 +81,27 @@ export async function getCreditosReporte(
       vencido: num(r.vencido),
       proximo_vencimiento: r.proximo_vencimiento ? String(r.proximo_vencimiento).slice(0, 10) : null,
       ultima_venta: r.ultima_venta ? String(r.ultima_venta) : null,
+      por_vencer: num(r.por_vencer),
+      vencido_1_30: num(r.vencido_1_30),
+      vencido_31_60: num(r.vencido_31_60),
+      vencido_61_90: num(r.vencido_61_90),
+      vencido_90_mas: num(r.vencido_90_mas),
     };
   });
 
+  const sum = (f: (c: CreditoClienteFila) => number) => clientes.reduce((s, c) => s + f(c), 0);
   const totales = {
     clientes_con_saldo: clientes.filter((c) => c.saldo > 0).length,
-    ventas_credito: clientes.reduce((s, c) => s + c.ventas_credito, 0),
-    total_credito: clientes.reduce((s, c) => s + c.total, 0),
-    total_cobrado: clientes.reduce((s, c) => s + c.cobrado, 0),
-    saldo_pendiente: clientes.reduce((s, c) => s + c.saldo, 0),
-    monto_vencido: clientes.reduce((s, c) => s + c.vencido, 0),
+    ventas_credito: sum((c) => c.ventas_credito),
+    total_credito: sum((c) => c.total),
+    total_cobrado: sum((c) => c.cobrado),
+    saldo_pendiente: sum((c) => c.saldo),
+    monto_vencido: sum((c) => c.vencido),
+    por_vencer: sum((c) => c.por_vencer),
+    vencido_1_30: sum((c) => c.vencido_1_30),
+    vencido_31_60: sum((c) => c.vencido_31_60),
+    vencido_61_90: sum((c) => c.vencido_61_90),
+    vencido_90_mas: sum((c) => c.vencido_90_mas),
   };
 
   return { totales, clientes };

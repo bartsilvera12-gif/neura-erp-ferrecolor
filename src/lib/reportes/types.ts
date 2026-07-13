@@ -250,7 +250,16 @@ export interface CreditoClienteFila {
   vencido: number;           // saldo cuyas cuotas ya vencieron
   proximo_vencimiento: string | null;
   ultima_venta: string | null;
+  // Antigüedad del saldo (aging), en días de mora.
+  por_vencer: number;        // aún no vencido (o sin fecha)
+  vencido_1_30: number;
+  vencido_31_60: number;
+  vencido_61_90: number;
+  vencido_90_mas: number;
 }
+
+/** Bucket de antigüedad para filtrar. */
+export type AgingBucket = "todos" | "por_vencer" | "d_1_30" | "d_31_60" | "d_61_90" | "d_90_mas";
 
 export interface CreditosReporte {
   totales: {
@@ -260,6 +269,11 @@ export interface CreditosReporte {
     total_cobrado: number;
     saldo_pendiente: number;
     monto_vencido: number;
+    por_vencer: number;
+    vencido_1_30: number;
+    vencido_31_60: number;
+    vencido_61_90: number;
+    vencido_90_mas: number;
   };
   clientes: CreditoClienteFila[];
 }
