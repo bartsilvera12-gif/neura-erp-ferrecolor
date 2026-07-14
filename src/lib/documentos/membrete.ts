@@ -11,7 +11,7 @@
  */
 
 export const EMPRESA_DOC = {
-  nombre: "Ferrecolor",
+  nombre: "Ferretería República",
   actividad: [
     "Comercio al por menor de artículos de ferretería, materiales de construcción y herramientas",
   ],
