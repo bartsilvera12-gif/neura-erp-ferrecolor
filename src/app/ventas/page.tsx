@@ -91,7 +91,10 @@ export default function VentasPage() {
   const [busqueda,   setBusqueda]   = useState("");
   const [filtroTipo, setFiltroTipo] = useState<TipoVenta | "">("");
   const [filtroIva,  setFiltroIva]  = useState<TipoIvaVenta | "">("");
+  const [mostrarAnuladas, setMostrarAnuladas] = useState(false);
   const [detalle,    setDetalle]    = useState<Venta | null>(null);
+  const [anularTarget, setAnularTarget] = useState<Venta | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,9 +110,11 @@ export default function VentasPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
 
   const filtradas = todas.filter((v) => {
+    // Anuladas ocultas por defecto (toggle "Ver anuladas" las muestra).
+    if (!mostrarAnuladas && v.estado === "anulada") return false;
     // Búsqueda por tokens: número de control, nombre o SKU de cualquier ítem.
     if (busqueda.trim() !== "" && !productoMatchesQuery(
       busqueda,
@@ -125,7 +130,7 @@ export default function VentasPage() {
     return true;
   });
 
-  const hayFiltros = busqueda || filtroTipo || filtroIva;
+  const hayFiltros = busqueda || filtroTipo || filtroIva || mostrarAnuladas;
 
   return (
     <div className="space-y-8">
@@ -198,9 +203,18 @@ export default function VentasPage() {
               { value: "10%", label: "IVA 10%" },
             ]}
           />
+          <label className="inline-flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={mostrarAnuladas}
+              onChange={(e) => setMostrarAnuladas(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-[#4FAEB2] focus:ring-[#4FAEB2]"
+            />
+            Ver anuladas
+          </label>
           {hayFiltros && (
             <button
-              onClick={() => { setBusqueda(""); setFiltroTipo(""); setFiltroIva(""); }}
+              onClick={() => { setBusqueda(""); setFiltroTipo(""); setFiltroIva(""); setMostrarAnuladas(false); }}
               className="text-sm text-gray-400 hover:text-gray-600 transition-colors px-2"
             >
               Limpiar filtros
@@ -242,10 +256,24 @@ export default function VentasPage() {
               ) : (
                 filtradas.map((v) => {
                   const cantTotal = v.items.reduce((s, i) => s + i.cantidad, 0);
+                  const isAnulada = v.estado === "anulada";
                   return (
-                    <tr key={v.id} onClick={() => setDetalle(v)} className="border-b border-slate-200 last:border-0 hover:bg-[#4FAEB2]/[0.04] transition-colors cursor-pointer">
+                    <tr
+                      key={v.id}
+                      onClick={() => setDetalle(v)}
+                      className={`border-b border-slate-200 last:border-0 transition-colors cursor-pointer ${
+                        isAnulada ? "bg-red-50/40 text-slate-400 line-through hover:bg-red-50/60" : "hover:bg-[#4FAEB2]/[0.04]"
+                      }`}
+                    >
                       <td className="py-4 pr-4 font-mono text-xs text-gray-500 align-middle">
-                        {v.numero_control}
+                        <div className="flex items-center gap-1.5">
+                          <span>{v.numero_control}</span>
+                          {isAnulada && (
+                            <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-700 no-underline">
+                              Anulada
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-4 pr-4 align-middle">
                         <ResumenProductos v={v} />
@@ -316,6 +344,16 @@ export default function VentasPage() {
                               Nota de remisión
                             </a>
                           )}
+                          {!isAnulada && (
+                            <button
+                              type="button"
+                              onClick={() => setAnularTarget(v)}
+                              className="inline-flex items-center justify-center rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 transition-colors"
+                              title="Anular venta y revertir stock"
+                            >
+                              Anular
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -332,6 +370,107 @@ export default function VentasPage() {
       <MobileFab href="/ventas/nueva" label="Nueva venta" />
 
       {detalle && <VentaDetalleModal venta={detalle} onClose={() => setDetalle(null)} />}
+      {anularTarget && (
+        <AnularVentaModal
+          venta={anularTarget}
+          onClose={() => setAnularTarget(null)}
+          onDone={() => {
+            setAnularTarget(null);
+            setReloadKey((k) => k + 1);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AnularVentaModal({
+  venta,
+  onClose,
+  onDone,
+}: {
+  venta: Venta;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [motivo, setMotivo] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/ventas/${venta.id}/anular`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ motivo: motivo.trim() || null }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) {
+        throw new Error(json.error ?? `Error ${res.status}`);
+      }
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo anular la venta.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md overflow-hidden rounded-2xl border-2 border-red-200 bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-b border-red-100 bg-red-50/60 px-5 py-4">
+          <h3 className="text-base font-bold text-red-800">Anular venta {venta.numero_control}</h3>
+          <p className="mt-1 text-xs text-red-700">
+            Se va a devolver el stock al inventario y revertir el movimiento de caja de esta venta.
+            Esta acción no se puede deshacer.
+          </p>
+        </div>
+        <div className="p-5 space-y-3">
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">Motivo (opcional)</span>
+            <textarea
+              value={motivo}
+              onChange={(e) => setMotivo(e.target.value)}
+              placeholder="Ej: error de carga, cliente devolvió, etc."
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-200 outline-none"
+              rows={3}
+              disabled={loading}
+            />
+          </label>
+          {error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              {error}
+            </div>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={loading}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={loading}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {loading ? "Anulando..." : "Anular venta"}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

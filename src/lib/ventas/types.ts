@@ -61,4 +61,9 @@ export interface Venta {
 
   /** Nombre del usuario que registró la venta (auditoría). */
   usuario_nombre?: string | null;
+
+  /** Estado de la venta. anulada queda para auditoría pero no suma en reportes. */
+  estado?: "activa" | "anulada";
+  anulada_at?: string | null;
+  anulada_motivo?: string | null;
 }
