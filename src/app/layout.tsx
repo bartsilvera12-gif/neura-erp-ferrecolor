@@ -17,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Ferretería República",
-  description: "Sistema de gestión Zentra — Ferretería República",
+  title: "Ferrecolor",
+  description: "Sistema de gestión Zentra — Ferrecolor",
 };
 
 export const viewport: Viewport = {
