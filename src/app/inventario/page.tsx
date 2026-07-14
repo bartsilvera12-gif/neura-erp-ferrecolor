@@ -3,8 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { getProductosPaginated } from "@/lib/inventario/storage";
-import { getRotacionAbcMapa } from "@/lib/reportes/storage";
-import type { RangoABC } from "@/lib/reportes/abc";
 import type { Producto, MetodoValuacion } from "@/lib/inventario/types";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import ImportExcelButton from "@/components/ui/ImportExcelButton";
@@ -100,8 +98,6 @@ export default function InventarioPage() {
 
   // Clasificación ABC (rotación por ventas, últimos 3 meses). Misma lógica que
   // el reporte /reportes/rotacion-abc — se consume su API para no duplicarla.
-  const [abcMap, setAbcMap] = useState<Map<string, RangoABC>>(new Map());
-  const [filtroRango, setFiltroRango] = useState<RangoABC | "">("");
 
   // Modal de eliminacion
   const [deleting, setDeleting] = useState<Producto | null>(null);
@@ -143,18 +139,6 @@ export default function InventarioPage() {
       if (searchTimer.current) clearTimeout(searchTimer.current);
     };
   }, [searchDraft]);
-
-  // Cargar clasificación ABC 1 sola vez (mapa mínimo: solo A/B; el resto es C).
-  useEffect(() => {
-    let cancel = false;
-    getRotacionAbcMapa(3)
-      .then((d) => {
-        if (cancel || !d) return;
-        setAbcMap(new Map(d.mapa.map((p) => [p.producto_id, p.rango])));
-      })
-      .catch(() => undefined);
-    return () => { cancel = true; };
-  }, []);
 
   // Cargar categorias 1 sola vez
   useEffect(() => {
@@ -204,16 +188,9 @@ export default function InventarioPage() {
     [categorias]
   );
 
-  const hasFilters = !!search || !!categoriaId || !!filtroRango;
+  const hasFilters = !!search || !!categoriaId;
 
-  // Filtro por rango A/B/C sobre la página cargada (el análisis completo está en
-  // el reporte /reportes/rotacion-abc). Rango del producto vía abcMap.
-  const rangoDe = (id: string): RangoABC => abcMap.get(id) ?? "C";
-  const productosMostrados = useMemo(
-    () => (filtroRango ? productos.filter((p) => rangoDe(p.id) === filtroRango) : productos),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [productos, filtroRango, abcMap]
-  );
+  const productosMostrados = productos;
 
   function limpiarFiltros() {
     setSearchDraft("");
@@ -327,19 +304,6 @@ export default function InventarioPage() {
               </select>
 
               <select
-                value={filtroRango}
-                onChange={(e) => setFiltroRango(e.target.value as RangoABC | "")}
-                className="h-10 w-full rounded-lg border-2 border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-all focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20 lg:w-[160px]"
-                aria-label="Filtrar por rango ABC"
-                title="Clasificación ABC por ventas (últimos 3 meses)"
-              >
-                <option value="">Todos los rangos</option>
-                <option value="A">Rango A · Muy vendido</option>
-                <option value="B">Rango B · Medio</option>
-                <option value="C">Rango C · Poca venta</option>
-              </select>
-
-              <select
                 value={pageSize}
                 onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
                 className="col-span-2 h-10 w-full rounded-lg border-2 border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-all focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20 sm:col-span-1 lg:w-[120px]"
@@ -389,7 +353,6 @@ export default function InventarioPage() {
                 <th className="px-3 py-3 text-right">Costo</th>
                 <th className="px-3 py-3 text-right">Precio</th>
                 <th className="px-3 py-3 text-center">Stock</th>
-                <th className="px-3 py-3 text-center">Rango</th>
                 <th className="hidden px-3 py-3 text-right lg:table-cell">Margen</th>
                 <th className="hidden px-3 py-3 text-center lg:table-cell">Valuación</th>
                 <th className="px-5 py-3 text-center">Acción</th>
@@ -398,14 +361,14 @@ export default function InventarioPage() {
             <tbody className="divide-y divide-slate-100">
               {loading && productos.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-5 py-16 text-center">
+                  <td colSpan={9} className="px-5 py-16 text-center">
                     <Loader2 className="mx-auto h-6 w-6 animate-spin text-slate-400" />
                     <p className="mt-2 text-xs text-slate-500">Cargando productos...</p>
                   </td>
                 </tr>
               ) : productosMostrados.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-5 py-16 text-center">
+                  <td colSpan={9} className="px-5 py-16 text-center">
                     <Package className="mx-auto h-8 w-8 text-slate-300" />
                     <p className="mt-3 text-sm font-medium text-slate-700">
                       No se encontraron productos
@@ -494,13 +457,6 @@ export default function InventarioPage() {
                             </span>
                           </span>
                         )}
-                      </td>
-                      <td className="px-3 py-3.5 text-center">
-                        {(() => {
-                          const r = rangoDe(p.id);
-                          const cls = r === "A" ? "bg-emerald-100 text-emerald-700" : r === "B" ? "bg-amber-100 text-amber-700" : "bg-slate-200 text-slate-600";
-                          return <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${cls}`} title={`Rango ${r} (ventas últimos 3 meses)`}>{r}</span>;
-                        })()}
                       </td>
                       <td
                         className={`hidden px-3 py-3.5 text-right tabular-nums font-semibold lg:table-cell ${margenColor(margen)}`}

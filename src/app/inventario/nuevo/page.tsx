@@ -951,26 +951,8 @@ export default function NuevoProductoPage() {
               </label>
             </div>
 
-            {/* Producto destacado — aparece en home del sitio publico */}
-            <div className="mt-5 pt-4 border-t border-gray-100">
-              <label className="inline-flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={destacado}
-                  onChange={(e) => setDestacado(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
-                />
-                <span>
-                  <span className="font-medium">Producto destacado en el sitio</span>
-                  <span className="block text-xs text-gray-500 mt-0.5">
-                    Si está activo, aparece en la sección &quot;Productos destacados&quot; de la home pública (máximo 8).
-                  </span>
-                </span>
-              </label>
-            </div>
-
-            {/* Descuento promocional (oferta) */}
-            <div className="mt-5 pt-4 border-t border-gray-100">
+            {/* Descuento promocional (oferta) — oculto: solo aplicaba al sitio publico */}
+            <div className="hidden mt-5 pt-4 border-t border-gray-100">
               <p className="text-xs uppercase tracking-wide font-semibold text-gray-500 mb-3">
                 Descuento promocional
               </p>
