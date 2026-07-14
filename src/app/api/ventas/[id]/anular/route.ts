@@ -80,14 +80,14 @@ export async function POST(
     // 3) Traer movimientos de inventario de esta venta aun activos
     const { data: movs, error: eM } = await sb
       .from("movimientos_inventario")
-      .select("id, producto_id, cantidad, tipo, anulado_at")
+      .select("id, producto_id, producto_nombre, producto_sku, cantidad, costo_unitario, tipo, anulado_at")
       .eq("empresa_id", empresaId)
       .eq("venta_id", ventaId);
     if (eM) throw new Error(eM.message);
 
     const movsActivos = (movs ?? []).filter((m) => !m.anulado_at && m.tipo === "SALIDA");
 
-    // 4) Devolver stock producto por producto
+    // 4) Devolver stock producto por producto + crear ENTRADA contra-movimiento
     const nowIso = new Date().toISOString();
     for (const m of movsActivos) {
       // Leer stock actual (evita RACE mínimas dentro de la misma request)
@@ -109,12 +109,30 @@ export async function POST(
         .eq("empresa_id", empresaId);
       if (eUp) throw new Error(eUp.message);
 
+      // Marcar la SALIDA original como anulada (auditoría; no se borra).
       const { error: eMarcar } = await sb
         .from("movimientos_inventario")
         .update({ anulado_at: nowIso, anulado_por: usuarioId })
         .eq("id", m.id)
         .eq("empresa_id", empresaId);
       if (eMarcar) throw new Error(eMarcar.message);
+
+      // Crear ENTRADA contra-movimiento visible en el listado de movimientos.
+      const { error: eIns } = await sb.from("movimientos_inventario").insert({
+        empresa_id: empresaId,
+        producto_id: m.producto_id,
+        producto_nombre: m.producto_nombre,
+        producto_sku: m.producto_sku,
+        tipo: "ENTRADA",
+        cantidad,
+        costo_unitario: m.costo_unitario,
+        origen: "ajuste_manual",
+        referencia: `ANUL-${venta.numero_control}`,
+        fecha: nowIso,
+        venta_id: ventaId,
+        created_by: usuarioId,
+      });
+      if (eIns) throw new Error(eIns.message);
     }
 
     // 5) Anular movimientos de caja vinculados a esta venta
