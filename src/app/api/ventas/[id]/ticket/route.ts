@@ -95,19 +95,16 @@ function formatGs(v: number): string {
 
 function formatFecha(iso: string): string {
   try {
+    // Paraguay es UTC-3 fijo desde 2024 (sin DST). No usamos `America/Asuncion`
+    // porque el tzdata del server puede estar desactualizado y aplicar UTC-4.
     const d = new Date(iso);
-    // Formato dd/mm/yyyy hh:mm forzado a hora Paraguay (evita UTC del server).
-    const parts = new Intl.DateTimeFormat("es-PY", {
-      timeZone: "America/Asuncion",
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).formatToParts(d);
-    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-    return `${get("day")}/${get("month")}/${get("year")} ${get("hour")}:${get("minute")}`;
+    const py = new Date(d.getTime() - 3 * 60 * 60 * 1000);
+    const dd = String(py.getUTCDate()).padStart(2, "0");
+    const mm = String(py.getUTCMonth() + 1).padStart(2, "0");
+    const yyyy = py.getUTCFullYear();
+    const hh = String(py.getUTCHours()).padStart(2, "0");
+    const min = String(py.getUTCMinutes()).padStart(2, "0");
+    return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
   } catch {
     return iso;
   }
