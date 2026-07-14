@@ -18,7 +18,7 @@ export const EMPRESA_DOC = {
   telefono: "",
   direccion: ["Paraguay"],
   /** Logo del cliente (alta calidad, sin fondo). Servido desde /public. */
-  logoUrl: "/brand/ferreteriarepublica-doc-logo.png",
+  logoUrl: "/brand/ferrecolor-logo.png",
 };
 
 function esc(v: unknown): string {
