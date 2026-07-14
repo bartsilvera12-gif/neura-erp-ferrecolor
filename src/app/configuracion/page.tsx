@@ -11,7 +11,6 @@ import {
   MessageCircle,
   Percent,
   PieChart,
-  Receipt,
   SlidersHorizontal,
   UsersRound,
 } from "lucide-react";
@@ -78,6 +77,7 @@ export default function ConfiguracionPage() {
           </p>
         </div>
         <ul className="m-0 grid list-none gap-4 p-0 sm:grid-cols-2 xl:grid-cols-3">
+          {/* Facturación oculta: facturación electrónica desactivada para Ferrecolor.
           <li>
             <SettingsModuleCard
               title="Facturación"
@@ -88,6 +88,7 @@ export default function ConfiguracionPage() {
               href="/configuracion/facturacion"
             />
           </li>
+          */}
           <li>
             <SettingsModuleCard
               title="Entidades bancarias"
