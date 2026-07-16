@@ -565,7 +565,7 @@ function ModalAbrir({
   numeroSugerido: number;
   numerosOcupados: number[];
 }) {
-  const [modo, setModo] = useState<"arqueo" | "monto">("arqueo");
+  const [modo, setModo] = useState<"arqueo" | "monto">("monto");
   const [monto, setMonto] = useState("0");
   const [cant, setCant] = useState<ArqueoCantidades>(arqueoVacio());
   const [obs, setObs] = useState("");
@@ -637,7 +637,8 @@ function ModalAbrir({
           </div>
         </div>
 
-        <ModoArqueoToggle modo={modo} onChange={setModo} />
+        {/* Toggle Contar/Monto oculto para Ferrecolor: solo monto directo. */}
+        {false && <ModoArqueoToggle modo={modo} onChange={setModo} />}
 
         {modo === "arqueo" ? (
           <div>
@@ -739,7 +740,7 @@ function ModalCerrar({
   onClose: () => void;
   onConfirm: (monto: number, obs: string | null, arqueo: ArqueoItem[] | null) => Promise<void>;
 }) {
-  const [modo, setModo] = useState<"arqueo" | "monto">("arqueo");
+  const [modo, setModo] = useState<"arqueo" | "monto">("monto");
   const [monto, setMonto] = useState(String(Math.round(resumen.efectivo_esperado)));
   const [cant, setCant] = useState<ArqueoCantidades>(arqueoVacio());
   const [obs, setObs] = useState("");
@@ -804,7 +805,8 @@ function ModalCerrar({
           </div>
         </div>
 
-        <ModoArqueoToggle modo={modo} onChange={setModo} />
+        {/* Toggle Contar/Monto oculto para Ferrecolor: solo monto directo. */}
+        {false && <ModoArqueoToggle modo={modo} onChange={setModo} />}
 
         {modo === "arqueo" ? (
           <div>
