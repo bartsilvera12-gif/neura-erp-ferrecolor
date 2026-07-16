@@ -454,7 +454,11 @@ export async function getDashboardData(): Promise<DashboardData> {
       itemsByVenta.set(ventaId, lineas);
     }
 
-    ventas = (d.ventas ?? []).map((r: Record<string, unknown>) => {
+    ventas = (d.ventas ?? [])
+      // Filtrar ventas anuladas: no deben afectar KPIs del dashboard (importes,
+      // unidades, ticket promedio, ventas del dia/mes, etc.).
+      .filter((r: Record<string, unknown>) => String(r.estado ?? "") !== "anulada")
+      .map((r: Record<string, unknown>) => {
       const id = r.id as string;
       return {
         id,
