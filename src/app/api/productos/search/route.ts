@@ -62,6 +62,7 @@ export async function GET(request: NextRequest) {
     );
 
     const conDescuento = url.searchParams.get("con_descuento") === "1";
+    const categoriaId = (url.searchParams.get("categoria_id") ?? "").trim() || null;
 
     let query = supabase
       .from("productos")
@@ -89,6 +90,10 @@ export async function GET(request: NextRequest) {
       // Cada palabra debe aparecer en nombre/sku/codigo_barras (AND entre
       // tokens, OR entre columnas) → matching orden-independiente.
       query = applyTokenSearch(query, q, ["nombre", "sku", "codigo_barras"]);
+    }
+
+    if (categoriaId) {
+      query = query.eq("categoria_principal_id", categoriaId);
     }
 
     query = query.order("nombre").limit(limit);

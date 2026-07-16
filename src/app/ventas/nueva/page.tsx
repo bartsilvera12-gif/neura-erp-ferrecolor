@@ -204,6 +204,8 @@ export default function NuevaVentaPage() {
   const [comboHighlight, setComboHighlight] = useState(-1);
   const [comboHits,      setComboHits]      = useState<Producto[]>([]);
   const [comboBuscando,  setComboBuscando]  = useState(false);
+  const [comboCategoriaId, setComboCategoriaId] = useState<string>("");
+  const [categorias,     setCategorias]     = useState<{ id: string; nombre: string }[]>([]);
   const comboInputRef    = useRef<HTMLInputElement>(null);
   const comboContainerRef = useRef<HTMLDivElement>(null);
   const comboTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -459,16 +461,39 @@ export default function NuevaVentaPage() {
     return () => clearTimeout(t);
   }, []);
 
+  // Cargar catálogo de categorías una vez (para el dropdown del buscador).
+  useEffect(() => {
+    let cancel = false;
+    fetchWithSupabaseSession("/api/inventario/categorias", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (cancel) return;
+        const rows = ((j?.data?.categorias ?? []) as Record<string, unknown>[]).map((c) => ({
+          id: String(c.id),
+          nombre: String(c.nombre ?? ""),
+        }));
+        setCategorias(rows);
+      })
+      .catch(() => undefined);
+    return () => { cancel = true; };
+  }, []);
+
   // Autocomplete: búsqueda server-side por tokens (todo el catálogo), con debounce.
+  // Si hay categoría seleccionada, permite listado sin necesitar 2 chars.
   useEffect(() => {
     const q = comboQuery.trim();
     if (comboTimerRef.current) clearTimeout(comboTimerRef.current);
-    if (q.length < 2) { setComboHits([]); setComboBuscando(false); return; }
+    const hayCategoria = !!comboCategoriaId;
+    if (q.length < 2 && !hayCategoria) { setComboHits([]); setComboBuscando(false); return; }
     setComboBuscando(true);
     comboTimerRef.current = setTimeout(async () => {
       try {
+        const params = new URLSearchParams();
+        if (q) params.set("q", q);
+        if (hayCategoria) params.set("categoria_id", comboCategoriaId);
+        params.set("limit", hayCategoria ? "200" : "20");
         const res = await fetchWithSupabaseSession(
-          `/api/productos/search?q=${encodeURIComponent(q)}&limit=20`,
+          `/api/productos/search?${params.toString()}`,
           { cache: "no-store" }
         );
         const j = await res.json();
@@ -505,7 +530,7 @@ export default function NuevaVentaPage() {
       }
     }, 220);
     return () => { if (comboTimerRef.current) clearTimeout(comboTimerRef.current); };
-  }, [comboQuery]);
+  }, [comboQuery, comboCategoriaId]);
 
   // Cargar cajas abiertas y resolver la caja activa del cajero.
   useEffect(() => {
@@ -988,24 +1013,43 @@ export default function NuevaVentaPage() {
 
           {/* Autocomplete compacto: al elegir un producto se agrega solo y se limpia. */}
           <div ref={comboContainerRef} className="relative">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#0EA5E9]" />
-            <input
-              ref={comboInputRef}
-              type="text"
-              value={comboQuery}
-              onChange={(e) => { setComboQuery(e.target.value); setComboOpen(true); setComboHighlight(-1); }}
-              onFocus={() => setComboOpen(true)}
-              onKeyDown={onComboKeyDown}
-              placeholder="Buscar producto por nombre, SKU o palabras clave…"
-              className="h-12 w-full rounded-xl border-2 border-[#0EA5E9]/30 bg-white pl-12 pr-4 text-base text-slate-800 outline-none transition-all focus:border-[#0EA5E9] focus:ring-4 focus:ring-[#0EA5E9]/15"
-              autoComplete="off"
-            />
-            {comboOpen && comboQuery.trim().length >= 2 && (
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#0EA5E9]" />
+                <input
+                  ref={comboInputRef}
+                  type="text"
+                  value={comboQuery}
+                  onChange={(e) => { setComboQuery(e.target.value); setComboOpen(true); setComboHighlight(-1); }}
+                  onFocus={() => setComboOpen(true)}
+                  onKeyDown={onComboKeyDown}
+                  placeholder="Buscar producto por nombre, SKU o palabras clave…"
+                  className="h-12 w-full rounded-xl border-2 border-[#0EA5E9]/30 bg-white pl-12 pr-4 text-base text-slate-800 outline-none transition-all focus:border-[#0EA5E9] focus:ring-4 focus:ring-[#0EA5E9]/15"
+                  autoComplete="off"
+                />
+              </div>
+              <select
+                value={comboCategoriaId}
+                onChange={(e) => { setComboCategoriaId(e.target.value); setComboOpen(true); setComboHighlight(-1); }}
+                className="h-12 rounded-xl border-2 border-[#0EA5E9]/30 bg-white px-3 text-sm text-slate-700 outline-none transition-all focus:border-[#0EA5E9] focus:ring-4 focus:ring-[#0EA5E9]/15 sm:w-56"
+                aria-label="Filtrar por categoría"
+              >
+                <option value="">Todas las categorías</option>
+                {categorias.map((c) => (
+                  <option key={c.id} value={c.id}>{c.nombre}</option>
+                ))}
+              </select>
+            </div>
+            {comboOpen && (comboQuery.trim().length >= 2 || !!comboCategoriaId) && (
               <div className="absolute left-0 right-0 top-full z-30 mt-2 max-h-[56vh] overflow-y-auto rounded-xl border-2 border-[#0EA5E9]/20 bg-white shadow-[0_16px_40px_-12px_rgba(15,23,42,0.28)]">
                 {comboBuscando && comboResultados.length === 0 ? (
                   <div className="px-4 py-5 text-center text-sm text-slate-400">Buscando…</div>
                 ) : comboResultados.length === 0 ? (
-                  <div className="px-4 py-5 text-center text-sm text-slate-400">Sin resultados para &quot;{comboQuery}&quot;.</div>
+                  <div className="px-4 py-5 text-center text-sm text-slate-400">
+                    {comboQuery
+                      ? `Sin resultados para "${comboQuery}"${comboCategoriaId ? " en esa categoría" : ""}.`
+                      : "No hay productos en esta categoría."}
+                  </div>
                 ) : (
                   <ul className="divide-y divide-slate-100">
                     {comboResultados.map((p, i) => {
@@ -1039,9 +1083,14 @@ export default function NuevaVentaPage() {
                         </li>
                       );
                     })}
-                    {comboResultados.length >= 20 && (
+                    {!comboCategoriaId && comboResultados.length >= 20 && (
                       <li className="px-4 py-2 text-center text-[11px] text-slate-400">
-                        Mostrando los primeros 20. Refiná la búsqueda para acotar.
+                        Mostrando los primeros 20. Refiná la búsqueda o elegí una categoría para ver más.
+                      </li>
+                    )}
+                    {comboCategoriaId && comboResultados.length >= 200 && (
+                      <li className="px-4 py-2 text-center text-[11px] text-slate-400">
+                        Mostrando los primeros 200 de la categoría. Escribí para filtrar más.
                       </li>
                     )}
                   </ul>
