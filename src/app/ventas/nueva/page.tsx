@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Plus, Minus, Trash2, ImageIcon } from "lucide-react";
+import { Search, Plus, Minus, Trash2, ImageIcon, ChevronDown } from "lucide-react";
 import MontoInput from "@/components/ui/MontoInput";
 import ProductPickerModal, { type ProductoPickerItem, type AgregarVentaPayload } from "@/components/inventario/ProductPickerModal";
 import { saveVenta, type FaltanteStock } from "@/lib/ventas/storage";
@@ -1028,17 +1028,11 @@ export default function NuevaVentaPage() {
                   autoComplete="off"
                 />
               </div>
-              <select
+              <CategoriaCombo
                 value={comboCategoriaId}
-                onChange={(e) => { setComboCategoriaId(e.target.value); setComboOpen(true); setComboHighlight(-1); }}
-                className="h-12 rounded-xl border-2 border-[#0EA5E9]/30 bg-white px-3 text-sm text-slate-700 outline-none transition-all focus:border-[#0EA5E9] focus:ring-4 focus:ring-[#0EA5E9]/15 sm:w-56"
-                aria-label="Filtrar por categoría"
-              >
-                <option value="">Todas las categorías</option>
-                {categorias.map((c) => (
-                  <option key={c.id} value={c.id}>{c.nombre}</option>
-                ))}
-              </select>
+                options={categorias}
+                onChange={(id) => { setComboCategoriaId(id); setComboOpen(true); setComboHighlight(-1); }}
+              />
             </div>
             {comboOpen && (comboQuery.trim().length >= 2 || !!comboCategoriaId) && (
               <div className="absolute left-0 right-0 top-full z-30 mt-2 max-h-[56vh] overflow-y-auto rounded-xl border-2 border-[#0EA5E9]/20 bg-white shadow-[0_16px_40px_-12px_rgba(15,23,42,0.28)]">
@@ -1548,6 +1542,113 @@ export default function NuevaVentaPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Combobox categoría con búsqueda (paleta Zentra) ───────────────────────────
+function CategoriaCombo({
+  value,
+  onChange,
+  options,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  options: { id: string; nombre: string }[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const t = setTimeout(() => inputRef.current?.focus(), 30);
+    return () => clearTimeout(t);
+  }, [open]);
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQ("");
+      }
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  const selected = options.find((o) => o.id === value) ?? null;
+  const nq = q.trim().toLowerCase();
+  const filtered = nq
+    ? options.filter((o) => o.nombre.toLowerCase().includes(nq))
+    : options;
+
+  return (
+    <div ref={wrapRef} className="relative sm:w-56">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`flex h-12 w-full items-center justify-between gap-2 rounded-xl border-2 bg-white px-3 text-sm outline-none transition-all ${
+          open || selected
+            ? "border-[#4FAEB2] text-slate-800 ring-4 ring-[#4FAEB2]/15"
+            : "border-[#0EA5E9]/30 text-slate-700 hover:border-[#4FAEB2]/60"
+        }`}
+      >
+        <span className="truncate">
+          {selected ? selected.nombre : "Todas las categorías"}
+        </span>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-40 mt-2 w-full min-w-[16rem] overflow-hidden rounded-xl border-2 border-[#4FAEB2]/25 bg-white shadow-[0_16px_40px_-12px_rgba(15,23,42,0.28)]">
+          <div className="relative border-b border-slate-100 p-2">
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#4FAEB2]" />
+            <input
+              ref={inputRef}
+              type="text"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Buscar categoría…"
+              className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-800 outline-none focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/15"
+            />
+          </div>
+          <ul className="max-h-72 overflow-y-auto py-1">
+            <li>
+              <button
+                type="button"
+                onClick={() => { onChange(""); setOpen(false); setQ(""); }}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                  !value ? "bg-[#4FAEB2]/10 font-semibold text-[#3F8E91]" : "text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                Todas las categorías
+              </button>
+            </li>
+            {filtered.length === 0 ? (
+              <li className="px-3 py-2 text-center text-xs text-slate-400">Sin resultados.</li>
+            ) : (
+              filtered.map((c) => (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    onClick={() => { onChange(c.id); setOpen(false); setQ(""); }}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                      value === c.id
+                        ? "bg-[#4FAEB2]/10 font-semibold text-[#3F8E91]"
+                        : "text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span className="truncate">{c.nombre}</span>
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
         </div>
       )}
     </div>
