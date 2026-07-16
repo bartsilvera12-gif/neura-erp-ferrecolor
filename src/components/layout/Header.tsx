@@ -118,10 +118,10 @@ export default function Header() {
               <Image
                 src="/brand/ferrecolor-logo.png"
                 alt="Ferrecolor"
-                width={72}
-                height={72}
+                width={120}
+                height={120}
                 sizes="36px"
-                className="h-full w-full object-contain p-0.5"
+                className="h-full w-full object-cover scale-150"
                 priority
               />
             </div>
