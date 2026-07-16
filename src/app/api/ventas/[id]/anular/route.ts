@@ -144,6 +144,16 @@ export async function POST(
       .is("anulado_at", null);
     if (eCaja) throw new Error(eCaja.message);
 
+    // 5b) Si la venta era a credito, anular la cuenta por cobrar asociada.
+    // No falla si no existe (venta contado): update sin filas afectadas.
+    const { error: eCxc } = await sb
+      .from("cuentas_por_cobrar")
+      .update({ estado: "anulado", saldo: 0 })
+      .eq("empresa_id", empresaId)
+      .eq("venta_id", ventaId)
+      .neq("estado", "anulado");
+    if (eCxc) throw new Error(eCxc.message);
+
     // 6) Marcar la venta como ANULADA
     const { error: eV2 } = await sb
       .from("ventas")

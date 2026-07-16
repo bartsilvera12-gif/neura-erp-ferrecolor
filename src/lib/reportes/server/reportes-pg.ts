@@ -303,7 +303,8 @@ export async function getReporteVentas(
   const tVI = quoteSchemaTable(schema, "ventas_items");
   const tCli = quoteSchemaTable(schema, "clientes");
   const p = pool();
-  const perV = `v.empresa_id=$1::uuid AND v.fecha>=$2::timestamptz AND v.fecha<=$3::timestamptz`;
+  // Excluye ventas anuladas de todos los KPIs y detalles del reporte.
+  const perV = `v.empresa_id=$1::uuid AND v.fecha>=$2::timestamptz AND v.fecha<=$3::timestamptz AND COALESCE(v.estado,'') <> 'anulada'`;
   const args = [empresaId, b.start, b.end];
 
   // Totales de cabecera.

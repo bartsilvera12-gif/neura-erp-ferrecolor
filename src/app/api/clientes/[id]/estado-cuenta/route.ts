@@ -33,12 +33,13 @@ export async function GET(request: NextRequest, ctxParams: { params: Promise<{ i
       direccion: s(c.direccion) || null,
     };
 
-    // Ventas del cliente → total vendido.
+    // Ventas del cliente → total vendido (excluye anuladas).
     const vq = await ctx.supabase
       .from("ventas")
       .select("total")
       .eq("empresa_id", empresaId)
-      .eq("cliente_id", id);
+      .eq("cliente_id", id)
+      .neq("estado", "anulada");
     if (vq.error) throw new Error(vq.error.message);
     const totalVendido = ((vq.data ?? []) as Record<string, unknown>[]).reduce((acc, r) => acc + (Number(r.total) || 0), 0);
 

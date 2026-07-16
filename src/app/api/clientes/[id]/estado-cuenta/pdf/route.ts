@@ -50,7 +50,7 @@ export async function GET(request: NextRequest, ctxParams: { params: Promise<{ i
     direccion: s(c.direccion) || null,
   };
 
-  const vq = await ctx.supabase.from("ventas").select("total").eq("empresa_id", empresaId).eq("cliente_id", id);
+  const vq = await ctx.supabase.from("ventas").select("total").eq("empresa_id", empresaId).eq("cliente_id", id).neq("estado", "anulada");
   const totalVendido = ((vq.data ?? []) as Record<string, unknown>[]).reduce((a, r) => a + (Number(r.total) || 0), 0);
 
   const cxcQ = await ctx.supabase
