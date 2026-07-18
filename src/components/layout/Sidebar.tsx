@@ -109,7 +109,9 @@ const MENU_STRUCTURE: MenuItem[] = [
   // (ver/editar/cancelar). El cobro se hace desde la Caja (/ventas), que
   // muestra el listado "Pedidos por cobrar" embebido. Slug 'ventas' para
   // heredar acceso del modulo. La ruta vieja /consulta redirige a /pedidos.
-  { key: "pedidos", slug: "ventas", label: "Pedidos", href: "/pedidos", icon: Receipt },
+  // Pedidos oculto para Ferrecolor: flujo pensado para salon/restaurante,
+  // no aplica en venta mostrador. La ruta /pedidos sigue existiendo por URL.
+  // { key: "pedidos", slug: "ventas", label: "Pedidos", href: "/pedidos", icon: Receipt },
   // Presupuestos: cotizaciones al cliente con PDF (logo + membrete Ferreteria
   // Republica). Reactivado a pedido.
   { key: "presupuestos", slug: "presupuestos", label: "Presupuestos", href: "/presupuestos", icon: FileText },
@@ -203,7 +205,7 @@ const MENU_STRUCTURE: MenuItem[] = [
  */
 const MENU_FAMILIES: { id: string; titulo: string; keys: string[] }[] = [
   { id: "inicio", titulo: "Inicio", keys: ["dashboard"] },
-  { id: "comercial", titulo: "Comercial", keys: ["clientes", "crm", "gestion-clientes", "ventas", "pedidos", "presupuestos", "comisiones", "planes"] },
+  { id: "comercial", titulo: "Comercial", keys: ["clientes", "crm", "gestion-clientes", "ventas", "presupuestos", "comisiones", "planes"] },
   { id: "finanzas", titulo: "Finanzas", keys: ["gastos", "otros_ingresos", "entidades_bancarias", "notas_credito", "reportes"] },
   { id: "operaciones", titulo: "Operaciones", keys: ["inventario", "compras", "recetas", "proyectos"] },
   { id: "omnicanal", titulo: "Omnicanal", keys: ["conversaciones", "conversaciones-finalizadas", "historial-omnicanal", "monitoreo", "campanas"] },
