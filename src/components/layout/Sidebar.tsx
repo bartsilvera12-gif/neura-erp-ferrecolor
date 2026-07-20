@@ -127,7 +127,8 @@ const MENU_STRUCTURE: MenuItem[] = [
     { label: "Productos", href: "/inventario" },
     { label: "Movimientos", href: "/inventario/movimientos" },
     { label: "Categorías", href: "/inventario/categorias" },
-    { label: "Depósitos / Ubicaciones", href: "/inventario/ubicaciones" },
+    // Depósitos / Ubicaciones oculto para Ferrecolor (no aplica).
+    // { label: "Depósitos / Ubicaciones", href: "/inventario/ubicaciones" },
   ]},
   // Clientes: reactivado para que el modulo Consulta pueda asociar pedidos.
   { key: "clientes", slug: "clientes", label: "Clientes", href: "/clientes", icon: Users },
