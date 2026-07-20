@@ -216,37 +216,80 @@ export async function GET(
 <title>Comprobante ${escapeHtml(numeroControl)} — Ferrecolor</title>
 <style>
   * { box-sizing: border-box; }
-  @page { size: A4 landscape; margin: 12mm; }
-  html, body { margin: 0; padding: 0; background: #f1f1f1; color: #111; font-family: 'Courier New', ui-monospace, monospace; font-size: 12px; }
+  @page { size: A4 landscape; margin: 10mm; }
+  html, body { margin: 0; padding: 0; background: #f1f1f1; color: #111; font-family: 'Courier New', ui-monospace, monospace; font-size: 11.5px; }
   .hoja {
     background: #fff;
     width: 297mm; min-height: 210mm; margin: 20px auto;
-    padding: 14mm 16mm; box-shadow: 0 1px 6px rgba(0,0,0,.12);
+    padding: 12mm 14mm; box-shadow: 0 1px 6px rgba(0,0,0,.12);
   }
-  .top {
-    display: flex; justify-content: space-between; align-items: flex-start;
-    border-bottom: 2px solid #111; padding-bottom: 8px; margin-bottom: 12px;
+
+  /* Ciudad + fecha en la esquina, texto simple */
+  .fecha-top { font-size: 12px; margin-bottom: 8px; }
+
+  /* Dos columnas para datos del cliente / condicion */
+  .info {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 30px;
+    margin-bottom: 10px;
   }
-  .empresa { font-size: 22px; font-weight: 800; letter-spacing: 3px; }
-  .ciudad-fecha { font-size: 13px; font-weight: 700; text-align: right; }
-  .info { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 8px; }
-  .info .col div { padding: 3px 0; border-bottom: 1px dotted #333; font-size: 13px; }
-  .info .col strong { display: inline-block; min-width: 130px; }
-  table.items { width: 100%; border-collapse: collapse; margin-top: 8px; }
-  table.items th, table.items td {
-    border: 1px solid #111; padding: 4px 6px; font-size: 12px; vertical-align: top;
+  .info .linea {
+    display: flex; align-items: flex-end;
+    border-bottom: 1px dotted #333;
+    padding: 4px 0 2px;
+    font-size: 12px; gap: 4px;
   }
-  table.items th { background: #eee; font-weight: 700; text-align: center; letter-spacing: 1px; font-size: 11px; }
-  td.c { }
-  td.cant { text-align: center; width: 60px; }
-  td.desc { text-align: left; }
-  td.num { text-align: right; width: 90px; font-variant-numeric: tabular-nums; }
-  tr.empty td { color: #fff; }
-  .totales-row { font-weight: 700; background: #fafafa; }
-  .footer { margin-top: 6px; border: 1px solid #111; border-top: 0; padding: 6px 8px; font-size: 12px; }
-  .footer .linea { padding: 3px 0; border-bottom: 1px dotted #333; }
-  .footer .linea:last-child { border-bottom: 0; }
-  .footer strong { display: inline-block; min-width: 170px; letter-spacing: 1px; }
+  .info .linea .lbl { font-weight: 700; white-space: nowrap; }
+  .info .linea .val { flex: 1; }
+
+  /* Tabla de items: SIN bordes visibles arriba, solo lineas punteadas */
+  table.items {
+    width: 100%; border-collapse: collapse; margin-top: 6px;
+    font-size: 11.5px;
+  }
+  table.items thead th {
+    border: none;
+    border-bottom: 1px dotted #111;
+    font-weight: 700; padding: 4px 6px; text-align: left;
+    font-size: 11px; letter-spacing: 0.5px;
+  }
+  table.items tbody td {
+    border: none;
+    border-bottom: 1px dotted #999;
+    padding: 5px 6px; vertical-align: top;
+  }
+  /* Separadores verticales entre columnas con "|" en el texto no; usamos borders */
+  table.items thead th + th, table.items tbody td + td { border-left: 1px dotted #ccc; }
+  /* Columnas alineadas */
+  .cant { width: 70px; text-align: center; }
+  .desc { text-align: left; }
+  .num  { width: 100px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr.empty td { color: transparent; }
+
+  /* Filas de subtotales dentro de la tabla */
+  tr.subtot td {
+    font-weight: 700;
+    border-top: 1px solid #111 !important;
+    border-bottom: 1px dotted #333 !important;
+    background: transparent;
+  }
+  tr.tot td {
+    font-weight: 700;
+    border-bottom: 1px solid #111 !important;
+  }
+
+  /* Pie: dos "lineas" de texto con puntos abajo */
+  .pie { margin-top: 8px; font-size: 12px; }
+  .pie .linea {
+    border-bottom: 1px dotted #333;
+    padding: 4px 0 2px;
+    display: flex; gap: 6px;
+  }
+  .pie .lbl { font-weight: 700; }
+  .pie .val { flex: 1; }
+  .pie .total-final {
+    text-align: right; font-weight: 700; padding-top: 6px; font-size: 13px;
+  }
+
   .print-btn {
     position: fixed; top: 12px; right: 12px; background: #4FAEB2; color: #fff;
     border: 0; padding: 8px 14px; border-radius: 8px; font-family: inherit; font-size: 13px;
@@ -255,75 +298,70 @@ export async function GET(
   .print-btn:hover { background: #3F8E91; }
   @media print {
     body { background: #fff; }
-    .hoja { box-shadow: none; margin: 0; width: auto; min-height: auto; padding: 8mm 12mm; }
+    .hoja { box-shadow: none; margin: 0; width: auto; min-height: auto; padding: 6mm 10mm; }
     .print-btn { display: none; }
   }
 </style></head>
 <body>
   <button class="print-btn" onclick="window.print()">Imprimir</button>
   <div class="hoja">
-    <div class="top">
-      <div class="empresa">FERRECOLOR</div>
-      <div class="ciudad-fecha">${escapeHtml(fechaLarga(String(v.fecha ?? "")))}</div>
-    </div>
+    <div class="fecha-top">${escapeHtml(fechaLarga(String(v.fecha ?? "")))}</div>
 
     <div class="info">
-      <div class="col">
-        <div><strong>RAZON SOCIAL:</strong> ${escapeHtml(cliente?.nombre ?? "")}</div>
-        <div><strong>DIRECCION:</strong> ${escapeHtml(cliente?.direccion ?? "")}</div>
-        <div><strong>CONTACTO:</strong> ${escapeHtml(cliente?.telefono ?? "")}</div>
+      <div>
+        <div class="linea"><span class="lbl">RAZON SOCIAL:</span> <span class="val">${escapeHtml(cliente?.nombre ?? "")}</span></div>
+        <div class="linea"><span class="lbl">DIRECCION:</span> <span class="val">${escapeHtml(cliente?.direccion ?? "")}</span></div>
+        <div class="linea"><span class="lbl">CONTACTO:</span> <span class="val">${escapeHtml(cliente?.telefono ?? "")}</span></div>
       </div>
-      <div class="col">
-        <div><strong>CONDICION DE VENTA:</strong> ${escapeHtml(condicion)}</div>
-        <div><strong>R.U.C./C.I.:</strong> ${escapeHtml(cliente?.ruc ?? "")}</div>
-        <div><strong>NOTA DE REMISION:</strong> ${escapeHtml(notaRem)}</div>
+      <div>
+        <div class="linea"><span class="lbl">CONDICION DE VENTA:</span> <span class="val">${escapeHtml(condicion)}</span></div>
+        <div class="linea"><span class="lbl">R.U.C./C.I.:</span> <span class="val">${escapeHtml(cliente?.ruc ?? "")}</span></div>
+        <div class="linea"><span class="lbl">NOTA DE REMISION:</span> <span class="val">${escapeHtml(notaRem)}</span></div>
       </div>
     </div>
 
     <table class="items">
       <thead>
         <tr>
-          <th style="width:60px;">CANTIDAD</th>
-          <th>DESCRIPCION</th>
-          <th style="width:90px;">P.UNITARIO</th>
-          <th style="width:90px;">EXENTA</th>
-          <th style="width:90px;">IVA 5%</th>
-          <th style="width:90px;">IVA 10%</th>
+          <th class="cant">CANTIDAD</th>
+          <th class="desc">DESCRIPCION</th>
+          <th class="num">P.UNITARIO</th>
+          <th class="num">EXENTA</th>
+          <th class="num">IVA 5%</th>
+          <th class="num">IVA 10%</th>
         </tr>
       </thead>
       <tbody>
         ${filasHtml}
         ${filasVaciasHtml}
-        <tr class="totales-row">
-          <td class="c" colspan="3" style="text-align:right;"><strong>SUB TOTALES</strong></td>
-          <td class="c num">${fmtGs(totExenta)}</td>
-          <td class="c num">${fmtGs(totIva5)}</td>
-          <td class="c num">${fmtGs(totIva10)}</td>
+        <tr class="subtot">
+          <td class="cant"></td>
+          <td class="desc">SUB TOTALES</td>
+          <td class="num"></td>
+          <td class="num">${fmtGs(totExenta)}</td>
+          <td class="num">${fmtGs(totIva5)}</td>
+          <td class="num">${fmtGs(totIva10)}</td>
         </tr>
-        <tr class="totales-row">
-          <td class="c" colspan="3" style="text-align:right;"><strong>TOTALES</strong></td>
-          <td class="c num">${fmtGs(totExenta)}</td>
-          <td class="c num">${fmtGs(totIva5)}</td>
-          <td class="c num">${fmtGs(totIva10)}</td>
+        <tr class="tot">
+          <td class="cant"></td>
+          <td class="desc">TOTALES</td>
+          <td class="num"></td>
+          <td class="num">${fmtGs(totExenta)}</td>
+          <td class="num">${fmtGs(totIva5)}</td>
+          <td class="num">${fmtGs(totIva10)}</td>
         </tr>
       </tbody>
     </table>
 
-    <div class="footer">
-      <div class="linea"><strong>SON GUARANIES:</strong> ${escapeHtml(numeroALetras(total))}</div>
+    <div class="pie">
+      <div class="linea"><span class="lbl">SON GUARANIES:</span> <span class="val">${escapeHtml(numeroALetras(total))}</span></div>
       <div class="linea">
-        <strong>LIQUIDACION DEL IVA:</strong>
-        &nbsp;(5%): ${fmtGs(iva5Liq)}
-        &nbsp;&nbsp;(10%): ${fmtGs(iva10Liq)}
-        &nbsp;&nbsp;<strong>TOTAL IVA:</strong> ${fmtGs(ivaTotal)}
+        <span class="lbl">LIQUIDACION DEL IVA</span>
+        <span class="val">&nbsp;&nbsp;(5%): ${fmtGs(iva5Liq)}&nbsp;&nbsp;&nbsp;&nbsp;(10%): ${fmtGs(iva10Liq)}&nbsp;&nbsp;&nbsp;&nbsp;TOTAL IVA: ${fmtGs(ivaTotal)}</span>
       </div>
-      <div class="linea" style="text-align:right;"><strong>TOTAL:</strong> Gs. ${fmtGs(total)}</div>
+      <div class="total-final">TOTAL: Gs. ${fmtGs(total)}</div>
     </div>
   </div>
-  <script>
-    // Auto-open print dialog al abrir (comentar si molesta).
-    // setTimeout(function(){ window.print(); }, 400);
-  </script>
 </body></html>`;
 
     return new NextResponse(html, {
