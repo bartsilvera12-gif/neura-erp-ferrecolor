@@ -91,13 +91,15 @@ export default function ComprasPage() {
   const [busqueda, setBusqueda] = useState("");
   const [filtroTipoPago, setFiltroTipoPago] = useState<TipoPago | "">("");
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
+  const [anularTarget, setAnularTarget] = useState<{ numero_oc: string; estado: EstadoOrdenCompra } | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancel = false;
     getCompras().then((data) => { if (!cancel) setTodas(data); });
     getOrdenesCompra().then((data) => { if (!cancel) setOrdenes(data); });
     return () => { cancel = true; };
-  }, []);
+  }, [reloadKey]);
 
   const grupos = useMemo(() => agrupar(todas), [todas]);
 
@@ -216,6 +218,14 @@ export default function ComprasPage() {
                       <div className="inline-flex items-center gap-3">
                         <Link href={`/compras/ordenes/${encodeURIComponent(o.numero_oc)}`} className="text-xs font-semibold text-slate-500 hover:text-[#3F8E91] hover:underline">Revisar</Link>
                         <Link href={`/compras/desde-orden/${encodeURIComponent(o.numero_oc)}`} className="rounded-lg bg-[#4FAEB2] px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-[#3F8E91]">Confirmar recepción</Link>
+                        <button
+                          type="button"
+                          onClick={() => setAnularTarget({ numero_oc: o.numero_oc, estado: o.estado })}
+                          className="text-xs font-semibold text-red-700 hover:underline"
+                          title="Anular OC y revertir stock/movimientos"
+                        >
+                          Anular
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -360,6 +370,15 @@ export default function ComprasPage() {
       </div>
 
       <MobileFab href="/compras/nueva" label="Nueva compra" />
+
+      {anularTarget && (
+        <AnularOcInlineModal
+          numero_oc={anularTarget.numero_oc}
+          estado={anularTarget.estado}
+          onClose={() => setAnularTarget(null)}
+          onDone={() => { setAnularTarget(null); setReloadKey((k) => k + 1); }}
+        />
+      )}
     </div>
   );
 }
@@ -367,4 +386,102 @@ export default function ComprasPage() {
 /** Wrapper para agrupar fila principal + filas de detalle sin <div> en <tbody>. */
 function FragmentRow({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
+}
+
+function AnularOcInlineModal({
+  numero_oc,
+  estado,
+  onClose,
+  onDone,
+}: {
+  numero_oc: string;
+  estado: EstadoOrdenCompra;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [motivo, setMotivo] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/ordenes-compra/${encodeURIComponent(numero_oc)}/anular`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ motivo: motivo.trim() || null }),
+        }
+      );
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error ?? `Error ${res.status}`);
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo anular.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const yaRecibida = estado === "recibida_parcial" || estado === "recibida_total";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md overflow-hidden rounded-2xl border-2 border-red-200 bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-b border-red-100 bg-red-50/60 px-5 py-4">
+          <h3 className="text-base font-bold text-red-800">Anular OC {numero_oc}</h3>
+          <p className="mt-1 text-xs text-red-700">
+            {yaRecibida
+              ? "Esta OC ya tiene mercadería recibida. Se va a REVERTIR el stock y crear contra-movimientos en Inventario."
+              : "Se marca la OC como cancelada. No hay stock recibido para revertir."}
+            {" "}Esta acción no se puede deshacer.
+          </p>
+        </div>
+        <div className="p-5 space-y-3">
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">Motivo (opcional)</span>
+            <textarea
+              value={motivo}
+              onChange={(e) => setMotivo(e.target.value)}
+              placeholder="Ej: proveedor no cumplió, error de carga, mercadería devuelta…"
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-200 outline-none"
+              rows={3}
+              disabled={loading}
+            />
+          </label>
+          {error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              {error}
+            </div>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={loading}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={loading}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {loading ? "Anulando..." : "Anular OC"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
