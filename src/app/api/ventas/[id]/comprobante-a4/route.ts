@@ -224,8 +224,13 @@ export async function GET(
     padding: 12mm 14mm; box-shadow: 0 1px 6px rgba(0,0,0,.12);
   }
 
-  /* Ciudad + fecha en la esquina, texto simple */
-  .fecha-top { font-size: 12px; margin-bottom: 8px; }
+  /* Cabecera: logo a la izquierda + fecha a la derecha */
+  .header-top {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 8px;
+  }
+  .header-top .logo { max-height: 60px; width: auto; }
+  .fecha-top { font-size: 12px; font-weight: 700; }
 
   /* Dos columnas para datos del cliente / condicion */
   .info {
@@ -305,7 +310,10 @@ export async function GET(
 <body>
   <button class="print-btn" onclick="window.print()">Imprimir</button>
   <div class="hoja">
-    <div class="fecha-top">${escapeHtml(fechaLarga(String(v.fecha ?? "")))}</div>
+    <div class="header-top">
+      <img src="/brand/ferrecolor-logo.png" alt="Ferrecolor" class="logo" />
+      <div class="fecha-top">${escapeHtml(fechaLarga(String(v.fecha ?? "")))}</div>
+    </div>
 
     <div class="info">
       <div>
