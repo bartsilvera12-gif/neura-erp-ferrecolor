@@ -216,11 +216,12 @@ export async function GET(
 <title>Comprobante ${escapeHtml(numeroControl)} — Ferrecolor</title>
 <style>
   * { box-sizing: border-box; }
+  @page { size: A4 landscape; margin: 12mm; }
   html, body { margin: 0; padding: 0; background: #f1f1f1; color: #111; font-family: 'Courier New', ui-monospace, monospace; font-size: 12px; }
   .hoja {
     background: #fff;
-    width: 210mm; min-height: 297mm; margin: 20px auto;
-    padding: 20mm 16mm; box-shadow: 0 1px 6px rgba(0,0,0,.12);
+    width: 297mm; min-height: 210mm; margin: 20px auto;
+    padding: 14mm 16mm; box-shadow: 0 1px 6px rgba(0,0,0,.12);
   }
   .top {
     display: flex; justify-content: space-between; align-items: flex-start;
@@ -254,7 +255,7 @@ export async function GET(
   .print-btn:hover { background: #3F8E91; }
   @media print {
     body { background: #fff; }
-    .hoja { box-shadow: none; margin: 0; width: auto; min-height: auto; padding: 15mm; }
+    .hoja { box-shadow: none; margin: 0; width: auto; min-height: auto; padding: 8mm 12mm; }
     .print-btn { display: none; }
   }
 </style></head>
