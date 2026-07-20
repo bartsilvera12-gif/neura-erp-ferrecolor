@@ -92,6 +92,7 @@ export default function ComprasPage() {
   const [filtroTipoPago, setFiltroTipoPago] = useState<TipoPago | "">("");
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
   const [anularTarget, setAnularTarget] = useState<{ numero_oc: string; estado: EstadoOrdenCompra } | null>(null);
+  const [anularCompraTarget, setAnularCompraTarget] = useState<{ numero_control: string; total: number } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
@@ -287,7 +288,8 @@ export default function ComprasPage() {
                 <th className="py-3 pr-4 font-medium text-right">Ítems</th>
                 <th className="py-3 pr-4 font-medium text-right">Total</th>
                 <th className="hidden py-3 pr-4 font-medium lg:table-cell">Pago</th>
-                <th className="py-3 font-medium">Fecha</th>
+                <th className="py-3 pr-4 font-medium">Fecha</th>
+                <th className="py-3 font-medium text-center">Acción</th>
               </tr>
             </thead>
             <tbody>
@@ -342,7 +344,17 @@ export default function ComprasPage() {
                             {g.tipo_pago === "contado" ? "Contado" : g.tipo_pago === "credito" ? `Crédito ${g.plazo_dias ?? ""}d` : "—"}
                           </span>
                         </td>
-                        <td className="py-4 text-gray-500 text-xs tabular-nums">{formatFecha(g.fecha)}</td>
+                        <td className="py-4 pr-4 text-gray-500 text-xs tabular-nums">{formatFecha(g.fecha)}</td>
+                        <td className="py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={() => setAnularCompraTarget({ numero_control: g.numero_control, total: g.total })}
+                            className="text-xs font-semibold text-red-700 hover:underline"
+                            title="Anular compra y revertir stock/movimientos"
+                          >
+                            Anular
+                          </button>
+                        </td>
                       </tr>
 
                       {abierto && multi && g.items.map((it) => (
@@ -356,6 +368,7 @@ export default function ComprasPage() {
                           <td className="py-2 pr-4 text-right tabular-nums text-gray-600">{it.cantidad}</td>
                           <td className="py-2 pr-4 text-right tabular-nums text-gray-700">{formatGs(it.total)}</td>
                           <td className="hidden lg:table-cell" />
+                          <td />
                           <td />
                         </tr>
                       ))}
@@ -379,6 +392,14 @@ export default function ComprasPage() {
           onDone={() => { setAnularTarget(null); setReloadKey((k) => k + 1); }}
         />
       )}
+      {anularCompraTarget && (
+        <AnularCompraModal
+          numero_control={anularCompraTarget.numero_control}
+          total={anularCompraTarget.total}
+          onClose={() => setAnularCompraTarget(null)}
+          onDone={() => { setAnularCompraTarget(null); setReloadKey((k) => k + 1); }}
+        />
+      )}
     </div>
   );
 }
@@ -386,6 +407,100 @@ export default function ComprasPage() {
 /** Wrapper para agrupar fila principal + filas de detalle sin <div> en <tbody>. */
 function FragmentRow({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
+}
+
+function AnularCompraModal({
+  numero_control,
+  total,
+  onClose,
+  onDone,
+}: {
+  numero_control: string;
+  total: number;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [motivo, setMotivo] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/compras/${encodeURIComponent(numero_control)}/anular`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ motivo: motivo.trim() || null }),
+        }
+      );
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error ?? `Error ${res.status}`);
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo anular la compra.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md overflow-hidden rounded-2xl border-2 border-red-200 bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-b border-red-100 bg-red-50/60 px-5 py-4">
+          <h3 className="text-base font-bold text-red-800">Anular compra {numero_control}</h3>
+          <p className="mt-1 text-xs text-red-700">
+            Se va a revertir el stock ingresado (Gs. {Math.round(total).toLocaleString("es-PY")}) y crear un
+            contra-movimiento en Inventario. La compra queda marcada como ANULADA. Esta acción no se puede deshacer.
+          </p>
+        </div>
+        <div className="p-5 space-y-3">
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">Motivo (opcional)</span>
+            <textarea
+              value={motivo}
+              onChange={(e) => setMotivo(e.target.value)}
+              placeholder="Ej: mercadería con defecto, error de carga, devolución al proveedor…"
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-200 outline-none"
+              rows={3}
+              disabled={loading}
+            />
+          </label>
+          {error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              {error}
+            </div>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={loading}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={loading}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {loading ? "Anulando..." : "Anular compra"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function AnularOcInlineModal({
