@@ -224,13 +224,16 @@ export async function GET(
     padding: 12mm 14mm; box-shadow: 0 1px 6px rgba(0,0,0,.12);
   }
 
-  /* Cabecera: logo a la izquierda + fecha a la derecha */
+  /* Cabecera: logo + datos empresa a la izquierda + fecha a la derecha */
   .header-top {
     display: flex; justify-content: space-between; align-items: center;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
   }
+  .header-top .brand { display: flex; align-items: center; gap: 12px; }
   .header-top .logo { max-height: 60px; width: auto; }
-  .fecha-top { font-size: 12px; font-weight: 700; }
+  .header-top .empresa-datos { font-size: 11.5px; line-height: 1.4; }
+  .header-top .empresa-datos .razon { font-weight: 700; letter-spacing: 0.5px; }
+  .fecha-top { font-size: 12px; font-weight: 700; text-align: right; }
 
   /* Dos columnas para datos del cliente / condicion */
   .info {
@@ -311,7 +314,13 @@ export async function GET(
   <button class="print-btn" onclick="window.print()">Imprimir</button>
   <div class="hoja">
     <div class="header-top">
-      <img src="/brand/ferrecolor-logo.png" alt="Ferrecolor" class="logo" />
+      <div class="brand">
+        <img src="/brand/ferrecolor-logo.png" alt="Ferrecolor" class="logo" />
+        <div class="empresa-datos">
+          <div class="razon">GRUPO FERRE E.A.S.</div>
+          <div>R.U.C.: 80173997-7</div>
+        </div>
+      </div>
       <div class="fecha-top">${escapeHtml(fechaLarga(String(v.fecha ?? "")))}</div>
     </div>
 
