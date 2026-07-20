@@ -45,10 +45,12 @@ export default function OrdenesCompraPage() {
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState("");
   const [filtroEstado, setFiltroEstado] = useState<EstadoOrdenCompra | "">("");
+  const [anularTarget, setAnularTarget] = useState<Grupo | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     getOrdenesCompra().then((o) => { setOrdenes(o); setCargando(false); });
-  }, []);
+  }, [reloadKey]);
 
   const grupos = useMemo<Grupo[]>(() => {
     const map = new Map<string, Grupo>();
@@ -160,6 +162,16 @@ export default function OrdenesCompraPage() {
                           <Link href={`/compras/desde-orden/${encodeURIComponent(g.numero_oc)}`}
                             className="text-xs font-semibold text-emerald-700 hover:underline">Recibir</Link>
                         )}
+                        {g.estado !== "cancelada" && (
+                          <button
+                            type="button"
+                            onClick={() => setAnularTarget(g)}
+                            className="text-xs font-semibold text-red-700 hover:underline"
+                            title="Anular orden y revertir stock/movimientos"
+                          >
+                            Anular
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -168,6 +180,110 @@ export default function OrdenesCompraPage() {
             </table>
           </div>
         )}
+      </div>
+
+      {anularTarget && (
+        <AnularOcModal
+          orden={anularTarget}
+          onClose={() => setAnularTarget(null)}
+          onDone={() => { setAnularTarget(null); setReloadKey((k) => k + 1); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AnularOcModal({
+  orden,
+  onClose,
+  onDone,
+}: {
+  orden: Grupo;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [motivo, setMotivo] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/ordenes-compra/${encodeURIComponent(orden.numero_oc)}/anular`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ motivo: motivo.trim() || null }),
+        }
+      );
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error ?? `Error ${res.status}`);
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo anular.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const yaRecibida = orden.estado === "recibida_parcial" || orden.estado === "recibida_total";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md overflow-hidden rounded-2xl border-2 border-red-200 bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-b border-red-100 bg-red-50/60 px-5 py-4">
+          <h3 className="text-base font-bold text-red-800">Anular OC {orden.numero_oc}</h3>
+          <p className="mt-1 text-xs text-red-700">
+            {yaRecibida
+              ? "Esta OC ya tiene mercadería recibida. Se va a REVERTIR el stock ingresado y crear contra-movimientos en Inventario. Los reportes van a excluir estas compras."
+              : "Se marca la OC como cancelada. No hay stock recibido para revertir."}
+            {" "}Esta acción no se puede deshacer.
+          </p>
+        </div>
+        <div className="p-5 space-y-3">
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">Motivo (opcional)</span>
+            <textarea
+              value={motivo}
+              onChange={(e) => setMotivo(e.target.value)}
+              placeholder="Ej: proveedor no cumplió, error de carga, mercadería devuelta…"
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-200 outline-none"
+              rows={3}
+              disabled={loading}
+            />
+          </label>
+          {error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              {error}
+            </div>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={loading}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={loading}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {loading ? "Anulando..." : "Anular OC"}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

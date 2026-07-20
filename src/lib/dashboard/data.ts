@@ -474,7 +474,10 @@ export async function getDashboardData(): Promise<DashboardData> {
       };
     });
 
-    compras = (d.compras ?? []).map((r: Record<string, unknown>) => ({
+    compras = (d.compras ?? [])
+      // Excluye compras anuladas de los KPIs de compras.
+      .filter((r: Record<string, unknown>) => r.anulada_at == null)
+      .map((r: Record<string, unknown>) => ({
       id: r.id as string,
       producto_id: r.producto_id as string | undefined,
       producto_nombre: (r.producto_nombre as string) ?? "",

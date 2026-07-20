@@ -51,6 +51,7 @@ export async function getComprasPanel(
             sum(total)             AS total
        FROM ${tCompras}
       WHERE empresa_id = $1::uuid AND fecha >= $2 AND fecha <= $3
+        AND anulada_at IS NULL
       GROUP BY numero_control
       ORDER BY min(fecha) DESC`,
     [empresaId, rango.start, rango.end]
