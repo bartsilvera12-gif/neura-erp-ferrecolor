@@ -123,6 +123,7 @@ export interface CajaDetalleVenta {
   tipo_venta: string | null;
   total: number;
   estado: string | null;
+  usuario_nombre: string | null;
 }
 
 /** Un movimiento manual del turno, con el autor resuelto (nombre/email). */

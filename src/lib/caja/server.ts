@@ -365,7 +365,7 @@ export async function getDetalleCaja(
   // Ventas individuales del turno (cronológico).
   const vQ = await sb
     .from("ventas")
-    .select("id, numero_control, fecha, metodo_pago, tipo_venta, total, estado")
+    .select("id, numero_control, fecha, metodo_pago, tipo_venta, total, estado, usuario_nombre")
     .eq("empresa_id", empresaId)
     .eq("caja_id", cajaId)
     .order("fecha", { ascending: true });
@@ -378,6 +378,7 @@ export async function getDetalleCaja(
     tipo_venta: string | null;
     total: number | string;
     estado: string | null;
+    usuario_nombre: string | null;
   }>;
   const ventas: CajaDetalleVenta[] = ventasRaw.map((v) => ({
     id: v.id,
@@ -387,6 +388,7 @@ export async function getDetalleCaja(
     tipo_venta: v.tipo_venta,
     total: num(v.total),
     estado: v.estado,
+    usuario_nombre: v.usuario_nombre,
   }));
 
   // Movimientos manuales activos del turno (cronológico).
