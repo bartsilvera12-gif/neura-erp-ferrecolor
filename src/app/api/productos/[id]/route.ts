@@ -198,6 +198,29 @@ export async function PATCH(
       return NextResponse.json(successResponse({ producto: rowToApi(existing as unknown as Record<string, unknown>) }));
     }
 
+    // Si el patch modifica stock_actual, capturar el valor previo para
+    // registrar el ajuste como movimiento_inventario (auditoria).
+    let stockPrevio: number | null = null;
+    let stockNuevo: number | null = null;
+    let productoNombrePrevio = "";
+    let productoSkuPrevio = "";
+    let costoUnitarioMov = 0;
+    if (patch.stock_actual !== undefined) {
+      const { data: prev } = await sb
+        .from("productos")
+        .select("stock_actual, nombre, sku, costo_promedio")
+        .eq("empresa_id", empresaId)
+        .eq("id", id)
+        .maybeSingle();
+      if (prev) {
+        stockPrevio = Number((prev as { stock_actual?: number }).stock_actual ?? 0);
+        productoNombrePrevio = String((prev as { nombre?: string }).nombre ?? "");
+        productoSkuPrevio = String((prev as { sku?: string }).sku ?? "");
+        costoUnitarioMov = Number((prev as { costo_promedio?: number }).costo_promedio ?? 0);
+      }
+      stockNuevo = Number(patch.stock_actual as number);
+    }
+
     const upd = await sb
       .from("productos")
       .update(patch)
@@ -218,6 +241,54 @@ export async function PATCH(
     }
     if (!upd.data) return NextResponse.json(errorResponse(API_ERRORS.NOT_FOUND), { status: 404 });
     const updRow = upd.data as unknown as Record<string, unknown>;
+
+    // AUDITORIA de ajuste manual de stock: si cambio, dejar movimiento
+    // registrado con fecha/hora + usuario para trazabilidad del conteo fisico.
+    if (stockPrevio != null && stockNuevo != null && stockNuevo !== stockPrevio) {
+      const delta = stockNuevo - stockPrevio;
+      const cantidadAbs = Math.abs(delta);
+      const tipoMov = delta > 0 ? "ENTRADA" : "SALIDA";
+      // Nombre del usuario para el movimiento (opcional; el created_by es lo autoritativo).
+      let nombreUsuario: string | null = null;
+      try {
+        const usrId = ctx.auth.usuarioCatalogId ?? null;
+        if (usrId) {
+          const { data: u } = await sb
+            .from("usuarios")
+            .select("nombre, email")
+            .eq("empresa_id", empresaId)
+            .eq("id", usrId)
+            .maybeSingle();
+          if (u) {
+            const uu = u as { nombre?: string | null; email?: string | null };
+            nombreUsuario = (uu.nombre?.trim() || uu.email?.trim() || null) ?? null;
+          }
+        }
+      } catch {
+        /* si falla el lookup del nombre, no bloqueamos el ajuste */
+      }
+      try {
+        await sb.from("movimientos_inventario").insert({
+          empresa_id: empresaId,
+          producto_id: id,
+          producto_nombre: productoNombrePrevio,
+          producto_sku: productoSkuPrevio,
+          tipo: tipoMov,
+          cantidad: cantidadAbs,
+          costo_unitario: costoUnitarioMov,
+          origen: "ajuste_manual",
+          referencia: `AJUSTE-${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "")}`,
+          fecha: new Date().toISOString(),
+          created_by: ctx.auth.usuarioCatalogId ?? null,
+          usuario_nombre: nombreUsuario,
+        });
+      } catch (movErr) {
+        console.error(
+          "[/api/productos/[id] PATCH] ajuste_manual mov insert fallo",
+          movErr instanceof Error ? movErr.message : movErr
+        );
+      }
+    }
 
     // Sincronizar categoría principal en puente producto_categorias
     if (categoriaCambia) {
