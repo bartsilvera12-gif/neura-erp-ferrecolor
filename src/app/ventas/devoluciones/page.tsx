@@ -148,6 +148,19 @@ export default function DevolucionesPage() {
                            className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">
                           <Printer className="h-3.5 w-3.5" /> Imprimir
                         </a>
+                        {d.estado === "confirmada" && (
+                          <button
+                            onClick={() => {
+                              if (confirm(`¿Anular la devolución ${d.numero_devolucion}? Se van a revertir los movimientos de stock y caja.`)) {
+                                void anular(d.id);
+                              }
+                            }}
+                            disabled={anulando}
+                            className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+                          >
+                            <Ban className="h-3.5 w-3.5" /> Anular
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
