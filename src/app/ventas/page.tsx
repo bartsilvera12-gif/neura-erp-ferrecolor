@@ -384,7 +384,7 @@ export default function VentasPage() {
                               Nota de remisión
                             </a>
                           )}
-                          {!isAnulada && (
+                          {!isAnulada && v.estado !== "devuelta_total" && v.estado !== "parcialmente_devuelta" && (
                             <button
                               type="button"
                               onClick={() => setAnularTarget(v)}
