@@ -297,6 +297,16 @@ export default function VentasPage() {
                               Anulada
                             </span>
                           )}
+                          {v.estado === "devuelta_total" && (
+                            <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 no-underline">
+                              Devuelta
+                            </span>
+                          )}
+                          {v.estado === "parcialmente_devuelta" && (
+                            <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 no-underline">
+                              Dev. parcial
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="py-4 pr-4 align-middle">

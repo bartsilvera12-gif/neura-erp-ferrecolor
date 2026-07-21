@@ -42,12 +42,14 @@ const origenLabel: Record<OrigenMovimiento, string> = {
   venta: "Venta",
   ajuste_manual: "Ajuste manual",
   inventario_inicial: "Inventario inicial",
+  devolucion_venta: "Devolución venta",
 };
 const origenBadge: Record<OrigenMovimiento, string> = {
   compra: "bg-sky-50 text-sky-700 border border-sky-200",
   venta: "bg-violet-50 text-violet-700 border border-violet-200",
   ajuste_manual: "bg-slate-100 text-slate-600 border border-slate-200",
   inventario_inicial: "bg-orange-50 text-orange-700 border border-orange-200",
+  devolucion_venta: "bg-amber-50 text-amber-800 border border-amber-200",
 };
 
 function formatGs(valor: number) {
