@@ -63,7 +63,7 @@ export interface Venta {
   usuario_nombre?: string | null;
 
   /** Estado de la venta. anulada queda para auditoría pero no suma en reportes. */
-  estado?: "activa" | "anulada";
+  estado?: "activa" | "anulada" | "parcialmente_devuelta" | "devuelta_total";
   anulada_at?: string | null;
   anulada_motivo?: string | null;
 }

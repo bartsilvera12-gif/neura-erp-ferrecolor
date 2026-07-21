@@ -343,14 +343,14 @@ export default function VentasPage() {
                       </td>
                       <td className="py-4 text-center align-middle" onClick={(e) => e.stopPropagation()}>
                         <div className="inline-flex items-center gap-1.5">
-                          {devolucionesOn && !isAnulada && (
+                          {devolucionesOn && !isAnulada && v.estado !== "devuelta_total" && (
                             <button
                               type="button"
                               onClick={() => setDevolverVentaId(v.id)}
                               className="inline-flex items-center justify-center rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100"
                               title="Ver detalle y registrar una devolución"
                             >
-                              Devolver
+                              {v.estado === "parcialmente_devuelta" ? "Devolver más" : "Devolver"}
                             </button>
                           )}
                           <a

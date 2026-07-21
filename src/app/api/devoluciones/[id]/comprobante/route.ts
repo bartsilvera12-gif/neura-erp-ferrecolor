@@ -1,36 +1,71 @@
+/**
+ * Comprobante A4 landscape de la devolucion, mismo look que el comprobante de venta de Ferrecolor.
+ * GET /api/devoluciones/[id]/comprobante?auto=1
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { getUserAndEmpresa } from "@/lib/middleware/auth";
 import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
 import { devolucionesEnabled } from "@/lib/devoluciones/feature-flag";
 import { getDevolucion } from "@/lib/devoluciones/server/devoluciones-pg";
-import { membreteTicket } from "@/lib/documentos/membrete";
 
-/**
- * GET /api/devoluciones/[id]/comprobante?w=58|80&auto=1
- * Comprobante NO FISCAL de la devolución, en formato ticket térmico.
- */
-function esc(s: unknown): string {
+function escapeHtml(s: unknown): string {
   return String(s ?? "")
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
-function gs(v: number): string {
-  return `Gs. ${Math.round(v || 0).toLocaleString("es-PY")}`;
-}
-function fechaHora(iso: string | null): string {
-  if (!iso) return "—";
+function fmtGs(v: number): string { return Math.round(v || 0).toLocaleString("es-PY"); }
+
+function fechaLarga(iso: string, ciudad = "HERNANDARIAS"): string {
   try {
     const d = new Date(iso);
-    const p = (n: number) => String(n).padStart(2, "0");
-    return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
-  } catch { return String(iso); }
+    const py = new Date(d.getTime() - 3 * 60 * 60 * 1000);
+    const dia = py.getUTCDate();
+    const meses = ["ENERO","FEBRERO","MARZO","ABRIL","MAYO","JUNIO","JULIO","AGOSTO","SEPTIEMBRE","OCTUBRE","NOVIEMBRE","DICIEMBRE"];
+    return `${ciudad}, ${dia} DE ${meses[py.getUTCMonth()]} DEL ${py.getUTCFullYear()}`;
+  } catch { return ciudad; }
+}
+
+function numeroALetras(n: number): string {
+  const num = Math.round(Math.max(0, Number.isFinite(n) ? n : 0));
+  if (num === 0) return "CERO";
+  const unidades = ["", "UN", "DOS", "TRES", "CUATRO", "CINCO", "SEIS", "SIETE", "OCHO", "NUEVE"];
+  const especiales = ["DIEZ", "ONCE", "DOCE", "TRECE", "CATORCE", "QUINCE", "DIECISEIS", "DIECISIETE", "DIECIOCHO", "DIECINUEVE"];
+  const decenas = ["", "", "VEINTI", "TREINTA", "CUARENTA", "CINCUENTA", "SESENTA", "SETENTA", "OCHENTA", "NOVENTA"];
+  const centenas = ["", "CIENTO", "DOSCIENTOS", "TRESCIENTOS", "CUATROCIENTOS", "QUINIENTOS", "SEISCIENTOS", "SETECIENTOS", "OCHOCIENTOS", "NOVECIENTOS"];
+  function menores1000(n: number): string {
+    if (n === 0) return "";
+    if (n === 100) return "CIEN";
+    let out = "";
+    const c = Math.floor(n / 100);
+    const resto = n % 100;
+    if (c > 0) out += centenas[c] + " ";
+    if (resto < 10) out += unidades[resto];
+    else if (resto < 20) out += especiales[resto - 10];
+    else {
+      const d = Math.floor(resto / 10);
+      const u = resto % 10;
+      if (d === 2 && u > 0) out += "VEINTI" + unidades[u].toLowerCase();
+      else if (u === 0) out += decenas[d];
+      else out += decenas[d] + " Y " + unidades[u];
+    }
+    return out.trim().toUpperCase();
+  }
+  function grupo(n: number, s: string, p: string) { if (n === 0) return ""; if (n === 1) return s; return `${menores1000(n)} ${p}`; }
+  const millones = Math.floor(num / 1_000_000);
+  const resto = num % 1_000_000;
+  const miles = Math.floor(resto / 1000);
+  const uf = resto % 1000;
+  const partes: string[] = [];
+  if (millones > 0) partes.push(grupo(millones, "UN MILLON", "MILLONES"));
+  if (miles > 0) partes.push(miles === 1 ? "MIL" : `${menores1000(miles)} MIL`);
+  if (uf > 0) partes.push(menores1000(uf));
+  return partes.join(" ").replace(/\s+/g, " ").trim();
 }
 
 export async function GET(request: NextRequest, ctxParams: { params: Promise<{ id: string }> }) {
   if (!devolucionesEnabled()) return new NextResponse("No encontrado", { status: 404 });
   const { id } = await ctxParams.params;
   const url = new URL(request.url);
-  const widthMm: 58 | 80 = url.searchParams.get("w") === "58" ? 58 : 80;
   const autoPrint = url.searchParams.get("auto") === "1";
 
   const auth = await getUserAndEmpresa(request);
@@ -39,84 +74,155 @@ export async function GET(request: NextRequest, ctxParams: { params: Promise<{ i
   const d = await getDevolucion(schema, auth.empresa_id, id);
   if (!d) return new NextResponse("Devolución no encontrada", { status: 404 });
 
-  const f = widthMm === 58 ? 11 : 12;
-  const filas = (d.items ?? []).map((it) => `
-    <tr class="it"><td class="qty"><strong>${it.cantidad_devuelta}×</strong></td>
-      <td class="name">${esc(it.producto_nombre)}</td>
-      <td class="amt">${gs(it.total_devuelto)}</td></tr>
-    <tr class="sub"><td></td><td colspan="2">${it.cantidad_devuelta} × ${gs(it.precio_unitario)} · ${
-      it.condicion === "danado" ? "dañado, no vuelve al stock" : it.reintegra_stock ? "vuelve al stock" : "no vuelve al stock"
-    }</td></tr>`).join("");
+  // Filas con la misma logica del comprobante de venta (exenta/5%/10%)
+  type Fila = { cant: number; nombre: string; pu: number; exenta: number; iva5: number; iva10: number };
+  const filas: Fila[] = (d.items ?? []).map((it) => {
+    const total = Number(it.total_devuelto || 0);
+    const iva = String(it.tipo_iva || "10%").toUpperCase();
+    return {
+      cant: Number(it.cantidad_devuelta || 0),
+      nombre: it.producto_nombre,
+      pu: Number(it.precio_unitario || 0),
+      exenta: iva === "EXENTA" ? total : 0,
+      iva5:   iva === "5%" ? total : 0,
+      iva10:  iva === "10%" ? total : 0,
+    };
+  });
+  const totExenta = filas.reduce((s, f) => s + f.exenta, 0);
+  const totIva5   = filas.reduce((s, f) => s + f.iva5, 0);
+  const totIva10  = filas.reduce((s, f) => s + f.iva10, 0);
+  const total = totExenta + totIva5 + totIva10;
+  const iva5Liq  = Math.round((totIva5 / 1.05) * 0.05);
+  const iva10Liq = Math.round((totIva10 / 1.1) * 0.1);
+  const ivaTotal = iva5Liq + iva10Liq;
 
-  const cambios = (d.cambios ?? []).map((c) => `
-    <tr class="it"><td class="qty"><strong>${c.cantidad}×</strong></td>
-      <td class="name">${esc(c.producto_nombre)}</td>
-      <td class="amt">${gs(c.total)}</td></tr>`).join("");
+  const filasHtml = filas.map((f) => `<tr>
+    <td class="c cant">${f.cant}</td>
+    <td class="c desc">${escapeHtml(f.nombre)}</td>
+    <td class="c num">${fmtGs(f.pu)}</td>
+    <td class="c num">${f.exenta > 0 ? fmtGs(f.exenta) : "0"}</td>
+    <td class="c num">${f.iva5 > 0 ? fmtGs(f.iva5) : "0"}</td>
+    <td class="c num">${f.iva10 > 0 ? fmtGs(f.iva10) : "0"}</td>
+  </tr>`).join("");
+  const MIN_FILAS = 12;
+  const vacias = Math.max(0, MIN_FILAS - filas.length);
+  const filasVaciasHtml = Array.from({ length: vacias }).map(() => `<tr class="empty">
+    <td class="c cant">&nbsp;</td><td class="c desc">&nbsp;</td><td class="c num">&nbsp;</td>
+    <td class="c num">&nbsp;</td><td class="c num">&nbsp;</td><td class="c num">&nbsp;</td>
+  </tr>`).join("");
 
   const dif = d.diferencia;
-  const difTxt = dif > 0 ? "Diferencia cobrada" : dif < 0 ? "Reembolso" : "Sin movimiento";
+  const difTxt = dif > 0 ? "DIFERENCIA A COBRAR" : dif < 0 ? "REEMBOLSO AL CLIENTE" : "SIN MOVIMIENTO DE CAJA";
 
   const html = `<!doctype html>
 <html lang="es"><head><meta charset="utf-8" />
-<title>${esc(d.numero_devolucion)} — Comprobante de devolución</title>
+<title>${escapeHtml(d.numero_devolucion)} — Devolución</title>
 <style>
-  :root { color-scheme: light; }
   * { box-sizing: border-box; }
-  body { font-family: ui-monospace, "Courier New", monospace; font-size:${f}px; color:#000; background:#f1f1f1; margin:0; padding:20px; }
-  .paper { background:#fff; width:${widthMm}mm; margin:0 auto; padding:6mm 4mm; box-shadow:0 1px 4px rgba(0,0,0,.1); }
-  hr { border:none; border-top:1px dashed #000; margin:2mm 0; }
-  .doc-title { text-align:center; font-weight:800; font-size:${f + 2}px; letter-spacing:1px; }
-  .doc-num { text-align:center; font-weight:700; font-size:${f + 1}px; }
-  .kv { font-size:${f - 1}px; }
-  .kv div { display:flex; justify-content:space-between; gap:6px; }
-  table { width:100%; border-collapse:collapse; }
-  td { vertical-align:top; padding:0.4mm 0; }
-  td.qty { width:8mm; }
-  td.amt { text-align:right; white-space:nowrap; }
-  tr.sub td { color:#333; font-size:${f - 2}px; padding-bottom:1mm; }
-  .sec { font-weight:700; font-size:${f - 1}px; margin-top:1mm; }
-  .tot div { display:flex; justify-content:space-between; gap:6px; font-size:${f - 1}px; }
-  .tot .big { font-weight:800; font-size:${f + 2}px; border-top:1px solid #000; padding-top:1mm; margin-top:1mm; }
-  .foot { text-align:center; font-size:${f - 2}px; margin-top:3mm; }
-  .anulada { text-align:center; font-weight:800; color:#b91c1c; margin:2mm 0; }
-  .actions { max-width:${widthMm}mm; margin:8mm auto 0; text-align:center; }
-  .actions button { padding:8px 16px; font-size:13px; cursor:pointer; border:1px solid #333; background:#fff; border-radius:6px; }
-  .actions a { margin-left:12px; font-size:13px; color:#444; }
-  @media print { body { background:#fff; padding:0; } .paper { width:${widthMm}mm; box-shadow:none; padding:2mm; margin:0; } .actions { display:none; } @page { margin:0; size:${widthMm}mm auto; } }
+  @page { size: A4 landscape; margin: 10mm; }
+  html, body { margin: 0; padding: 0; background: #f1f1f1; color: #111; font-family: 'Courier New', ui-monospace, monospace; font-size: 11.5px; }
+  .hoja { background: #fff; width: 297mm; min-height: 210mm; margin: 20px auto; padding: 12mm 14mm; box-shadow: 0 1px 6px rgba(0,0,0,.12); }
+  .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .header-top .brand { display: flex; align-items: center; gap: 12px; }
+  .header-top .logo { max-height: 60px; width: auto; }
+  .header-top .empresa-datos { font-size: 11.5px; line-height: 1.4; }
+  .header-top .empresa-datos .razon { font-weight: 700; letter-spacing: 0.5px; }
+  .fecha-top { font-size: 12px; font-weight: 700; text-align: right; }
+  .doc-banner { text-align:center; font-weight:800; letter-spacing:2px; font-size:16px; margin:2px 0 8px; border-top:1px dashed #333; border-bottom:1px dashed #333; padding:4px 0; }
+  .anulada-banner { text-align:center; font-weight:800; color:#b91c1c; font-size:14px; margin-bottom:6px; }
+  .info { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 10px; }
+  .info .linea { display: flex; align-items: flex-end; border-bottom: 1px dotted #333; padding: 4px 0 2px; font-size: 12px; gap: 4px; }
+  .info .linea .lbl { font-weight: 700; white-space: nowrap; }
+  .info .linea .val { flex: 1; }
+  table.items { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 11.5px; }
+  table.items thead th { border: none; border-bottom: 1px dotted #111; font-weight: 700; padding: 4px 6px; text-align: left; font-size: 11px; letter-spacing: 0.5px; }
+  table.items tbody td { border: none; border-bottom: 1px dotted #999; padding: 5px 6px; vertical-align: top; }
+  table.items thead th + th, table.items tbody td + td { border-left: 1px dotted #ccc; }
+  .cant { width: 70px; text-align: center; }
+  .desc { text-align: left; }
+  .num  { width: 100px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr.empty td { color: transparent; }
+  tr.subtot td { font-weight: 700; border-top: 1px solid #111 !important; border-bottom: 1px dotted #333 !important; }
+  tr.tot td { font-weight: 700; border-bottom: 1px solid #111 !important; }
+  .pie { margin-top: 8px; font-size: 12px; }
+  .pie .linea { border-bottom: 1px dotted #333; padding: 4px 0 2px; display: flex; gap: 6px; }
+  .pie .lbl { font-weight: 700; }
+  .pie .val { flex: 1; }
+  .pie .total-final { text-align: right; font-weight: 700; padding-top: 6px; font-size: 13px; }
+  .disclaimer { margin-top: 6px; font-style: italic; font-size: 10.5px; text-align: center; color: #555; }
+  .print-btn { position: fixed; top: 12px; right: 12px; background: #4FAEB2; color: #fff; border: 0; padding: 8px 14px; border-radius: 8px; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+  .print-btn:hover { background: #3F8E91; }
+  @media print { body { background: #fff; } .hoja { box-shadow: none; margin: 0; width: auto; min-height: auto; padding: 6mm 10mm; } .print-btn { display: none; } }
 </style></head>
 <body>
-  <section class="paper">
-    ${membreteTicket()}
-    <div class="doc-title">DEVOLUCIÓN</div>
-    <div class="doc-num">${esc(d.numero_devolucion)}</div>
-    ${d.estado === "anulada" ? `<div class="anulada">*** ANULADA ***</div>` : ""}
-    <div class="kv" style="margin-top:1mm;">
-      <div><span>Fecha</span><span>${esc(fechaHora(d.created_at))}</span></div>
-      <div><span>Venta</span><span>${esc(d.venta_numero_control ?? "—")}</span></div>
-      ${d.cliente_nombre ? `<div><span>Cliente</span><span>${esc(d.cliente_nombre)}</span></div>` : ""}
-      <div><span>Tipo</span><span>${d.tipo === "total" ? "TOTAL" : "PARCIAL"}</span></div>
-      <div><span>Resolución</span><span>${d.resolucion === "cambio" ? "CAMBIO" : "REEMBOLSO"}</span></div>
-      <div><span>Usuario</span><span>${esc(d.usuario_nombre ?? "—")}</span></div>
+  <button class="print-btn" onclick="window.print()">Imprimir</button>
+  <div class="hoja">
+    <div class="header-top">
+      <div class="brand">
+        <img src="/brand/ferrecolor-logo.png" alt="Ferrecolor" class="logo" />
+        <div class="empresa-datos">
+          <div class="razon">GRUPO FERRE E.A.S.</div>
+          <div>R.U.C.: 80173997-7</div>
+        </div>
+      </div>
+      <div class="fecha-top">${escapeHtml(fechaLarga(String(d.created_at ?? "")))}</div>
     </div>
-    <hr>
-    <div class="sec">Productos devueltos</div>
-    <table><tbody>${filas}</tbody></table>
-    <hr>
-    <div class="tot"><div><span>Total devuelto</span><span>${gs(d.total_devuelto)}</span></div></div>
-    ${cambios ? `<hr><div class="sec">Productos entregados</div><table><tbody>${cambios}</tbody></table>
-      <div class="tot"><div><span>Total entregado</span><span>${gs(d.total_entregado)}</span></div></div>` : ""}
-    <hr>
-    <div class="tot">
-      <div class="big"><span>${difTxt}</span><span>${gs(Math.abs(dif))}</span></div>
-      ${dif !== 0 ? `<div><span>Método</span><span>${esc((d.metodo_reembolso ?? "").toUpperCase())}</span></div>` : ""}
+
+    <div class="doc-banner">COMPROBANTE DE DEVOLUCION · ${escapeHtml(d.numero_devolucion)}</div>
+    ${d.estado === "anulada" ? `<div class="anulada-banner">*** DEVOLUCION ANULADA ***</div>` : ""}
+
+    <div class="info">
+      <div>
+        <div class="linea"><span class="lbl">CLIENTE:</span> <span class="val">${escapeHtml(d.cliente_nombre ?? "—")}</span></div>
+        <div class="linea"><span class="lbl">VENTA ORIGINAL:</span> <span class="val">${escapeHtml(d.venta_numero_control ?? "—")}</span></div>
+        <div class="linea"><span class="lbl">USUARIO:</span> <span class="val">${escapeHtml(d.usuario_nombre ?? "—")}</span></div>
+      </div>
+      <div>
+        <div class="linea"><span class="lbl">TIPO:</span> <span class="val">${d.tipo === "total" ? "TOTAL" : "PARCIAL"}</span></div>
+        <div class="linea"><span class="lbl">RESOLUCION:</span> <span class="val">${d.resolucion === "cambio" ? "CAMBIO POR OTRO PRODUCTO" : "REEMBOLSO EN " + escapeHtml((d.metodo_reembolso ?? "").toUpperCase())}</span></div>
+        <div class="linea"><span class="lbl">MOTIVO:</span> <span class="val">${escapeHtml(d.motivo ?? "")}</span></div>
+      </div>
     </div>
-    ${d.motivo ? `<hr><div class="kv"><div><span>Motivo</span><span>${esc(d.motivo)}</span></div></div>` : ""}
-    ${d.requiere_nota_credito ? `<div class="foot" style="font-weight:700;">Esta devolución puede requerir una Nota de Crédito fiscal.</div>` : ""}
-    <div class="foot" style="font-style:italic;">Comprobante interno de devolución — no válido como documento fiscal.</div>
-  </section>
-  <div class="actions">
-    <button type="button" onclick="window.print()">Imprimir</button>
-    <a href="?w=${widthMm === 80 ? 58 : 80}">Cambiar a ${widthMm === 80 ? 58 : 80}mm</a>
+
+    <table class="items">
+      <thead>
+        <tr>
+          <th class="cant">CANTIDAD</th>
+          <th class="desc">DESCRIPCION</th>
+          <th class="num">P.UNITARIO</th>
+          <th class="num">EXENTA</th>
+          <th class="num">IVA 5%</th>
+          <th class="num">IVA 10%</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${filasHtml}
+        ${filasVaciasHtml}
+        <tr class="subtot">
+          <td class="cant"></td><td class="desc">SUB TOTALES</td><td class="num"></td>
+          <td class="num">${fmtGs(totExenta)}</td><td class="num">${fmtGs(totIva5)}</td><td class="num">${fmtGs(totIva10)}</td>
+        </tr>
+        <tr class="tot">
+          <td class="cant"></td><td class="desc">TOTAL DEVUELTO</td><td class="num"></td>
+          <td class="num">${fmtGs(totExenta)}</td><td class="num">${fmtGs(totIva5)}</td><td class="num">${fmtGs(totIva10)}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="pie">
+      <div class="linea"><span class="lbl">SON GUARANIES:</span> <span class="val">${escapeHtml(numeroALetras(total))}</span></div>
+      <div class="linea">
+        <span class="lbl">LIQUIDACION DEL IVA</span>
+        <span class="val">&nbsp;&nbsp;(5%): ${fmtGs(iva5Liq)}&nbsp;&nbsp;&nbsp;&nbsp;(10%): ${fmtGs(iva10Liq)}&nbsp;&nbsp;&nbsp;&nbsp;TOTAL IVA: ${fmtGs(ivaTotal)}</span>
+      </div>
+      ${d.resolucion === "cambio" && (d.cambios?.length ?? 0) > 0 ? `<div class="linea">
+        <span class="lbl">PRODUCTOS ENTREGADOS:</span>
+        <span class="val">${(d.cambios ?? []).map((c) => `${c.cantidad}× ${escapeHtml(c.producto_nombre)} — ${fmtGs(c.total)}`).join("&nbsp;&nbsp;·&nbsp;&nbsp;")}</span>
+      </div>` : ""}
+      <div class="total-final">${difTxt}: Gs. ${fmtGs(Math.abs(dif))}</div>
+    </div>
+
+    <div class="disclaimer">Comprobante interno de devolucion — no valido como documento fiscal.${d.requiere_nota_credito ? " Esta devolucion puede requerir emitir una Nota de Credito fiscal." : ""}</div>
   </div>
   <script>try{ if(${autoPrint ? "true" : "false"}){ setTimeout(function(){window.print();},250); } }catch(e){}</script>
 </body></html>`;

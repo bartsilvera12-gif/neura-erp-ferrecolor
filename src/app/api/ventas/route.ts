@@ -115,7 +115,13 @@ export async function GET(request: NextRequest) {
         nota_remision_numero: (r as unknown as { nota_remision_numero?: string | null }).nota_remision_numero ?? null,
         fecha: r.fecha,
         usuario_nombre: r.usuario_nombre ?? null,
-        estado: (r as unknown as { estado?: string }).estado === "anulada" ? "anulada" : "activa",
+        estado: ((): "activa" | "anulada" | "parcialmente_devuelta" | "devuelta_total" => {
+          const e = (r as unknown as { estado?: string }).estado;
+          if (e === "anulada") return "anulada";
+          if (e === "devuelta_total") return "devuelta_total";
+          if (e === "parcialmente_devuelta") return "parcialmente_devuelta";
+          return "activa";
+        })(),
         anulada_at: (r as unknown as { anulada_at?: string | null }).anulada_at ?? null,
         anulada_motivo: (r as unknown as { anulada_motivo?: string | null }).anulada_motivo ?? null,
       };
