@@ -234,7 +234,7 @@ export async function getReporteCajas(
   // 3) Movimientos activos de esas cajas (en lote).
   const mQ = await sb
     .from("caja_movimientos")
-    .select("caja_id, tipo, monto, medio_pago")
+    .select("caja_id, tipo, monto, medio_pago, venta_id")
     .eq("empresa_id", empresaId)
     .in("caja_id", cajaIds)
     .is("anulado_at", null);
@@ -244,6 +244,7 @@ export async function getReporteCajas(
     tipo: string;
     monto: number | string;
     medio_pago: string | null;
+    venta_id: string | null;
   }>;
 
   // 4) Nombres de usuarios (abierta_por / cerrada_por).
@@ -292,8 +293,14 @@ export async function getReporteCajas(
   });
   for (const id of cajaIds) accById.set(id, newAcc());
 
+  // Ventas totalmente devueltas: se excluyen del reporte junto con su caja_movimiento
+  // asociado (via venta_id) para que EFECTIVO y ESPERADO reflejen el neto real.
+  const ventasDevueltas = new Set(
+    ventas.filter((v) => v.estado === "devuelta_total").map((v) => v.id)
+  );
+
   for (const v of ventas) {
-    if (!v.caja_id || v.estado === "anulada") continue;
+    if (!v.caja_id || v.estado === "anulada" || v.estado === "devuelta_total") continue;
     const a = accById.get(v.caja_id);
     if (!a) continue;
     const t = num(v.total);
@@ -312,6 +319,8 @@ export async function getReporteCajas(
 
   for (const m of movs) {
     if (!m.caja_id) continue;
+    // Si es reembolso/diferencia de una venta que ya excluimos por devuelta_total, saltarlo.
+    if (m.venta_id && ventasDevueltas.has(m.venta_id)) continue;
     const a = accById.get(m.caja_id);
     if (!a) continue;
     if ((m.medio_pago ?? "efectivo") !== "efectivo") continue;
@@ -434,7 +443,7 @@ export async function getDetalleCaja(
   const mQ = await sb
     .from("caja_movimientos")
     .select(
-      "id, caja_id, tipo, concepto, monto, medio_pago, usuario_id, usuario_email, observacion, created_at"
+      "id, caja_id, tipo, concepto, monto, medio_pago, usuario_id, usuario_email, observacion, created_at, venta_id"
     )
     .eq("empresa_id", empresaId)
     .eq("caja_id", cajaId)
@@ -452,7 +461,14 @@ export async function getDetalleCaja(
     usuario_email: string | null;
     observacion: string | null;
     created_at: string;
+    venta_id: string | null;
   }>;
+  const ventasDevueltasSet = new Set(
+    ventas.filter((v) => v.estado === "devuelta_total").map((v) => v.id)
+  );
+  // Filtramos aca los movimientos que son reembolso/diferencia de una venta devuelta_total:
+  // no deben contarse (la venta tampoco se cuenta) y no deben aparecer en la linea de tiempo.
+  const movs = movsRaw.filter((m) => !(m.venta_id && ventasDevueltasSet.has(m.venta_id)));
 
   // Desglose por metodo desde ventas_pagos_detalle (para pago mixto).
   const detalleIds = ventas.map((v) => v.id);
@@ -488,7 +504,7 @@ export async function getDetalleCaja(
     totalTarjeta = 0,
     totalTransferencia = 0;
   for (const v of ventas) {
-    if (v.estado === "anulada") continue;
+    if (v.estado === "anulada" || v.estado === "devuelta_total") continue;
     cantidadVentas++;
     totalVendido += v.total;
     const bk = detallePagos.get(v.id);
@@ -504,7 +520,7 @@ export async function getDetalleCaja(
     egresosEf = 0,
     retirosEf = 0,
     ajustesEf = 0;
-  for (const m of movsRaw) {
+  for (const m of movs) {
     if ((m.medio_pago ?? "efectivo") !== "efectivo") continue;
     const monto = num(m.monto);
     if (m.tipo === "ingreso") ingresosEf += monto;
@@ -542,6 +558,7 @@ export async function getDetalleCaja(
     }
   }
 
+  // Timeline muestra TODOS los movimientos (para auditoria); los totales ya excluyen los de devuelta_total.
   const movimientos: CajaDetalleMovimiento[] = movsRaw.map((m) => ({
     id: m.id,
     caja_id: m.caja_id,
