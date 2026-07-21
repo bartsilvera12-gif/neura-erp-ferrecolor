@@ -309,6 +309,56 @@ export default function NuevaVentaPage() {
     return () => { cancelled = true; };
   }, []);
 
+  // Presupuesto asociado (?presupuesto_id=...) — se marca convertido al confirmar la venta.
+  const [presupuestoId, setPresupuestoId] = useState<string | null>(null);
+  const [presupuestoNumero, setPresupuestoNumero] = useState<string | null>(null);
+
+  // Precarga al cobrar un presupuesto aprobado (?presupuesto_id=...).
+  useEffect(() => {
+    let cancelled = false;
+    let pid: string | null = null;
+    try { pid = new URLSearchParams(window.location.search).get("presupuesto_id"); } catch { pid = null; }
+    if (!pid) return;
+    setPresupuestoId(pid);
+    (async () => {
+      try {
+        const res = await fetch(`/api/presupuestos/${pid}`, { credentials: "include", cache: "no-store" });
+        const j = await res.json();
+        const presu = j?.data?.presupuesto as Record<string, unknown> | undefined;
+        const items = j?.data?.items as Record<string, unknown>[] | undefined;
+        if (cancelled || !presu || !items) return;
+        setPresupuestoNumero(typeof presu.numero_control === "string" ? presu.numero_control : null);
+        const lineas: LineaVenta[] = items
+          .filter((it) => it.producto_id && (Number(it.cantidad) || 0) > 0)
+          .map((it) => {
+            const cantidad = Number(it.cantidad) || 0;
+            const precio = Number(it.precio_unitario) || 0;
+            const ivaRaw = String(it.iva_tipo ?? "10%");
+            const iva: TipoIvaVenta = ivaRaw === "5%" ? "5%" : ivaRaw === "EXENTA" ? "EXENTA" : "10%";
+            const totalLinea = cantidad * precio;
+            const montoIva = calcIva(iva, totalLinea);
+            const subtotal = totalLinea - montoIva;
+            return {
+              producto_id: String(it.producto_id),
+              producto_nombre: typeof it.producto_nombre === "string" ? it.producto_nombre : "",
+              sku: typeof it.sku === "string" ? it.sku : "",
+              cantidad,
+              precio_venta_original: precio,
+              precio_venta: precio,
+              tipo_iva: iva,
+              tipo_precio: "minorista" as TipoPrecioVenta,
+              subtotal,
+              monto_iva: montoIva,
+              total_linea: totalLinea,
+            };
+          });
+        if (!cancelled && lineas.length) setItems(lineas);
+        if (!cancelled && presu.cliente_id) setClienteId(String(presu.cliente_id));
+      } catch { /* silencioso */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // Precarga al facturar un pedido (Caja): lee ?pedido_id=, trae el pedido y carga sus
   // items + cliente en el carrito. NO crea nada acá; la venta se genera al confirmar.
   useEffect(() => {
@@ -823,6 +873,18 @@ export default function NuevaVentaPage() {
       const generaNota = v.genera_nota_remision === true || !!v.nota_remision_numero;
       const ticketUrl = `/api/ventas/${v.id}/comprobante-a4`;
       const remisionUrl = `/api/ventas/${v.id}/ticket?tipo=remision&auto=1`;
+
+      // Si esta venta se origino desde un presupuesto, marcar el presupuesto
+      // como convertido (guardando el venta_id como convertido_pedido_id).
+      if (presupuestoId) {
+        try {
+          await fetchWithSupabaseSession(`/api/presupuestos/${presupuestoId}/marcar-convertido`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ venta_id: v.id }),
+          });
+        } catch { /* best-effort: si falla, se puede marcar a mano */ }
+      }
       // Intento de apertura automática del ticket (popup; el navegador puede
       // bloquearlo). Si pasa, el cajero puede reimprimirlo desde el listado.
       try { window.open(ticketUrl, "_blank", "noopener"); } catch {}
@@ -893,6 +955,13 @@ export default function NuevaVentaPage() {
         <div className="rounded-lg border border-[#4FAEB2]/40 bg-[#4FAEB2]/[0.08] px-4 py-3 text-sm text-slate-700">
           <span className="font-semibold text-[#3F8E91]">Estás facturando un pedido{pedidoNumero ? ` (${pedidoNumero})` : ""}.</span>{" "}
           La venta se generará al confirmar y el pedido quedará marcado como facturado. Podés ajustar items, precios y método de pago.
+        </div>
+      )}
+
+      {presupuestoId && (
+        <div className="rounded-lg border border-[#4FAEB2]/40 bg-[#4FAEB2]/[0.08] px-4 py-3 text-sm text-slate-700">
+          <span className="font-semibold text-[#3F8E91]">Cobrando presupuesto{presupuestoNumero ? ` ${presupuestoNumero}` : ""}.</span>{" "}
+          Los productos y el cliente se cargaron automáticamente. Al confirmar la venta, el presupuesto queda marcado como convertido.
         </div>
       )}
 

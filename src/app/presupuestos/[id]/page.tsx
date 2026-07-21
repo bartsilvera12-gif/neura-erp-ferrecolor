@@ -188,9 +188,12 @@ export default function PresupuestoDetallePage() {
             <Download className="h-4 w-4" /> Descargar PDF
           </button>
           {presu.estado === "aprobado" && (
-            <button onClick={convertir} disabled={busy} className="inline-flex items-center gap-1.5 rounded-md bg-[#4FAEB2] px-4 py-2 text-sm font-medium text-white hover:bg-[#3F8E91] disabled:opacity-50">
-              <FileCheck2 className="h-4 w-4" /> Crear pedido
-            </button>
+            <Link
+              href={`/ventas/nueva?presupuesto_id=${presu.id}`}
+              className="inline-flex items-center gap-1.5 rounded-md bg-[#4FAEB2] px-4 py-2 text-sm font-medium text-white hover:bg-[#3F8E91]"
+            >
+              <FileCheck2 className="h-4 w-4" /> Cobrar en Caja
+            </Link>
           )}
         </div>
       </div>
