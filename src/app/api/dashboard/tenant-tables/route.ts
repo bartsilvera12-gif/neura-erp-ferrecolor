@@ -207,7 +207,14 @@ export async function GET(request: NextRequest) {
 
     const sp = request.nextUrl.searchParams;
     const includeDebug = sp.get("debug") === "1";
-    const range = parseDateRangeFromQuery(sp);
+    const rawRange = parseDateRangeFromQuery(sp);
+    // Extender `hasta` a fin del dia (23:59:59.999) para que las ventas
+    // hechas durante el dia entero queden incluidas. Sin esto, el `.lte`
+    // contra un timestamptz interpretaba 'YYYY-MM-DD' como 00:00 UTC y
+    // dejaba afuera todas las ventas del propio dia.
+    const range = rawRange
+      ? { desde: rawRange.desde, hasta: `${rawRange.hasta}T23:59:59.999Z` }
+      : null;
 
     // Resolvemos el schema siempre — lo usamos para fallback PG directo
     // cuando se detecta un tenant no expuesto en PostgREST.
