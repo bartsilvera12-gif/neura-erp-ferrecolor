@@ -1683,7 +1683,7 @@ function PagosMixtoEditor({
               value={p.monto}
               onChange={(e) => update(i, { monto: e.target.value })}
               placeholder="Monto (Gs.)"
-              className="h-11 flex-1 min-w-[140px] rounded-md border border-slate-200 px-3 text-sm text-right tabular-nums font-semibold"
+              className="h-11 w-full sm:w-44 rounded-md border border-slate-200 px-3 text-sm text-right tabular-nums font-semibold"
             />
             {needEntidad && (
               <>
