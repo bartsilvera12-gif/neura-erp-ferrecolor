@@ -148,29 +148,42 @@ function formatFecha(s: string): string {
   return dt.toLocaleDateString("es-PY", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
+/** Hoy en Paraguay (UTC-3 fijo desde 2024), independiente del tz del navegador. */
+function ahoraPY(): Date {
+  const now = new Date();
+  // Aplicamos offset -3h y usamos los componentes UTC como si fueran locales
+  // para construir una Date con los YMD/HMS de Paraguay.
+  const shifted = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+  return new Date(
+    shifted.getUTCFullYear(),
+    shifted.getUTCMonth(),
+    shifted.getUTCDate(),
+    shifted.getUTCHours(),
+    shifted.getUTCMinutes(),
+    shifted.getUTCSeconds(),
+    shifted.getUTCMilliseconds()
+  );
+}
+
 function getRango(periodo: Periodo): { desde: Date; hasta: Date } {
-  const ahora = new Date();
+  const ahora = ahoraPY();
   switch (periodo) {
     case "mes":
       return rangoMesCalendarioLocal(ahora);
     case "hoy": {
-      const desde = new Date(ahora);
-      desde.setHours(0, 0, 0, 0);
-      const hasta = new Date(ahora);
-      hasta.setHours(23, 59, 59, 999);
+      const desde = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), 0, 0, 0, 0);
+      const hasta = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), 23, 59, 59, 999);
       return { desde, hasta };
     }
     case "7d": {
-      const hasta = new Date(ahora);
-      hasta.setHours(23, 59, 59, 999);
+      const hasta = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), 23, 59, 59, 999);
       const desde = new Date(ahora);
       desde.setDate(desde.getDate() - 7);
       desde.setHours(0, 0, 0, 0);
       return { desde, hasta };
     }
     case "30d": {
-      const hasta = new Date(ahora);
-      hasta.setHours(23, 59, 59, 999);
+      const hasta = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), 23, 59, 59, 999);
       const desde = new Date(ahora);
       desde.setDate(desde.getDate() - 30);
       desde.setHours(0, 0, 0, 0);
