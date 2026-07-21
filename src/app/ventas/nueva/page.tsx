@@ -354,6 +354,11 @@ export default function NuevaVentaPage() {
           });
         if (!cancelled && lineas.length) setItems(lineas);
         if (!cancelled && presu.cliente_id) setClienteId(String(presu.cliente_id));
+        // Nombre del cliente en el input (aunque el id no venga en la primer pagina de /api/clientes,
+        // o aunque el presupuesto se haya guardado con nombre libre sin id).
+        if (!cancelled && typeof presu.cliente_nombre === "string" && presu.cliente_nombre.trim()) {
+          setClienteQuery(presu.cliente_nombre.trim());
+        }
       } catch { /* silencioso */ }
     })();
     return () => { cancelled = true; };
@@ -411,6 +416,8 @@ export default function NuevaVentaPage() {
           });
         if (!cancelled && lineas.length) setItems(lineas);
         if (!cancelled && p.cliente_id) setClienteId(String(p.cliente_id));
+        const nombreLibre = typeof brief.cliente_nombre === "string" ? brief.cliente_nombre : "";
+        if (!cancelled && nombreLibre.trim()) setClienteQuery(nombreLibre.trim());
       } catch { /* el aviso seguirá visible; el cajero puede cargar manualmente */ }
     })();
     return () => { cancelled = true; };
@@ -437,6 +444,7 @@ export default function NuevaVentaPage() {
         const p = j.data.pedido as {
           titulo: string;
           cliente_id?: string | null;
+          cliente_nombre?: string | null;
           items: Array<{
             producto_id: string;
             producto_nombre: string;
@@ -483,6 +491,9 @@ export default function NuevaVentaPage() {
           });
         if (!cancelled && lineas.length) setItems(lineas);
         if (!cancelled && p.cliente_id) setClienteId(String(p.cliente_id));
+        if (!cancelled && p.cliente_nombre && p.cliente_nombre.trim()) {
+          setClienteQuery(p.cliente_nombre.trim());
+        }
       } catch { /* fallback: el cajero carga manualmente */ }
     })();
     return () => { cancelled = true; };
