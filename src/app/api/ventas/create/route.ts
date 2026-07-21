@@ -330,11 +330,17 @@ export async function POST(request: NextRequest) {
             .filter(Boolean)
         );
         if (metodosUnicos.size > 1) {
-          await createServiceRoleClientWithDbSchema(schema)
+          const upd = await createServiceRoleClientWithDbSchema(schema)
             .from("ventas")
             .update({ metodo_pago: "mixto" })
             .eq("id", ventaId)
             .eq("empresa_id", auth.empresa_id);
+          if (upd.error) {
+            console.error(
+              "[ventas/create] no se pudo marcar la venta como 'mixto':",
+              upd.error.message
+            );
+          }
         }
       } else {
         const pd = (o.pago_detalle ?? null) as Record<string, unknown> | null;
