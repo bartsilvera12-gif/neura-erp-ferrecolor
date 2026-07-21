@@ -1666,12 +1666,15 @@ function PagosMixtoEditor({
         const needEntidad = p.metodo === "transferencia" || p.metodo === "tarjeta";
         return (
         <div key={i} className="rounded-lg border border-slate-200 bg-white p-3">
-          {/* Todo en UNA sola fila horizontal en lg+; se apila en mobile. */}
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Grid fijo: metodo | monto | entidad | ref | titular | +resto | ×
+              Los slots de entidad/ref/titular quedan vacios en Efectivo para
+              que +resto y × queden alineados verticalmente entre lineas.
+              Se apila con flex en pantallas chicas. */}
+          <div className="hidden md:grid grid-cols-[10rem_11rem_1fr_1fr_1fr_auto_auto] items-center gap-2">
             <select
               value={p.metodo}
               onChange={(e) => update(i, { metodo: e.target.value as PagoMixtoLinea["metodo"] })}
-              className="h-11 w-full sm:w-40 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium"
+              className="h-11 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium"
             >
               <option value="efectivo">Efectivo</option>
               <option value="transferencia">Transferencia</option>
@@ -1683,41 +1686,41 @@ function PagosMixtoEditor({
               value={p.monto}
               onChange={(e) => update(i, { monto: e.target.value })}
               placeholder="Monto (Gs.)"
-              className="h-11 w-full sm:w-44 rounded-md border border-slate-200 px-3 text-sm text-right tabular-nums font-semibold"
+              className="h-11 rounded-md border border-slate-200 px-3 text-sm text-right tabular-nums font-semibold"
             />
-            {needEntidad && (
-              <>
-                <select
-                  value={p.entidad_id}
-                  onChange={(e) => update(i, { entidad_id: e.target.value })}
-                  className="h-11 flex-1 min-w-[160px] rounded-md border border-slate-200 bg-white px-2.5 text-sm"
-                >
-                  <option value="">— Entidad —</option>
-                  {entidades.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.codigo ? `${e.codigo} · ` : ""}
-                      {e.nombre}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="text"
-                  value={p.referencia}
-                  onChange={(e) => update(i, { referencia: e.target.value })}
-                  placeholder="Comprobante / ref."
-                  className="h-11 flex-1 min-w-[140px] rounded-md border border-slate-200 px-3 text-sm"
-                />
-                {p.metodo === "transferencia" && (
-                  <input
-                    type="text"
-                    value={p.titular}
-                    onChange={(e) => update(i, { titular: e.target.value })}
-                    placeholder="Titular"
-                    className="h-11 flex-1 min-w-[140px] rounded-md border border-slate-200 px-3 text-sm"
-                  />
-                )}
-              </>
-            )}
+            {needEntidad ? (
+              <select
+                value={p.entidad_id}
+                onChange={(e) => update(i, { entidad_id: e.target.value })}
+                className="h-11 min-w-0 rounded-md border border-slate-200 bg-white px-2.5 text-sm"
+              >
+                <option value="">— Entidad —</option>
+                {entidades.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.codigo ? `${e.codigo} · ` : ""}
+                    {e.nombre}
+                  </option>
+                ))}
+              </select>
+            ) : <div />}
+            {needEntidad ? (
+              <input
+                type="text"
+                value={p.referencia}
+                onChange={(e) => update(i, { referencia: e.target.value })}
+                placeholder="Comprobante / ref."
+                className="h-11 min-w-0 rounded-md border border-slate-200 px-3 text-sm"
+              />
+            ) : <div />}
+            {needEntidad && p.metodo === "transferencia" ? (
+              <input
+                type="text"
+                value={p.titular}
+                onChange={(e) => update(i, { titular: e.target.value })}
+                placeholder="Titular"
+                className="h-11 min-w-0 rounded-md border border-slate-200 px-3 text-sm"
+              />
+            ) : <div />}
             <button
               type="button"
               onClick={() => autoCompletar(i)}
@@ -1727,7 +1730,7 @@ function PagosMixtoEditor({
             >
               + resto
             </button>
-            {pagos.length > 1 && (
+            {pagos.length > 1 ? (
               <button
                 type="button"
                 onClick={() => remove(i)}
@@ -1736,6 +1739,53 @@ function PagosMixtoEditor({
               >
                 ×
               </button>
+            ) : <div className="w-11" />}
+          </div>
+          {/* Mobile: apilado */}
+          <div className="md:hidden flex flex-wrap items-center gap-2">
+            <select
+              value={p.metodo}
+              onChange={(e) => update(i, { metodo: e.target.value as PagoMixtoLinea["metodo"] })}
+              className="h-11 flex-1 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium"
+            >
+              <option value="efectivo">Efectivo</option>
+              <option value="transferencia">Transferencia</option>
+              <option value="tarjeta">Tarjeta/Débito</option>
+            </select>
+            <input
+              type="number"
+              inputMode="numeric"
+              value={p.monto}
+              onChange={(e) => update(i, { monto: e.target.value })}
+              placeholder="Monto (Gs.)"
+              className="h-11 flex-1 rounded-md border border-slate-200 px-3 text-sm text-right tabular-nums font-semibold"
+            />
+            <button
+              type="button"
+              onClick={() => autoCompletar(i)}
+              disabled={restante <= 0}
+              className="h-11 rounded-md border border-[#0EA5E9]/40 bg-[#0EA5E9]/[0.08] px-3 text-xs font-bold text-[#0284C7] disabled:opacity-40"
+            >+ resto</button>
+            {pagos.length > 1 && (
+              <button
+                type="button"
+                onClick={() => remove(i)}
+                className="h-11 w-11 rounded-md border border-slate-200 text-slate-400 text-lg"
+              >×</button>
+            )}
+            {needEntidad && (
+              <div className="w-full grid grid-cols-1 gap-2">
+                <select value={p.entidad_id} onChange={(e) => update(i, { entidad_id: e.target.value })} className="h-10 rounded-md border border-slate-200 bg-white px-2.5 text-sm">
+                  <option value="">— Entidad —</option>
+                  {entidades.map((e) => (
+                    <option key={e.id} value={e.id}>{e.codigo ? `${e.codigo} · ` : ""}{e.nombre}</option>
+                  ))}
+                </select>
+                <input type="text" value={p.referencia} onChange={(e) => update(i, { referencia: e.target.value })} placeholder="Comprobante / ref." className="h-10 rounded-md border border-slate-200 px-3 text-sm" />
+                {p.metodo === "transferencia" && (
+                  <input type="text" value={p.titular} onChange={(e) => update(i, { titular: e.target.value })} placeholder="Titular" className="h-10 rounded-md border border-slate-200 px-3 text-sm" />
+                )}
+              </div>
             )}
           </div>
         </div>
