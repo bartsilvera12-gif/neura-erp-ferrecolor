@@ -384,12 +384,16 @@ export default function VentasPage() {
                               Nota de remisión
                             </a>
                           )}
-                          {!isAnulada && v.estado !== "devuelta_total" && v.estado !== "parcialmente_devuelta" && (
+                          {!isAnulada && (
                             <button
                               type="button"
                               onClick={() => setAnularTarget(v)}
                               className="inline-flex items-center justify-center rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 transition-colors"
-                              title="Anular venta y revertir stock"
+                              title={
+                                v.estado === "devuelta_total" || v.estado === "parcialmente_devuelta"
+                                  ? "Anular la operación completa (venta + devolución)"
+                                  : "Anular venta y revertir stock"
+                              }
                             >
                               Anular
                             </button>
@@ -482,8 +486,9 @@ function AnularVentaModal({
         <div className="border-b border-red-100 bg-red-50/60 px-5 py-4">
           <h3 className="text-base font-bold text-red-800">Anular venta {venta.numero_control}</h3>
           <p className="mt-1 text-xs text-red-700">
-            Se va a devolver el stock al inventario y revertir el movimiento de caja de esta venta.
-            Esta acción no se puede deshacer.
+            {venta.estado === "devuelta_total" || venta.estado === "parcialmente_devuelta"
+              ? "Se van a anular también las devoluciones asociadas, revirtiendo stock y caja para dejar todo como antes de la operación. Esta acción no se puede deshacer."
+              : "Se va a devolver el stock al inventario y revertir el movimiento de caja de esta venta. Esta acción no se puede deshacer."}
           </p>
         </div>
         <div className="p-5 space-y-3">

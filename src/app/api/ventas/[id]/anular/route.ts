@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
+import { anularDevolucion } from "@/lib/devoluciones/server/devoluciones-pg";
+import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
 
 /**
  * POST /api/ventas/[id]/anular
@@ -77,15 +79,42 @@ export async function POST(
       );
     }
 
-    // 3) Traer movimientos de inventario de esta venta aun activos
+    // 2b) Si la venta tiene devoluciones confirmadas, anularlas primero (cascada).
+    // Cada anularDevolucion revierte su reintegro de stock y su caja_movimiento.
+    // Luego, en el paso 4, se revierten solo los movimientos de origen 'venta' (evita doble conteo).
+    const { data: devs, error: eDevs } = await sb
+      .from("devoluciones_venta")
+      .select("id")
+      .eq("empresa_id", empresaId)
+      .eq("venta_id", ventaId)
+      .eq("estado", "confirmada");
+    if (eDevs) throw new Error(eDevs.message);
+    if (devs && devs.length > 0) {
+      const schema = await fetchDataSchemaForEmpresaId(empresaId);
+      for (const d of devs) {
+        await anularDevolucion(
+          schema,
+          empresaId,
+          { id: usuarioId, nombre: ctx.auth.nombre ?? ctx.auth.user?.email ?? null },
+          String(d.id),
+          "Anulación de venta"
+        );
+      }
+    }
+
+    // 3) Traer movimientos de inventario de esta venta aun activos.
+    // Filtramos por origen='venta' para no re-revertir las SALIDAs que ya creo
+    // el anular-devolucion (origen='devolucion_venta').
     const { data: movs, error: eM } = await sb
       .from("movimientos_inventario")
-      .select("id, producto_id, producto_nombre, producto_sku, cantidad, costo_unitario, tipo, anulado_at")
+      .select("id, producto_id, producto_nombre, producto_sku, cantidad, costo_unitario, tipo, anulado_at, origen")
       .eq("empresa_id", empresaId)
       .eq("venta_id", ventaId);
     if (eM) throw new Error(eM.message);
 
-    const movsActivos = (movs ?? []).filter((m) => !m.anulado_at && m.tipo === "SALIDA");
+    const movsActivos = (movs ?? []).filter(
+      (m) => !m.anulado_at && m.tipo === "SALIDA" && (m.origen ?? "venta") === "venta"
+    );
 
     // 4) Devolver stock producto por producto + crear ENTRADA contra-movimiento
     const nowIso = new Date().toISOString();

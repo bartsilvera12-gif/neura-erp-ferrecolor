@@ -3,7 +3,7 @@
 /** Historial de devoluciones de ventas. Sin el feature flag, la pantalla avisa y no lista nada. */
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, RotateCcw, Loader2, Printer, Ban } from "lucide-react";
+import { ArrowLeft, RotateCcw, Loader2, Printer } from "lucide-react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import type { Devolucion } from "@/lib/devoluciones/types";
 
@@ -24,7 +24,6 @@ export default function DevolucionesPage() {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [detalle, setDetalle] = useState<Devolucion | null>(null);
-  const [anulando, setAnulando] = useState(false);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -47,23 +46,6 @@ export default function DevolucionesPage() {
     const r = await fetchWithSupabaseSession(`/api/devoluciones/${id}`, { cache: "no-store" });
     const j = await r.json();
     if (r.ok && j?.success !== false) setDetalle(j.data.devolucion as Devolucion);
-  }
-
-  async function anular(id: string) {
-    const motivo = prompt("Motivo de la anulación (se registran los movimientos inversos de stock y caja):");
-    if (motivo === null) return;
-    setAnulando(true);
-    try {
-      const r = await fetchWithSupabaseSession(`/api/devoluciones/${id}/anular`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ motivo }),
-      });
-      const j = await r.json();
-      if (!r.ok || j?.success === false) { alert(j?.error ?? "No se pudo anular."); return; }
-      setDetalle(null);
-      await cargar();
-    } finally { setAnulando(false); }
   }
 
   if (flagOn === false) {
@@ -148,19 +130,6 @@ export default function DevolucionesPage() {
                            className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">
                           <Printer className="h-3.5 w-3.5" /> Imprimir
                         </a>
-                        {d.estado === "confirmada" && (
-                          <button
-                            onClick={() => {
-                              if (confirm(`¿Anular la devolución ${d.numero_devolucion}? Se van a revertir los movimientos de stock y caja.`)) {
-                                void anular(d.id);
-                              }
-                            }}
-                            disabled={anulando}
-                            className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
-                          >
-                            <Ban className="h-3.5 w-3.5" /> Anular
-                          </button>
-                        )}
                       </div>
                     </td>
                   </tr>
@@ -222,14 +191,9 @@ export default function DevolucionesPage() {
                 <p className="text-xs text-red-600">Anulada: {detalle.anulada_motivo}</p>
               )}
             </div>
-            <div className="flex justify-between gap-2 border-t border-slate-100 px-6 py-4">
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-4">
+              <p className="mr-auto text-xs italic text-slate-400">Registro de solo lectura. Para revertir, anulá la venta desde el listado de ventas.</p>
               <button onClick={() => setDetalle(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">Cerrar</button>
-              {detalle.estado === "confirmada" && (
-                <button onClick={() => void anular(detalle.id)} disabled={anulando}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:opacity-50">
-                  <Ban className="h-4 w-4" /> {anulando ? "Anulando…" : "Anular devolución"}
-                </button>
-              )}
             </div>
           </div>
         </div>
