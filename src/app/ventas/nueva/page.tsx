@@ -1258,9 +1258,10 @@ export default function NuevaVentaPage() {
                 </table>
               </div>
 
-              {/* Totales + Cobro (vuelto) */}
+              {/* Totales + Cobro (vuelto). Cuando hay pago mixto, ensancha
+                  para dar aire al editor de multiples pagos. */}
               <div className="mt-5 flex justify-end">
-                <div className="w-full space-y-3 lg:w-80">
+                <div className={`w-full space-y-3 ${pagoMixto ? "lg:w-full" : "lg:w-80"}`}>
                   <div className="space-y-1.5">
                     <div className="flex justify-between text-sm text-gray-600">
                       <span>Subtotal</span>
@@ -1661,13 +1662,16 @@ function PagosMixtoEditor({
 
   return (
     <div className="space-y-3">
-      {pagos.map((p, i) => (
-        <div key={i} className="rounded-lg border border-slate-200 bg-white p-3 space-y-2.5">
-          <div className="grid grid-cols-[minmax(0,140px)_minmax(0,1fr)_auto_auto] gap-2">
+      {pagos.map((p, i) => {
+        const needEntidad = p.metodo === "transferencia" || p.metodo === "tarjeta";
+        return (
+        <div key={i} className="rounded-lg border border-slate-200 bg-white p-3">
+          {/* Todo en UNA sola fila horizontal en lg+; se apila en mobile. */}
+          <div className="flex flex-wrap items-center gap-2">
             <select
               value={p.metodo}
               onChange={(e) => update(i, { metodo: e.target.value as PagoMixtoLinea["metodo"] })}
-              className="h-11 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium"
+              className="h-11 w-full sm:w-40 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium"
             >
               <option value="efectivo">Efectivo</option>
               <option value="transferencia">Transferencia</option>
@@ -1679,8 +1683,41 @@ function PagosMixtoEditor({
               value={p.monto}
               onChange={(e) => update(i, { monto: e.target.value })}
               placeholder="Monto (Gs.)"
-              className="h-11 min-w-0 rounded-md border border-slate-200 px-3 text-sm text-right tabular-nums font-semibold"
+              className="h-11 flex-1 min-w-[140px] rounded-md border border-slate-200 px-3 text-sm text-right tabular-nums font-semibold"
             />
+            {needEntidad && (
+              <>
+                <select
+                  value={p.entidad_id}
+                  onChange={(e) => update(i, { entidad_id: e.target.value })}
+                  className="h-11 flex-1 min-w-[160px] rounded-md border border-slate-200 bg-white px-2.5 text-sm"
+                >
+                  <option value="">— Entidad —</option>
+                  {entidades.map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {e.codigo ? `${e.codigo} · ` : ""}
+                      {e.nombre}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  value={p.referencia}
+                  onChange={(e) => update(i, { referencia: e.target.value })}
+                  placeholder="Comprobante / ref."
+                  className="h-11 flex-1 min-w-[140px] rounded-md border border-slate-200 px-3 text-sm"
+                />
+                {p.metodo === "transferencia" && (
+                  <input
+                    type="text"
+                    value={p.titular}
+                    onChange={(e) => update(i, { titular: e.target.value })}
+                    placeholder="Titular"
+                    className="h-11 flex-1 min-w-[140px] rounded-md border border-slate-200 px-3 text-sm"
+                  />
+                )}
+              </>
+            )}
             <button
               type="button"
               onClick={() => autoCompletar(i)}
@@ -1701,41 +1738,9 @@ function PagosMixtoEditor({
               </button>
             )}
           </div>
-          {(p.metodo === "transferencia" || p.metodo === "tarjeta") && (
-            <div className="grid grid-cols-2 gap-2">
-              <select
-                value={p.entidad_id}
-                onChange={(e) => update(i, { entidad_id: e.target.value })}
-                className="h-10 rounded-md border border-slate-200 bg-white px-2.5 text-sm"
-              >
-                <option value="">— Entidad —</option>
-                {entidades.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.codigo ? `${e.codigo} · ` : ""}
-                    {e.nombre}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="text"
-                value={p.referencia}
-                onChange={(e) => update(i, { referencia: e.target.value })}
-                placeholder="Comprobante / ref."
-                className="h-10 rounded-md border border-slate-200 px-3 text-sm"
-              />
-              {p.metodo === "transferencia" && (
-                <input
-                  type="text"
-                  value={p.titular}
-                  onChange={(e) => update(i, { titular: e.target.value })}
-                  placeholder="Titular"
-                  className="col-span-2 h-10 rounded-md border border-slate-200 px-3 text-sm"
-                />
-              )}
-            </div>
-          )}
         </div>
-      ))}
+        );
+      })}
       <button
         type="button"
         onClick={add}
