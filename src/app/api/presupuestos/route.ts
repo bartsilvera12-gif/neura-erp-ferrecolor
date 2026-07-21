@@ -87,8 +87,53 @@ export async function POST(request: NextRequest) {
         ? null
         : Math.max(0, parseInt(String(validezRaw), 10) || 0) || null;
 
+    // Auto-alta de cliente cuando se escribe a mano (sin seleccionar del catalogo).
+    // - Si el RUC coincide con uno existente, se linkea (evita duplicados).
+    // - Si no, se crea un nuevo cliente con los datos del presupuesto.
+    let clienteId: string | null = body.cliente_id ? String(body.cliente_id) : null;
+    const rucInput = body.cliente_ruc ? String(body.cliente_ruc).trim() : "";
+    const telInput = body.cliente_telefono ? String(body.cliente_telefono).trim() : "";
+    const dirInput = body.cliente_direccion ? String(body.cliente_direccion).trim() : "";
+    if (!clienteId) {
+      if (rucInput) {
+        const { data: existente } = await ctx.supabase
+          .from("clientes")
+          .select("id")
+          .eq("empresa_id", ctx.auth.empresa_id)
+          .eq("ruc", rucInput)
+          .maybeSingle();
+        if (existente?.id) clienteId = String(existente.id);
+      }
+      if (!clienteId) {
+        const nombreCreador =
+          (typeof ctx.auth.nombre === "string" ? ctx.auth.nombre.trim() : "") ||
+          (typeof ctx.auth.user?.email === "string" ? ctx.auth.user.email.trim() : "") ||
+          null;
+        const { data: nuevo, error: eNuevo } = await ctx.supabase
+          .from("clientes")
+          .insert([{
+            empresa_id: ctx.auth.empresa_id,
+            created_by_user_id: ctx.auth.user.id,
+            created_by_nombre: nombreCreador,
+            tipo_cliente: "empresa",
+            nombre: clienteNombre,
+            nombre_contacto: clienteNombre,
+            ruc: rucInput || null,
+            telefono: telInput || null,
+            direccion: dirInput || null,
+            moneda_preferida: body.moneda === "USD" ? "USD" : "GS",
+            estado: "activo",
+            usa_nota_remision: false,
+          }])
+          .select("id")
+          .single();
+        if (eNuevo) throw new Error(`No se pudo crear el cliente: ${eNuevo.message}`);
+        clienteId = String(nuevo.id);
+      }
+    }
+
     const { id, numero_control } = await crearPresupuesto(ctx.supabase, ctx.auth.empresa_id, {
-      cliente_id: body.cliente_id ? String(body.cliente_id) : null,
+      cliente_id: clienteId,
       cliente_nombre: clienteNombre,
       cliente_ruc: body.cliente_ruc ? String(body.cliente_ruc) : null,
       cliente_telefono: body.cliente_telefono ? String(body.cliente_telefono) : null,
