@@ -118,7 +118,11 @@ export default function CajaDetalledPage() {
       const r = get(nombre);
       r.ventas += 1;
       r.total += v.total;
-      if (v.metodo_pago === "tarjeta") r.tarjeta += v.total;
+      if (v.metodo_pago === "mixto" && v.desglose_pago) {
+        r.efectivo += v.desglose_pago.efectivo;
+        r.tarjeta += v.desglose_pago.tarjeta;
+        r.transferencia += v.desglose_pago.transferencia;
+      } else if (v.metodo_pago === "tarjeta") r.tarjeta += v.total;
       else if (v.metodo_pago === "transferencia") r.transferencia += v.total;
       else r.efectivo += v.total;
     }

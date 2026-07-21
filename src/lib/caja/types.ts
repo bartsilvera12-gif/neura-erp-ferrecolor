@@ -124,6 +124,8 @@ export interface CajaDetalleVenta {
   total: number;
   estado: string | null;
   usuario_nombre: string | null;
+  /** Si fue pago mixto, desglose real por metodo (desde ventas_pagos_detalle). */
+  desglose_pago?: { efectivo: number; tarjeta: number; transferencia: number } | null;
 }
 
 /** Un movimiento manual del turno, con el autor resuelto (nombre/email). */

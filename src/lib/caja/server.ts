@@ -188,16 +188,48 @@ export async function getReporteCajas(
   // 2) Ventas de esas cajas (en lote).
   const vQ = await sb
     .from("ventas")
-    .select("caja_id, total, metodo_pago, estado")
+    .select("id, caja_id, total, metodo_pago, estado")
     .eq("empresa_id", empresaId)
     .in("caja_id", cajaIds);
   if (vQ.error) throw new Error(vQ.error.message);
   const ventas = (vQ.data ?? []) as unknown as Array<{
+    id: string;
     caja_id: string | null;
     total: number | string;
     metodo_pago: string | null;
     estado: string | null;
   }>;
+
+  // 2b) Desglose por metodo desde ventas_pagos_detalle (pago mixto).
+  //     Solo lo cargamos para las ventas de estos turnos.
+  const ventaIds = ventas.map((v) => v.id);
+  type PagosBreakdown = { efectivo: number; tarjeta: number; transferencia: number };
+  const pagosByVenta = new Map<string, PagosBreakdown>();
+  if (ventaIds.length > 0) {
+    const pdQ = await sb
+      .from("ventas_pagos_detalle")
+      .select("venta_id, metodo_pago, monto")
+      .eq("empresa_id", empresaId)
+      .in("venta_id", ventaIds);
+    if (!pdQ.error) {
+      const rows = (pdQ.data ?? []) as unknown as Array<{
+        venta_id: string;
+        metodo_pago: string | null;
+        monto: number | string;
+      }>;
+      for (const r of rows) {
+        let b = pagosByVenta.get(r.venta_id);
+        if (!b) {
+          b = { efectivo: 0, tarjeta: 0, transferencia: 0 };
+          pagosByVenta.set(r.venta_id, b);
+        }
+        const monto = num(r.monto);
+        if (r.metodo_pago === "tarjeta") b.tarjeta += monto;
+        else if (r.metodo_pago === "transferencia") b.transferencia += monto;
+        else b.efectivo += monto;
+      }
+    }
+  }
 
   // 3) Movimientos activos de esas cajas (en lote).
   const mQ = await sb
@@ -267,7 +299,13 @@ export async function getReporteCajas(
     const t = num(v.total);
     a.cantidad_ventas++;
     a.total_vendido += t;
-    if (v.metodo_pago === "tarjeta") a.total_tarjeta += t;
+    // Si es mixto (o hay pagos_detalle registrados), usar el desglose real.
+    const bk = pagosByVenta.get(v.id);
+    if (v.metodo_pago === "mixto" && bk) {
+      a.total_efectivo += bk.efectivo;
+      a.total_tarjeta += bk.tarjeta;
+      a.total_transferencia += bk.transferencia;
+    } else if (v.metodo_pago === "tarjeta") a.total_tarjeta += t;
     else if (v.metodo_pago === "transferencia") a.total_transferencia += t;
     else a.total_efectivo += t;
   }
@@ -389,6 +427,7 @@ export async function getDetalleCaja(
     total: num(v.total),
     estado: v.estado,
     usuario_nombre: v.usuario_nombre,
+    desglose_pago: null, // se rellena mas abajo cuando la venta es mixto
   }));
 
   // Movimientos manuales activos del turno (cronológico).
@@ -415,6 +454,33 @@ export async function getDetalleCaja(
     created_at: string;
   }>;
 
+  // Desglose por metodo desde ventas_pagos_detalle (para pago mixto).
+  const detalleIds = ventas.map((v) => v.id);
+  const detallePagos = new Map<string, { efectivo: number; tarjeta: number; transferencia: number }>();
+  if (detalleIds.length > 0) {
+    const pdQ = await sb
+      .from("ventas_pagos_detalle")
+      .select("venta_id, metodo_pago, monto")
+      .eq("empresa_id", empresaId)
+      .in("venta_id", detalleIds);
+    if (!pdQ.error) {
+      for (const r of (pdQ.data ?? []) as Array<{ venta_id: string; metodo_pago: string | null; monto: number | string }>) {
+        let b = detallePagos.get(r.venta_id);
+        if (!b) { b = { efectivo: 0, tarjeta: 0, transferencia: 0 }; detallePagos.set(r.venta_id, b); }
+        const monto = num(r.monto);
+        if (r.metodo_pago === "tarjeta") b.tarjeta += monto;
+        else if (r.metodo_pago === "transferencia") b.transferencia += monto;
+        else b.efectivo += monto;
+      }
+    }
+  }
+  // Anexar el desglose a cada venta mixta para que el cliente lo pueda mostrar.
+  for (const v of ventas) {
+    if (v.metodo_pago === "mixto") {
+      v.desglose_pago = detallePagos.get(v.id) ?? null;
+    }
+  }
+
   // Acumuladores para la cabecera (misma lógica que getReporteCajas).
   let cantidadVentas = 0,
     totalVendido = 0,
@@ -425,7 +491,12 @@ export async function getDetalleCaja(
     if (v.estado === "anulada") continue;
     cantidadVentas++;
     totalVendido += v.total;
-    if (v.metodo_pago === "tarjeta") totalTarjeta += v.total;
+    const bk = detallePagos.get(v.id);
+    if (v.metodo_pago === "mixto" && bk) {
+      totalEfectivo += bk.efectivo;
+      totalTarjeta += bk.tarjeta;
+      totalTransferencia += bk.transferencia;
+    } else if (v.metodo_pago === "tarjeta") totalTarjeta += v.total;
     else if (v.metodo_pago === "transferencia") totalTransferencia += v.total;
     else totalEfectivo += v.total;
   }
@@ -746,15 +817,37 @@ async function computeResumen(
   // Ventas asociadas (excluye anuladas si la columna estado existe).
   const vQ = await sb
     .from("ventas")
-    .select("total, metodo_pago, estado")
+    .select("id, total, metodo_pago, estado")
     .eq("empresa_id", empresaId)
     .eq("caja_id", caja.id);
   if (vQ.error) throw new Error(vQ.error.message);
   const ventas = (vQ.data ?? []) as unknown as Array<{
+    id: string;
     total: number | string;
     metodo_pago: string | null;
     estado: string | null;
   }>;
+
+  // Desglose por metodo desde ventas_pagos_detalle (pago mixto).
+  const ventaIdsR = ventas.map((v) => v.id);
+  const detalleByVenta = new Map<string, { efectivo: number; tarjeta: number; transferencia: number }>();
+  if (ventaIdsR.length > 0) {
+    const pdQ = await sb
+      .from("ventas_pagos_detalle")
+      .select("venta_id, metodo_pago, monto")
+      .eq("empresa_id", empresaId)
+      .in("venta_id", ventaIdsR);
+    if (!pdQ.error) {
+      for (const r of (pdQ.data ?? []) as Array<{ venta_id: string; metodo_pago: string | null; monto: number | string }>) {
+        let b = detalleByVenta.get(r.venta_id);
+        if (!b) { b = { efectivo: 0, tarjeta: 0, transferencia: 0 }; detalleByVenta.set(r.venta_id, b); }
+        const monto = num(r.monto);
+        if (r.metodo_pago === "tarjeta") b.tarjeta += monto;
+        else if (r.metodo_pago === "transferencia") b.transferencia += monto;
+        else b.efectivo += monto;
+      }
+    }
+  }
 
   let totalVendido = 0;
   let totalEfectivo = 0;
@@ -766,7 +859,12 @@ async function computeResumen(
     count++;
     const t = num(v.total);
     totalVendido += t;
-    if (v.metodo_pago === "tarjeta") totalTarjeta += t;
+    const bk = detalleByVenta.get(v.id);
+    if (v.metodo_pago === "mixto" && bk) {
+      totalEfectivo += bk.efectivo;
+      totalTarjeta += bk.tarjeta;
+      totalTransferencia += bk.transferencia;
+    } else if (v.metodo_pago === "tarjeta") totalTarjeta += t;
     else if (v.metodo_pago === "transferencia") totalTransferencia += t;
     else totalEfectivo += t; // efectivo o sin especificar
   }
