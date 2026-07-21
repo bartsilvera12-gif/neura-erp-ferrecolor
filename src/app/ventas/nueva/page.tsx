@@ -164,7 +164,7 @@ export default function NuevaVentaPage() {
   const [plazoDias, setPlazoDias] = useState("");
 
   // Cliente (opcional). Si se selecciona, se envía cliente_id al crear la venta.
-  type ClienteLite = { id: string; label: string; ruc: string | null; usa_nota_remision: boolean };
+  type ClienteLite = { id: string; label: string; ruc: string | null; telefono: string | null; usa_nota_remision: boolean };
   const [clientes, setClientes] = useState<ClienteLite[]>([]);
   const [clienteId, setClienteId] = useState("");
   const [clienteQuery, setClienteQuery] = useState("");
@@ -177,7 +177,8 @@ export default function NuevaVentaPage() {
   const [showCrearCliente, setShowCrearCliente] = useState(false);
 
   function handleClienteCreado(c: ClienteCreado) {
-    setClientes((prev) => [c, ...prev.filter((x) => x.id !== c.id)]);
+    const lite: ClienteLite = { ...c, telefono: null };
+    setClientes((prev) => [lite, ...prev.filter((x) => x.id !== c.id)]);
     setClienteId(c.id);
     setClienteQuery("");
     setGeneraNotaRemision(c.usa_nota_remision);
@@ -521,6 +522,7 @@ export default function NuevaVentaPage() {
           id: String(r.id),
           label: s(r.empresa) || s(r.nombre_contacto) || s(r.nombre) || "Cliente",
           ruc: s(r.ruc) || null,
+          telefono: s(r.telefono) || null,
           usa_nota_remision: r.usa_nota_remision === true,
         }));
         setClientes(lite);
@@ -1016,6 +1018,13 @@ export default function NuevaVentaPage() {
                   </button>
                 )}
               </div>
+              {clienteSel && (clienteSel.ruc || clienteSel.telefono) && (
+                <p className="mt-1 text-xs text-gray-500">
+                  {clienteSel.ruc && <span className="font-medium">RUC {clienteSel.ruc}</span>}
+                  {clienteSel.ruc && clienteSel.telefono && <span className="mx-1.5 text-gray-300">·</span>}
+                  {clienteSel.telefono && <span>Tel {clienteSel.telefono}</span>}
+                </p>
+              )}
               {clienteOpen && !clienteSel && (
                 <div className="absolute z-20 mt-1 w-full max-h-64 overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg">
                   {clientesFiltrados.length === 0 ? (
