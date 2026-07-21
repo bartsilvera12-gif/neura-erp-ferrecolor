@@ -123,6 +123,19 @@ export async function GET(
       .eq("venta_id", ventaId)
       .eq("empresa_id", empresaId);
 
+    // 2b) Pagos (para mostrar desglose si fue mixto)
+    const { data: pagosRows } = await sb
+      .from("ventas_pagos_detalle")
+      .select("metodo_pago, monto, entidad_nombre_snapshot, referencia")
+      .eq("venta_id", ventaId)
+      .eq("empresa_id", empresaId);
+    const pagos = (pagosRows ?? []) as Array<{
+      metodo_pago: string;
+      monto: number | string;
+      entidad_nombre_snapshot: string | null;
+      referencia: string | null;
+    }>;
+
     // 3) Cliente (opcional)
     let cliente: { nombre?: string; ruc?: string; direccion?: string; telefono?: string } | null = null;
     if ((venta as { cliente_id?: string | null }).cliente_id) {
@@ -376,6 +389,26 @@ export async function GET(
         <span class="lbl">LIQUIDACION DEL IVA</span>
         <span class="val">&nbsp;&nbsp;(5%): ${fmtGs(iva5Liq)}&nbsp;&nbsp;&nbsp;&nbsp;(10%): ${fmtGs(iva10Liq)}&nbsp;&nbsp;&nbsp;&nbsp;TOTAL IVA: ${fmtGs(ivaTotal)}</span>
       </div>
+      ${
+        pagos.length > 1
+          ? `<div class="linea">
+              <span class="lbl">FORMA DE PAGO:</span>
+              <span class="val">${pagos
+                .map((p) => {
+                  const mLabel = p.metodo_pago === "efectivo"
+                    ? "Efectivo"
+                    : p.metodo_pago === "transferencia"
+                    ? "Transferencia"
+                    : p.metodo_pago === "tarjeta"
+                    ? "Tarjeta"
+                    : escapeHtml(p.metodo_pago);
+                  const ent = p.entidad_nombre_snapshot ? ` (${escapeHtml(p.entidad_nombre_snapshot)})` : "";
+                  return `${mLabel}${ent}: ${fmtGs(Number(p.monto) || 0)}`;
+                })
+                .join("&nbsp;&nbsp;·&nbsp;&nbsp;")}</span>
+            </div>`
+          : ""
+      }
       <div class="total-final">TOTAL: Gs. ${fmtGs(total)}</div>
     </div>
   </div>

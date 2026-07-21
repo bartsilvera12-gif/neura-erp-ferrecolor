@@ -61,11 +61,28 @@ export async function getVentas(): Promise<Venta[]> {
 /**
  * Crea una venta en base de datos (transacción servidor: ítems, stock, movimientos).
  */
+/** Un pago individual dentro de un pago mixto. */
+export interface PagoLinea {
+  metodo_pago: "efectivo" | "transferencia" | "tarjeta";
+  monto: number;
+  entidad_bancaria_id?: string | null;
+  entidad_nombre_snapshot?: string | null;
+  referencia?: string | null;
+  titular?: string | null;
+}
+
 export async function saveVenta(
   datos: Omit<Venta, "id" | "numero_control" | "fecha"> & { cliente_id?: string | null; genera_nota_remision?: boolean },
   pedidoCocina?: PedidoCocinaInput,
   pagoDetalle?: PagoDetalleInput | null,
-  opts?: { permitirSinStock?: boolean; pedidoId?: string | null; pedidoCajaId?: string | null; cajaId?: string | null }
+  opts?: {
+    permitirSinStock?: boolean;
+    pedidoId?: string | null;
+    pedidoCajaId?: string | null;
+    cajaId?: string | null;
+    /** Si esta seteado (2+ items), es pago mixto: se ignora pagoDetalle. */
+    pagos?: PagoLinea[] | null;
+  }
 ): Promise<ResultadoGuardarVenta> {
   if (!datos.items || datos.items.length === 0) {
     return { success: false, error: "La venta debe tener al menos un producto." };
@@ -89,6 +106,7 @@ export async function saveVenta(
         observaciones: null,
         pedido_cocina: pedidoCocina ?? null,
         pago_detalle: pagoDetalle ?? null,
+        pagos: Array.isArray(opts?.pagos) && opts.pagos.length > 0 ? opts.pagos : null,
         permitir_sin_stock: opts?.permitirSinStock === true,
         genera_nota_remision: datos.genera_nota_remision === true,
         pedido_id: opts?.pedidoId ?? null,
