@@ -1660,14 +1660,14 @@ function PagosMixtoEditor({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {pagos.map((p, i) => (
-        <div key={i} className="rounded-md border border-slate-200 bg-white p-2 space-y-1.5">
-          <div className="flex items-center gap-1.5">
+        <div key={i} className="rounded-lg border border-slate-200 bg-white p-3 space-y-2.5">
+          <div className="grid grid-cols-[minmax(0,140px)_minmax(0,1fr)_auto_auto] gap-2">
             <select
               value={p.metodo}
               onChange={(e) => update(i, { metodo: e.target.value as PagoMixtoLinea["metodo"] })}
-              className="h-8 rounded border border-slate-200 bg-white px-2 text-xs font-medium"
+              className="h-11 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium"
             >
               <option value="efectivo">Efectivo</option>
               <option value="transferencia">Transferencia</option>
@@ -1679,22 +1679,22 @@ function PagosMixtoEditor({
               value={p.monto}
               onChange={(e) => update(i, { monto: e.target.value })}
               placeholder="Monto (Gs.)"
-              className="h-8 flex-1 min-w-0 rounded border border-slate-200 px-2 text-xs text-right tabular-nums font-semibold"
+              className="h-11 min-w-0 rounded-md border border-slate-200 px-3 text-sm text-right tabular-nums font-semibold"
             />
             <button
               type="button"
               onClick={() => autoCompletar(i)}
               disabled={restante <= 0}
-              className="h-8 shrink-0 rounded border border-[#0EA5E9]/40 bg-[#0EA5E9]/[0.06] px-2 text-[10px] font-semibold text-[#0284C7] hover:bg-[#0EA5E9]/[0.12] disabled:opacity-40"
+              className="h-11 shrink-0 rounded-md border border-[#0EA5E9]/40 bg-[#0EA5E9]/[0.08] px-3 text-xs font-bold text-[#0284C7] hover:bg-[#0EA5E9]/[0.15] disabled:opacity-40"
               title="Poner el restante en este pago"
             >
-              +resto
+              + resto
             </button>
             {pagos.length > 1 && (
               <button
                 type="button"
                 onClick={() => remove(i)}
-                className="h-8 w-7 shrink-0 rounded border border-slate-200 text-slate-400 hover:bg-red-50 hover:text-red-600 hover:border-red-200"
+                className="h-11 w-11 shrink-0 rounded-md border border-slate-200 text-slate-400 text-lg hover:bg-red-50 hover:text-red-600 hover:border-red-200"
                 title="Quitar este pago"
               >
                 ×
@@ -1702,11 +1702,11 @@ function PagosMixtoEditor({
             )}
           </div>
           {(p.metodo === "transferencia" || p.metodo === "tarjeta") && (
-            <div className="grid grid-cols-2 gap-1.5">
+            <div className="grid grid-cols-2 gap-2">
               <select
                 value={p.entidad_id}
                 onChange={(e) => update(i, { entidad_id: e.target.value })}
-                className="h-8 rounded border border-slate-200 bg-white px-2 text-xs"
+                className="h-10 rounded-md border border-slate-200 bg-white px-2.5 text-sm"
               >
                 <option value="">— Entidad —</option>
                 {entidades.map((e) => (
@@ -1721,7 +1721,7 @@ function PagosMixtoEditor({
                 value={p.referencia}
                 onChange={(e) => update(i, { referencia: e.target.value })}
                 placeholder="Comprobante / ref."
-                className="h-8 rounded border border-slate-200 px-2 text-xs"
+                className="h-10 rounded-md border border-slate-200 px-3 text-sm"
               />
               {p.metodo === "transferencia" && (
                 <input
@@ -1729,7 +1729,7 @@ function PagosMixtoEditor({
                   value={p.titular}
                   onChange={(e) => update(i, { titular: e.target.value })}
                   placeholder="Titular"
-                  className="col-span-2 h-8 rounded border border-slate-200 px-2 text-xs"
+                  className="col-span-2 h-10 rounded-md border border-slate-200 px-3 text-sm"
                 />
               )}
             </div>
@@ -1739,14 +1739,14 @@ function PagosMixtoEditor({
       <button
         type="button"
         onClick={add}
-        className="w-full text-xs py-1.5 rounded border border-dashed border-slate-300 text-slate-600 hover:bg-white"
+        className="w-full text-sm py-2.5 rounded-md border border-dashed border-slate-300 text-slate-600 hover:bg-white font-medium"
       >
         + Agregar pago
       </button>
-      <div className="flex items-center justify-between pt-1 text-[11px]">
+      <div className="flex items-center justify-between pt-1 text-sm">
         <span className="text-slate-500">
           Total cobrado:{" "}
-          <span className={`font-bold tabular-nums ${suma === total ? "text-emerald-600" : "text-slate-700"}`}>
+          <span className={`font-bold tabular-nums ${suma === total ? "text-emerald-600" : "text-slate-800"}`}>
             {formatGs(suma)}
           </span>
         </span>
