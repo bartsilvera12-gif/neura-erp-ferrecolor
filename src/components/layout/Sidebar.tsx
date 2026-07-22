@@ -157,7 +157,7 @@ const MENU_STRUCTURE: MenuItem[] = [
   { key: "reportes", slug: "reportes", label: "Reportes", href: "/reportes", icon: BarChart3 },
   // Pagos oculto en instancia En lo de Mari (no usa este módulo).
   // Comisiones y Notas de credito ocultos por ahora:
-  // { key: "comisiones", slug: "comisiones", label: "Comisiones", href: "/comisiones", icon: Percent },
+  { key: "comisiones", slug: "comisiones", label: "Comisiones", href: "/comisiones", icon: Percent },
   // {
   //   key: "notas_credito", slug: "notas_credito", label: "Notas de crédito",
   //   href: "/notas-credito", icon: ScrollText,
