@@ -94,6 +94,11 @@ export interface CompraRaw {
   producto_id?: number | string;
   producto_nombre: string;
   proveedor_nombre: string;
+  proveedor_id?: string | null;
+  numero_control?: string | null;
+  tipo_pago?: "contado" | "credito" | string | null;
+  plazo_dias?: number | null;
+  anulada_at?: string | null;
   total: number;
   fecha: string;
 }
@@ -484,6 +489,11 @@ export async function getDashboardData(): Promise<DashboardData> {
       producto_id: r.producto_id as string | undefined,
       producto_nombre: (r.producto_nombre as string) ?? "",
       proveedor_nombre: (r.proveedor_nombre as string) ?? "",
+      proveedor_id: (r.proveedor_id as string | null) ?? null,
+      numero_control: (r.numero_control as string | null) ?? null,
+      tipo_pago: (r.tipo_pago as string | null) ?? null,
+      plazo_dias: r.plazo_dias == null ? null : Number(r.plazo_dias) || null,
+      anulada_at: (r.anulada_at as string | null) ?? null,
       total: toNum(r.total),
       fecha: toCalendarDateStr(r.fecha as string),
     }));

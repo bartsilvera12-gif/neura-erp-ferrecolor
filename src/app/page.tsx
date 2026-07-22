@@ -1927,6 +1927,207 @@ const DashVentas = memo(function DashVentas({
   );
 });
 
+// ── Dashboard Compras ─────────────────────────────────────────────────────────
+
+const DashCompras = memo(function DashCompras({
+  compras,
+  periodo,
+}: {
+  compras: CompraRaw[];
+  periodo: Periodo;
+}) {
+  const { desde: desdeD, hasta: hastaD } = getRango(periodo);
+  const desde = desdeD.toISOString().slice(0, 10);
+  const hasta = hastaD.toISOString().slice(0, 10);
+
+  // Agrupamos por numero_control (una "compra" real = N líneas con mismo N° control).
+  type Grupo = {
+    numero_control: string;
+    proveedor_nombre: string;
+    total: number;
+    fecha: string;
+    tipo_pago: string | null;
+    plazo_dias: number | null;
+    vencimientoDate: Date | null;
+    diasHastaVence: number | null;
+  };
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+
+  const gruposMap = new Map<string, Grupo>();
+  for (const c of compras) {
+    const key = c.numero_control || String(c.id);
+    const g = gruposMap.get(key);
+    if (!g) {
+      let vencimientoDate: Date | null = null;
+      let diasHastaVence: number | null = null;
+      if (c.tipo_pago === "credito" && c.plazo_dias && c.fecha) {
+        const base = new Date(c.fecha);
+        base.setDate(base.getDate() + Number(c.plazo_dias));
+        base.setHours(0, 0, 0, 0);
+        vencimientoDate = base;
+        diasHastaVence = Math.round((base.getTime() - hoy.getTime()) / 86400000);
+      }
+      gruposMap.set(key, {
+        numero_control: key,
+        proveedor_nombre: c.proveedor_nombre,
+        total: Number(c.total) || 0,
+        fecha: c.fecha,
+        tipo_pago: c.tipo_pago ?? null,
+        plazo_dias: c.plazo_dias ?? null,
+        vencimientoDate,
+        diasHastaVence,
+      });
+    } else {
+      g.total += Number(c.total) || 0;
+    }
+  }
+  const grupos = [...gruposMap.values()];
+
+  // Del período (para "compras del período")
+  const gruposPeriodo = grupos.filter((g) => g.fecha >= desde && g.fecha <= hasta);
+  const totalPeriodo = gruposPeriodo.reduce((s, g) => s + g.total, 0);
+
+  // Deuda con proveedores = compras crédito no vencidas ni anuladas (ya excluidas)
+  const conCredito = grupos.filter((g) => g.tipo_pago === "credito" && g.vencimientoDate);
+  const deudaTotal = conCredito.reduce((s, g) => s + g.total, 0);
+  const porVencer = conCredito
+    .filter((g) => (g.diasHastaVence ?? 0) >= 0 && (g.diasHastaVence ?? 0) <= 30)
+    .sort((a, b) => (a.diasHastaVence ?? 0) - (b.diasHastaVence ?? 0));
+  const vencidas = conCredito
+    .filter((g) => (g.diasHastaVence ?? 0) < 0)
+    .sort((a, b) => (a.diasHastaVence ?? 0) - (b.diasHastaVence ?? 0));
+
+  const totalPorVencer = porVencer.reduce((s, g) => s + g.total, 0);
+  const totalVencidas = vencidas.reduce((s, g) => s + g.total, 0);
+
+  // Top proveedores (por gasto del período)
+  const porProveedor = new Map<string, number>();
+  for (const g of gruposPeriodo) {
+    porProveedor.set(g.proveedor_nombre, (porProveedor.get(g.proveedor_nombre) ?? 0) + g.total);
+  }
+  const topProveedores = [...porProveedor.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+
+  const finCard = "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm";
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatBox label="Compras del período" value={`Gs. ${Math.round(totalPeriodo).toLocaleString("es-PY")}`} sub={`${gruposPeriodo.length} compras`} />
+        <StatBox label="Deuda con proveedores" value={`Gs. ${Math.round(deudaTotal).toLocaleString("es-PY")}`} sub={`${conCredito.length} facturas`} />
+        <StatBox label="Por vencer (30 días)" value={`Gs. ${Math.round(totalPorVencer).toLocaleString("es-PY")}`} sub={`${porVencer.length} facturas`} tone="warn" />
+        <StatBox label="Vencidas" value={`Gs. ${Math.round(totalVencidas).toLocaleString("es-PY")}`} sub={`${vencidas.length} facturas`} tone="danger" />
+      </div>
+
+      <div className={finCard}>
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Próximas a vencer</h3>
+        {porVencer.length === 0 ? (
+          <p className="mt-4 text-sm text-slate-400">No hay compras a crédito por vencer en los próximos 30 días.</p>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead className="border-b border-slate-200">
+                <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="pb-2 pr-4">N° Control</th>
+                  <th className="pb-2 pr-4">Proveedor</th>
+                  <th className="pb-2 pr-4 text-right">Total</th>
+                  <th className="pb-2 pr-4 text-center">Vence</th>
+                  <th className="pb-2 text-center">Días</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {porVencer.slice(0, 20).map((g) => {
+                  const dias = g.diasHastaVence ?? 0;
+                  const tone = dias <= 3 ? "text-red-600" : dias <= 7 ? "text-orange-600" : "text-slate-600";
+                  return (
+                    <tr key={g.numero_control} className="hover:bg-slate-50/50">
+                      <td className="py-2 pr-4 font-mono text-xs text-slate-500">{g.numero_control}</td>
+                      <td className="py-2 pr-4 text-slate-800">{g.proveedor_nombre}</td>
+                      <td className="py-2 pr-4 text-right tabular-nums font-semibold text-slate-800">Gs. {Math.round(g.total).toLocaleString("es-PY")}</td>
+                      <td className="py-2 pr-4 text-center text-xs text-slate-500">{g.vencimientoDate?.toLocaleDateString("es-PY")}</td>
+                      <td className={`py-2 text-center text-xs font-semibold ${tone}`}>{dias} días</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {vencidas.length > 0 && (
+        <div className={`${finCard} border-red-200 bg-red-50/40`}>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-red-700">Vencidas · pagar urgente</h3>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead className="border-b border-red-200">
+                <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-red-700">
+                  <th className="pb-2 pr-4">N° Control</th>
+                  <th className="pb-2 pr-4">Proveedor</th>
+                  <th className="pb-2 pr-4 text-right">Total</th>
+                  <th className="pb-2 pr-4 text-center">Vencía</th>
+                  <th className="pb-2 text-center">Atraso</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-red-100">
+                {vencidas.slice(0, 20).map((g) => (
+                  <tr key={g.numero_control} className="hover:bg-red-50">
+                    <td className="py-2 pr-4 font-mono text-xs text-red-700">{g.numero_control}</td>
+                    <td className="py-2 pr-4 text-red-800">{g.proveedor_nombre}</td>
+                    <td className="py-2 pr-4 text-right tabular-nums font-bold text-red-800">Gs. {Math.round(g.total).toLocaleString("es-PY")}</td>
+                    <td className="py-2 pr-4 text-center text-xs text-red-600">{g.vencimientoDate?.toLocaleDateString("es-PY")}</td>
+                    <td className="py-2 text-center text-xs font-bold text-red-700">{Math.abs(g.diasHastaVence ?? 0)} días</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <div className={finCard}>
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Top proveedores del período</h3>
+        {topProveedores.length === 0 ? (
+          <p className="mt-4 text-sm text-slate-400">Sin compras en el período seleccionado.</p>
+        ) : (
+          <ul className="mt-4 space-y-2">
+            {topProveedores.map(([nombre, monto]) => {
+              const pct = totalPeriodo > 0 ? (monto / totalPeriodo) * 100 : 0;
+              return (
+                <li key={nombre}>
+                  <div className="mb-1 flex items-center justify-between text-sm">
+                    <span className="font-medium text-slate-800">{nombre}</span>
+                    <span className="tabular-nums font-semibold text-slate-700">Gs. {Math.round(monto).toLocaleString("es-PY")}</span>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-slate-100">
+                    <div className="h-full rounded-full bg-[#4FAEB2]" style={{ width: `${Math.min(100, pct)}%` }} />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+});
+
+function StatBox({ label, value, sub, tone = "default" }: { label: string; value: string; sub?: string; tone?: "default" | "warn" | "danger" }) {
+  const toneClass =
+    tone === "danger" ? "border-red-200 bg-red-50/40 text-red-700" :
+    tone === "warn" ? "border-amber-200 bg-amber-50/50 text-amber-700" :
+    "border-slate-200 bg-white text-slate-800";
+  return (
+    <div className={`rounded-2xl border p-5 shadow-sm ${toneClass}`}>
+      <p className="text-[10px] font-bold uppercase tracking-wider opacity-75">{label}</p>
+      <p className="mt-1 text-lg font-bold tabular-nums">{value}</p>
+      {sub && <p className="mt-0.5 text-[11px] opacity-70">{sub}</p>}
+    </div>
+  );
+}
+
 // ── Página principal ──────────────────────────────────────────────────────────
 
 const PERIODO_OPTS: { id: Periodo; label: string }[] = [
@@ -1937,7 +2138,7 @@ const PERIODO_OPTS: { id: Periodo; label: string }[] = [
   { id: "anio", label: "Año"       },
 ];
 
-const TAB_VALID: TabDash[] = ["comercial", "financiero", "inventario", "ventas"];
+const TAB_VALID: TabDash[] = ["comercial", "financiero", "inventario", "ventas", "compras"];
 
 type DashScope =
   | { kind: "pending" }
@@ -2078,7 +2279,7 @@ export default function DashboardPage() {
   const nivel = usuarioActivo?.nivel ?? "administrador";
 
   // Instancia En lo de Mari: solo Ventas / Inventario / Financiero (sin Comercial/CRM/Pipeline).
-  const MARI_ALLOWED_TABS: TabDash[] = ["ventas", "inventario", "financiero"];
+  const MARI_ALLOWED_TABS: TabDash[] = ["ventas", "inventario", "financiero", "compras"];
   const rawTabs: TabDash[] = dashScope.kind === "scoped" ? dashScope.tabs : TAB_VALID;
   const effectiveTabs: TabDash[] = rawTabs.filter((t) => MARI_ALLOWED_TABS.includes(t));
   const showTabNav = effectiveTabs.length > 1;
@@ -2098,6 +2299,7 @@ export default function DashboardPage() {
     financiero: { label: "Financiero", icon: "💰" },
     inventario: { label: "Inventario", icon: "📦" },
     ventas: { label: "Ventas", icon: "🛒" },
+    compras: { label: "Compras", icon: "🚚" },
   };
 
   if (!config) {
@@ -2327,6 +2529,10 @@ export default function DashboardPage() {
           productos={productos}
           periodo={periodo}
         />
+      )}
+
+      {tab === "compras" && (
+        <DashCompras compras={compras} periodo={periodo} />
       )}
 
     </div>
