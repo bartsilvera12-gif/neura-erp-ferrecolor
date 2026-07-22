@@ -33,6 +33,7 @@ import {
   Utensils,
   BarChart3,
   Wallet,
+  Banknote,
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
@@ -132,8 +133,7 @@ const MENU_STRUCTURE: MenuItem[] = [
   ]},
   // Clientes: reactivado para que el modulo Consulta pueda asociar pedidos.
   { key: "clientes", slug: "clientes", label: "Clientes", href: "/clientes", icon: Users },
-  // Pagos ocultado a pedido de Ferretería República (no se usa el módulo).
-  // { key: "pagos", slug: "pagos", label: "Pagos", href: "/pagos", icon: Banknote },
+  { key: "pagos", slug: "pagos", label: "Pagos", href: "/pagos", icon: Banknote },
   {
     key: "compras",
     slug: "compras",
