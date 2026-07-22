@@ -17,6 +17,8 @@ interface CompraApiRow {
   comprobante_storage_path?: string | null;
   comprobante_nombre?: string | null;
   comprobante_mime_type?: string | null;
+  anulada_at?: string | null;
+  anulada_motivo?: string | null;
 }
 
 function mapRow(r: CompraApiRow): Compra {
@@ -49,6 +51,8 @@ function mapRow(r: CompraApiRow): Compra {
     comprobante_storage_path: r.comprobante_storage_path ?? null,
     comprobante_nombre: r.comprobante_nombre ?? null,
     comprobante_mime_type: r.comprobante_mime_type ?? null,
+    anulada_at: r.anulada_at ?? null,
+    anulada_motivo: r.anulada_motivo ?? null,
     fecha: r.fecha,
   };
 }

@@ -45,4 +45,8 @@ export interface Compra {
   orden_compra_item_id?: string | null;
 
   fecha: string;                 // ISO string, generado automáticamente
+
+  // Anulación (soft delete). Si anulada_at != null, la compra fue revertida.
+  anulada_at?: string | null;
+  anulada_motivo?: string | null;
 }

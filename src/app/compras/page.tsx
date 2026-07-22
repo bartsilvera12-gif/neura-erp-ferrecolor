@@ -49,6 +49,7 @@ type GrupoCompra = {
   total: number;
   comprobante: boolean;
   orden_compra_numero: string | null;
+  anulada: boolean;
 };
 
 function agrupar(rows: Compra[]): GrupoCompra[] {
@@ -67,12 +68,14 @@ function agrupar(rows: Compra[]): GrupoCompra[] {
         total: 0,
         comprobante: false,
         orden_compra_numero: c.orden_compra_numero ?? null,
+        anulada: !!c.anulada_at,
       };
       map.set(key, g);
     }
     g.items.push(c);
     g.total += Number(c.total) || 0;
     if (c.comprobante_storage_path) g.comprobante = true;
+    if (c.anulada_at) g.anulada = true;
   }
   return [...map.values()].sort(
     (a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
@@ -307,12 +310,17 @@ export default function ComprasPage() {
                   return (
                     <FragmentRow key={g.numero_control}>
                       <tr
-                        className={`border-b border-slate-200 transition-colors hover:bg-[#4FAEB2]/[0.04] ${multi ? "cursor-pointer" : ""}`}
+                        className={`border-b border-slate-200 transition-colors ${g.anulada ? "bg-red-50/40 text-slate-400 line-through hover:bg-red-50/60" : "hover:bg-[#4FAEB2]/[0.04]"} ${multi ? "cursor-pointer" : ""}`}
                         onClick={() => multi && toggle(g.numero_control)}
                       >
                         <td className="py-4 pr-4 font-mono text-xs text-gray-500">
                           {multi && <span className="mr-1 inline-block text-gray-400">{abierto ? "▾" : "▸"}</span>}
                           {g.numero_control}
+                          {g.anulada && (
+                            <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-700 no-underline">
+                              Anulada
+                            </span>
+                          )}
                         </td>
                         <td className="py-4 pr-4 font-medium text-gray-800">{g.proveedor_nombre}</td>
                         <td className="py-4 pr-4 text-gray-600">
@@ -347,33 +355,37 @@ export default function ComprasPage() {
                         </td>
                         <td className="py-4 pr-4 text-gray-500 text-xs tabular-nums">{formatFecha(g.fecha)}</td>
                         <td className="py-4 text-center" onClick={(e) => e.stopPropagation()}>
-                          <div className="inline-flex items-center gap-3">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const primera = g.items[0];
-                                setEditarCompraTarget({
-                                  numero_control: g.numero_control,
-                                  numero_factura: primera?.numero_factura ?? "",
-                                  fecha_factura: primera?.fecha_factura ?? "",
-                                  nro_timbrado: primera?.nro_timbrado ?? "",
-                                  observacion: primera?.observacion ?? "",
-                                });
-                              }}
-                              className="text-xs font-semibold text-slate-600 hover:underline"
-                              title="Editar factura/timbrado/observación (no afecta stock)"
-                            >
-                              Editar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setAnularCompraTarget({ numero_control: g.numero_control, total: g.total })}
-                              className="text-xs font-semibold text-red-700 hover:underline"
-                              title="Anular compra y revertir stock/movimientos"
-                            >
-                              Anular
-                            </button>
-                          </div>
+                          {g.anulada ? (
+                            <span className="text-xs italic text-slate-400 no-underline">Sin acciones</span>
+                          ) : (
+                            <div className="inline-flex items-center gap-3">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const primera = g.items[0];
+                                  setEditarCompraTarget({
+                                    numero_control: g.numero_control,
+                                    numero_factura: primera?.numero_factura ?? "",
+                                    fecha_factura: primera?.fecha_factura ?? "",
+                                    nro_timbrado: primera?.nro_timbrado ?? "",
+                                    observacion: primera?.observacion ?? "",
+                                  });
+                                }}
+                                className="text-xs font-semibold text-slate-600 hover:underline"
+                                title="Editar factura/timbrado/observación (no afecta stock)"
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setAnularCompraTarget({ numero_control: g.numero_control, total: g.total })}
+                                className="text-xs font-semibold text-red-700 hover:underline"
+                                title="Anular compra y revertir stock/movimientos"
+                              >
+                                Anular
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
 
