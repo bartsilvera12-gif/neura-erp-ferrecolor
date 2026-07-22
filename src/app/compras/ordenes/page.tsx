@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { getOrdenesCompra } from "@/lib/ordenes-compra/storage";
+import { getOrdenesCompra, deleteOrdenCompra } from "@/lib/ordenes-compra/storage";
 import { productoMatchesQuery } from "@/lib/productos/token-search";
 import type { OrdenCompra, EstadoOrdenCompra } from "@/lib/ordenes-compra/types";
 
@@ -162,7 +162,31 @@ export default function OrdenesCompraPage() {
                           <Link href={`/compras/desde-orden/${encodeURIComponent(g.numero_oc)}`}
                             className="text-xs font-semibold text-emerald-700 hover:underline">Recibir</Link>
                         )}
-                        {g.estado !== "cancelada" && (
+                        {g.estado === "pendiente" && (
+                          <>
+                            <Link
+                              href={`/compras/ordenes/${encodeURIComponent(g.numero_oc)}/editar`}
+                              className="text-xs font-semibold text-slate-600 hover:underline"
+                              title="Editar productos y condiciones"
+                            >
+                              Editar
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!confirm(`¿Eliminar la orden ${g.numero_oc}? Esta acción no se puede deshacer.`)) return;
+                                const r = await deleteOrdenCompra(g.numero_oc);
+                                if (!r.success) { alert(r.error); return; }
+                                setReloadKey((k) => k + 1);
+                              }}
+                              className="text-xs font-semibold text-red-700 hover:underline"
+                              title="Eliminar OC (solo pendientes)"
+                            >
+                              Eliminar
+                            </button>
+                          </>
+                        )}
+                        {g.estado !== "cancelada" && g.estado !== "pendiente" && (
                           <button
                             type="button"
                             onClick={() => setAnularTarget(g)}

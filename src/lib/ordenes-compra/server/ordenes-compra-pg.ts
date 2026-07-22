@@ -200,6 +200,112 @@ export async function insertOrdenCompra(
 }
 
 /**
+ * Elimina físicamente una OC (todas sus líneas). Solo permitido si TODAS las
+ * líneas están en 'pendiente' (nada recibido ni cancelado). Para el resto de
+ * estados usar anular/cancelar, que preservan trazabilidad.
+ */
+export async function deleteOrdenCompra(
+  schemaRaw: string,
+  empresaId: string,
+  numeroOc: string
+): Promise<number> {
+  const schema = assertAllowedChatDataSchema(schemaRaw);
+  const t = quoteSchemaTable(schema, "ordenes_compra");
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    const chk = await client.query<{ estado: string }>(
+      `SELECT estado FROM ${t} WHERE empresa_id = $1::uuid AND numero_oc = $2 FOR UPDATE`,
+      [empresaId, numeroOc]
+    );
+    if (chk.rowCount === 0) throw new Error("Orden de compra no encontrada.");
+    if (chk.rows.some((r) => r.estado !== "pendiente")) {
+      throw new Error("Solo se pueden eliminar OCs en estado 'pendiente'. Anulala si ya fue recibida.");
+    }
+    const del = await client.query(
+      `DELETE FROM ${t} WHERE empresa_id = $1::uuid AND numero_oc = $2`,
+      [empresaId, numeroOc]
+    );
+    await client.query("COMMIT");
+    return del.rowCount ?? 0;
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => null);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Actualiza una OC en 'pendiente' reemplazando header + items. Estrategia
+ * simple: DELETE todas las filas + INSERT las nuevas con el MISMO numero_oc.
+ */
+export async function updateOrdenCompra(
+  schemaRaw: string,
+  empresaId: string,
+  numeroOc: string,
+  header: OrdenCompraHeaderInput,
+  items: OrdenCompraItemInput[]
+): Promise<OrdenCompraResult> {
+  const schema = assertAllowedChatDataSchema(schemaRaw);
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error("La orden de compra no tiene productos.");
+  }
+  const t = quoteSchemaTable(schema, "ordenes_compra");
+  const client = await pool().connect();
+  const inserted: OrdenCompraRow[] = [];
+  try {
+    await client.query("BEGIN");
+    const chk = await client.query<{ estado: string; fecha: string }>(
+      `SELECT estado, fecha FROM ${t} WHERE empresa_id = $1::uuid AND numero_oc = $2 FOR UPDATE`,
+      [empresaId, numeroOc]
+    );
+    if (chk.rowCount === 0) throw new Error("Orden de compra no encontrada.");
+    if (chk.rows.some((r) => r.estado !== "pendiente")) {
+      throw new Error("Solo se pueden editar OCs en estado 'pendiente'.");
+    }
+    const fechaOriginal = chk.rows[0].fecha;
+    await client.query(
+      `DELETE FROM ${t} WHERE empresa_id = $1::uuid AND numero_oc = $2`,
+      [empresaId, numeroOc]
+    );
+    for (const it of items) {
+      const { rows } = await client.query<OrdenCompraRow>(
+        `INSERT INTO ${t} (
+           empresa_id, numero_oc, proveedor_id, proveedor_nombre, producto_id, producto_nombre,
+           cantidad, moneda, tipo_cambio, costo_unitario_original, costo_unitario,
+           iva_tipo, subtotal, monto_iva, total, precio_venta, margen_venta,
+           tipo_pago, plazo_dias, estado, observacion, fecha, created_by, usuario_nombre
+         ) VALUES (
+           $1::uuid, $2, $3::uuid, $4, $5::uuid, $6,
+           $7::numeric, $8, $9::numeric, $10::numeric, $11::numeric,
+           $12, $13::numeric, $14::numeric, $15::numeric, $16::numeric, $17::numeric,
+           $18, $19::integer, 'pendiente', $20, $21::timestamptz, $22::uuid, $23
+         )
+         RETURNING ${COLS}`,
+        [
+          empresaId, numeroOc, header.proveedor_id, header.proveedor_nombre,
+          it.producto_id, it.producto_nombre,
+          it.cantidad, header.moneda, header.tipo_cambio,
+          it.costo_unitario_original, it.costo_unitario,
+          it.iva_tipo, it.subtotal, it.monto_iva, it.total, it.precio_venta, it.margen_venta,
+          header.tipo_pago, header.plazo_dias, header.observacion,
+          fechaOriginal, header.created_by, header.usuario_nombre,
+        ]
+      );
+      inserted.push(rows[0]);
+    }
+    await client.query("COMMIT");
+    return { numero_oc: numeroOc, ordenes: inserted };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => null);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Cancela una OC (todas sus líneas). Solo mientras esté 'pendiente' (nada
  * recibido todavía) — si ya tiene alguna recepción parcial, no se puede
  * cancelar por acá para no perder la trazabilidad de lo ya comprado/recibido.

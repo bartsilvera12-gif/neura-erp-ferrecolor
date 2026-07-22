@@ -122,6 +122,45 @@ export async function saveOrdenCompra(
   }
 }
 
+export async function updateOrdenCompra(
+  numeroOc: string,
+  header: OrdenHeaderPayload,
+  items: OrdenItemPayload[]
+): Promise<OkOrden | ErrOrden> {
+  try {
+    const r = await fetch(`/api/ordenes-compra/${encodeURIComponent(numeroOc)}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...header, items }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j?.success) {
+      return { success: false, error: (j as { error?: string })?.error ?? `Error ${r.status}` };
+    }
+    const data = j.data as { numero_oc?: string; ordenes?: OrdenApiRow[] };
+    return { success: true, numero_oc: data.numero_oc ?? numeroOc, ordenes: (data.ordenes ?? []).map(mapRow) };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Error de red" };
+  }
+}
+
+export async function deleteOrdenCompra(
+  numeroOc: string
+): Promise<{ success: true } | ErrOrden> {
+  try {
+    const r = await fetch(`/api/ordenes-compra/${encodeURIComponent(numeroOc)}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j?.success) return { success: false, error: (j as { error?: string })?.error ?? `Error ${r.status}` };
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Error de red" };
+  }
+}
+
 export async function cancelarOrdenCompra(
   numeroOc: string,
   motivo: string | null
