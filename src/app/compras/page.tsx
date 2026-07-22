@@ -93,6 +93,7 @@ export default function ComprasPage() {
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
   const [anularTarget, setAnularTarget] = useState<{ numero_oc: string; estado: EstadoOrdenCompra } | null>(null);
   const [anularCompraTarget, setAnularCompraTarget] = useState<{ numero_control: string; total: number } | null>(null);
+  const [editarCompraTarget, setEditarCompraTarget] = useState<{ numero_control: string; numero_factura: string; fecha_factura: string; nro_timbrado: string; observacion: string } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
@@ -346,14 +347,33 @@ export default function ComprasPage() {
                         </td>
                         <td className="py-4 pr-4 text-gray-500 text-xs tabular-nums">{formatFecha(g.fecha)}</td>
                         <td className="py-4 text-center" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            onClick={() => setAnularCompraTarget({ numero_control: g.numero_control, total: g.total })}
-                            className="text-xs font-semibold text-red-700 hover:underline"
-                            title="Anular compra y revertir stock/movimientos"
-                          >
-                            Anular
-                          </button>
+                          <div className="inline-flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const primera = g.items[0];
+                                setEditarCompraTarget({
+                                  numero_control: g.numero_control,
+                                  numero_factura: primera?.numero_factura ?? "",
+                                  fecha_factura: primera?.fecha_factura ?? "",
+                                  nro_timbrado: primera?.nro_timbrado ?? "",
+                                  observacion: primera?.observacion ?? "",
+                                });
+                              }}
+                              className="text-xs font-semibold text-slate-600 hover:underline"
+                              title="Editar factura/timbrado/observación (no afecta stock)"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setAnularCompraTarget({ numero_control: g.numero_control, total: g.total })}
+                              className="text-xs font-semibold text-red-700 hover:underline"
+                              title="Anular compra y revertir stock/movimientos"
+                            >
+                              Anular
+                            </button>
+                          </div>
                         </td>
                       </tr>
 
@@ -400,6 +420,91 @@ export default function ComprasPage() {
           onDone={() => { setAnularCompraTarget(null); setReloadKey((k) => k + 1); }}
         />
       )}
+      {editarCompraTarget && (
+        <EditarCompraModal
+          data={editarCompraTarget}
+          onClose={() => setEditarCompraTarget(null)}
+          onDone={() => { setEditarCompraTarget(null); setReloadKey((k) => k + 1); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function EditarCompraModal({
+  data,
+  onClose,
+  onDone,
+}: {
+  data: { numero_control: string; numero_factura: string; fecha_factura: string; nro_timbrado: string; observacion: string };
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [form, setForm] = useState({ ...data });
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit() {
+    setErr(null);
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/compras/${encodeURIComponent(data.numero_control)}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          numero_factura: form.numero_factura.trim() || null,
+          fecha_factura: form.fecha_factura || null,
+          nro_timbrado: form.nro_timbrado.trim() || null,
+          observacion: form.observacion.trim() || null,
+        }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.success) throw new Error((j as { error?: string })?.error ?? `Error ${r.status}`);
+      onDone();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "No se pudo actualizar.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const input = "w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#4FAEB2]/30";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="border-b border-slate-100 px-5 py-4">
+          <h3 className="text-base font-bold text-slate-900">Editar compra {data.numero_control}</h3>
+          <p className="mt-0.5 text-xs text-slate-500">Solo se editan datos de la factura y observación. No cambia stock, costos ni cuentas por pagar.</p>
+        </div>
+        <div className="space-y-3 px-5 py-4">
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">Número de factura</label>
+            <input value={form.numero_factura} onChange={(e) => setForm({ ...form, numero_factura: e.target.value })} className={input} placeholder="Ej: 001-001-1234567" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">Fecha de factura</label>
+            <input type="date" value={form.fecha_factura} onChange={(e) => setForm({ ...form, fecha_factura: e.target.value })} className={input} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">Nº de timbrado</label>
+            <input value={form.nro_timbrado} onChange={(e) => setForm({ ...form, nro_timbrado: e.target.value })} className={input} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">Observación</label>
+            <textarea rows={3} value={form.observacion} onChange={(e) => setForm({ ...form, observacion: e.target.value })} className={input} />
+          </div>
+          {err && <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{err}</p>}
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-3">
+          <button type="button" onClick={onClose} className="rounded-md border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">Cancelar</button>
+          <button type="button" onClick={submit} disabled={loading}
+            className="rounded-md bg-[#4FAEB2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3F8E91] disabled:opacity-50">
+            {loading ? "Guardando…" : "Guardar cambios"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
