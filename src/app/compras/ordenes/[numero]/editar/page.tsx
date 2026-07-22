@@ -351,8 +351,9 @@ export default function EditarOrdenCompraPage() {
                         <p className="font-mono text-[11px] text-slate-500">{l.sku}</p>
                       </td>
                       <td className="px-3 py-3">
-                        <input type="number" min={1} value={l.cantidad}
-                          onChange={(e) => updateLinea(l.producto_id, { cantidad: Math.max(1, parseInt(e.target.value) || 1) })}
+                        <input type="number" min={0} value={l.cantidad === 0 ? "" : l.cantidad}
+                          onChange={(e) => updateLinea(l.producto_id, { cantidad: Math.max(0, parseInt(e.target.value) || 0) })}
+                          onBlur={(e) => { if (!e.target.value || Number(e.target.value) < 1) updateLinea(l.producto_id, { cantidad: 1 }); }}
                           className="mx-auto h-8 w-16 rounded-md border border-slate-200 px-2 text-center text-sm tabular-nums" />
                       </td>
                       <td className="px-3 py-3 text-right">
