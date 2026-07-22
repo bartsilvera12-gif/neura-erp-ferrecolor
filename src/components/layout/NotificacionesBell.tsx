@@ -18,12 +18,34 @@ interface Notif {
 
 const POLL_MS = 60_000;
 
+/** Sonido corto de "ding" via Web Audio API (sin archivo externo). */
+function playDing() {
+  try {
+    const AudioCtx = (window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext);
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, now);
+    osc.frequency.exponentialRampToValueAtTime(1320, now + 0.08);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.25, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.4);
+  } catch { /* audio no disponible */ }
+}
+
 export default function NotificacionesBell() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Notif[]>([]);
   const [noLeidas, setNoLeidas] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
+  const prevNoLeidas = useRef<number | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -31,8 +53,14 @@ export default function NotificacionesBell() {
       if (!res.ok) return;
       const j = await res.json();
       const data = j?.data as { notificaciones?: Notif[]; no_leidas?: number } | undefined;
+      const nuevoNo = data?.no_leidas ?? 0;
       setItems(data?.notificaciones ?? []);
-      setNoLeidas(data?.no_leidas ?? 0);
+      setNoLeidas(nuevoNo);
+      // Ding solo si aumentó respecto al último valor conocido (evita sonar en el primer poll).
+      if (prevNoLeidas.current !== null && nuevoNo > prevNoLeidas.current) {
+        playDing();
+      }
+      prevNoLeidas.current = nuevoNo;
     } catch {
       /* silencioso: la campanita no debe romper la UI */
     }

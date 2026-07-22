@@ -780,6 +780,29 @@ export async function createVentaTransaccionalPg(
       cuentaPorCobrarId = String((insCxc.data as { id: string }).id);
     }
 
+    // Evaluar cruce de tramo de comision (best-effort, no rompe la venta).
+    // Calcula ganancia leyendo los movimientos SALIDA reciennsertados.
+    try {
+      const movsQ = await sb
+        .from("movimientos_inventario")
+        .select("cantidad, costo_unitario")
+        .eq("empresa_id", params.empresaId)
+        .eq("venta_id", ventaId)
+        .eq("tipo", "SALIDA");
+      const costoVenta = (movsQ.data ?? []).reduce(
+        (s, m) => s + (Number((m as { cantidad: number }).cantidad) || 0) * (Number((m as { costo_unitario: number }).costo_unitario) || 0),
+        0
+      );
+      const gananciaVenta = calc.total - costoVenta;
+      const vendedor = (params.usuarioNombre?.trim() as string) || "";
+      if (vendedor && gananciaVenta > 0) {
+        const { evaluarCruceTramoComision } = await import("@/lib/notificaciones/comisiones");
+        const { fetchDataSchemaForEmpresaId } = await import("@/lib/supabase/empresa-data-schema");
+        const schema = await fetchDataSchemaForEmpresaId(params.empresaId);
+        void evaluarCruceTramoComision(schema, params.empresaId, vendedor, gananciaVenta).catch(() => {});
+      }
+    } catch { /* silencioso */ }
+
     return { ventaId, numeroControl, fechaIso, notaRemisionNumero, cuentaPorCobrarId };
   } catch (err) {
     await rollback();

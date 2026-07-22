@@ -4,6 +4,7 @@ import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema"
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import { listNotificaciones, evaluarStockClaseA } from "@/lib/notificaciones/server";
+import { evaluarComisionesMensuales } from "@/lib/notificaciones/comisiones";
 
 /**
  * GET /api/notificaciones
@@ -21,7 +22,12 @@ export async function GET(request: NextRequest) {
     try {
       await evaluarStockClaseA(schema, ctx.auth.empresa_id);
     } catch (e) {
-      console.error("[/api/notificaciones] evaluar:", e instanceof Error ? e.message : e);
+      console.error("[/api/notificaciones] evaluar stock:", e instanceof Error ? e.message : e);
+    }
+    try {
+      await evaluarComisionesMensuales(schema, ctx.auth.empresa_id);
+    } catch (e) {
+      console.error("[/api/notificaciones] evaluar comisiones mensuales:", e instanceof Error ? e.message : e);
     }
 
     try {
