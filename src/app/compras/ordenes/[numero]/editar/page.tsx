@@ -138,7 +138,7 @@ export default function EditarOrdenCompraPage() {
         producto_nombre: p.nombre,
         sku: p.sku,
         cantidad: 1,
-        costo_input: 0,
+        costo_input: cab.moneda === "PYG" ? (Number(p.costo_promedio) || 0) : 0,
         iva_tipo: "10",
         precio_venta: Number(p.precio_venta) || 0,
       },

@@ -86,7 +86,10 @@ export default function NuevaOrdenCompraPage() {
         producto_nombre: p.nombre,
         sku: p.sku,
         cantidad: 1,
-        costo_input: 0,
+        // Precarga el costo actual del producto (costo_promedio en PYG).
+        // Si la OC es en USD, el usuario ajusta manualmente porque las unidades
+        // difieren; en ese caso arranca en 0.
+        costo_input: cab.moneda === "PYG" ? (Number(p.costo_promedio) || 0) : 0,
         iva_tipo: "10",
         precio_venta: Number(p.precio_venta) || 0,
       },
