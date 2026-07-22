@@ -1533,19 +1533,7 @@ const DashFinanciero = memo(function DashFinanciero({
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5 lg:gap-8">
         <motion.div whileHover={{ y: -2 }} className={`${finCard} lg:col-span-3`}>
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Progreso de metas</h3>
-          <div className="mt-6 grid grid-cols-1 gap-8 sm:grid-cols-2">
-            <ProgressBar
-              variant="light"
-              label="Facturación mensual"
-              value={facturasValidas
-                .filter((f) => enMesCalendarioActual(toCalendarDateStr(f.fecha)))
-                .reduce((s, f) => {
-                  const t = Number(f.monto);
-                  return s + (Number.isFinite(t) ? t : 0);
-                }, 0)}
-              meta={config.meta_facturacion_mensual}
-              format="gs"
-            />
+          <div className="mt-6 grid grid-cols-1 gap-8">
             <ProgressBar
               variant="light"
               label="Ventas mensuales"
