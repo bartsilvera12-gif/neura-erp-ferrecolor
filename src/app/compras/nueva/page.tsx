@@ -606,16 +606,16 @@ export default function NuevaCompraPage() {
               </div>
             ) : (
               <div className="overflow-x-auto rounded-lg border border-slate-200">
-                <table className="w-full min-w-[880px] text-left text-sm">
+                <table className="w-full min-w-[780px] text-left text-sm">
                   <thead className="bg-slate-50 text-gray-500">
                     <tr>
                       <th className="py-2 px-3 font-medium">Producto</th>
-                      <th className="py-2 px-3 font-medium text-right w-20">Cant.</th>
-                      <th className="py-2 px-3 font-medium text-right w-32">Costo unit. ({monedaLabel})</th>
-                      <th className="py-2 px-3 font-medium w-32">IVA</th>
-                      <th className="py-2 px-3 font-medium text-right w-32">Precio venta</th>
-                      <th className="py-2 px-3 font-medium text-right">Total línea</th>
-                      <th className="py-2 px-2 text-center text-[11px] uppercase tracking-wide">Quitar</th>
+                      <th className="py-2 px-2 font-medium text-right w-16">Cant.</th>
+                      <th className="py-2 px-2 font-medium text-right w-28">Costo ({monedaLabel})</th>
+                      <th className="py-2 px-2 font-medium w-24">IVA</th>
+                      <th className="py-2 px-2 font-medium text-right w-28">Precio venta</th>
+                      <th className="py-2 px-2 font-medium text-right w-28 whitespace-nowrap">Total</th>
+                      <th className="py-2 px-2 w-10" />
                     </tr>
                   </thead>
                   <tbody>
@@ -628,47 +628,46 @@ export default function NuevaCompraPage() {
                             <span className="mt-0.5 inline-block rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">Materia prima</span>
                           )}
                         </td>
-                        <td className="py-2 px-3">
+                        <td className="py-2 px-2">
                           <input type="number" min={0} step="any" value={l.cantidad || ""}
                             onChange={(e) => editarLinea(i, { cantidad: parseFloat(e.target.value) || 0 })}
-                            className="w-16 rounded-md border border-slate-200 px-2 py-1.5 text-right text-sm outline-none focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20" />
+                            className="w-14 rounded-md border border-slate-200 px-2 py-1.5 text-right text-sm outline-none focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20" />
                         </td>
-                        <td className="py-2 px-3">
+                        <td className="py-2 px-2">
                           <MontoInput value={l.costo_unitario_input}
                             onChange={(n) => editarLinea(i, { costo_unitario_input: n })}
                             decimals={cab.moneda === "USD"}
-                            className="w-28 rounded-md border border-slate-200 px-2 py-1.5 text-right text-sm outline-none focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20" />
+                            className="w-24 rounded-md border border-slate-200 px-2 py-1.5 text-right text-sm outline-none focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20" />
                           {cab.moneda === "USD" && l.costo_unitario_pyg > 0 && (
                             <div className="mt-0.5 text-right text-[10px] text-gray-400">≈ {formatGs(l.costo_unitario_pyg)}</div>
                           )}
                         </td>
-                        <td className="py-2 px-3">
+                        <td className="py-2 px-2">
                           <select value={l.iva_tipo}
                             onChange={(e) => editarLinea(i, { iva_tipo: e.target.value as TipoIva })}
-                            className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20 bg-white">
+                            className="w-full rounded-md border border-slate-200 px-1.5 py-1.5 text-sm outline-none focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20 bg-white">
                             <option value="exenta">Exenta</option>
-                            <option value="5">IVA 5%</option>
-                            <option value="10">IVA 10%</option>
+                            <option value="5">5%</option>
+                            <option value="10">10%</option>
                           </select>
                         </td>
-                        <td className="py-2 px-3">
+                        <td className="py-2 px-2">
                           <MontoInput value={l.precio_venta}
                             onChange={(n) => editarLinea(i, { precio_venta: n })}
                             decimals={false}
                             placeholder={l.es_insumo_no_vendible ? "Opcional" : "0"}
-                            className="w-28 rounded-md border border-slate-200 px-2 py-1.5 text-right text-sm outline-none focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20" />
+                            className="w-24 rounded-md border border-slate-200 px-2 py-1.5 text-right text-sm outline-none focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20" />
                           {l.margen_venta !== null && (
                             <div className={`mt-0.5 text-right text-[10px] ${margenColor(l.margen_venta)}`}>Margen {l.margen_venta.toFixed(1)}%</div>
                           )}
                         </td>
-                        <td className="py-2 px-3 text-right tabular-nums font-semibold text-gray-800">{formatGs(l.total)}</td>
+                        <td className="py-2 px-2 text-right tabular-nums font-semibold text-gray-800 whitespace-nowrap">{formatGs(l.total)}</td>
                         <td className="py-2 px-2 text-center">
                           <button type="button" onClick={() => handleQuitarLinea(i)}
-                            className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 hover:border-red-300 transition-colors"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 hover:border-red-300 hover:text-red-700 transition-colors"
                             aria-label="Quitar línea"
                             title="Quitar este producto de la compra">
-                            <Trash2 className="h-3.5 w-3.5" />
-                            Quitar
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         </td>
                       </tr>
@@ -677,16 +676,17 @@ export default function NuevaCompraPage() {
                   <tfoot>
                     <tr className="border-t border-slate-200 bg-slate-50/60">
                       <td className="py-2 px-3 text-xs font-semibold uppercase tracking-wide text-gray-500" colSpan={5}>
-                        Total compra ({lineas.length} {lineas.length === 1 ? "ítem" : "ítems"})
+                        <div className="flex items-center justify-between gap-3">
+                          <span>Total compra ({lineas.length} {lineas.length === 1 ? "ítem" : "ítems"})</span>
+                          <button type="button" onClick={() => setLineas([])}
+                            className="text-[11px] font-medium text-slate-400 hover:text-red-600 hover:underline normal-case"
+                            title="Quitar todos los productos">
+                            Vaciar lista
+                          </button>
+                        </div>
                       </td>
-                      <td className="py-2 px-3 text-right tabular-nums font-bold text-[#0EA5E9]">{formatGs(totales.total)}</td>
-                      <td className="py-2 px-2 text-center">
-                        <button type="button" onClick={() => setLineas([])}
-                          className="text-[11px] font-medium text-slate-500 hover:text-red-600 hover:underline"
-                          title="Quitar todos los productos">
-                          Vaciar
-                        </button>
-                      </td>
+                      <td className="py-2 px-2 text-right tabular-nums font-bold text-[#0EA5E9]">{formatGs(totales.total)}</td>
+                      <td className="py-2 px-2" />
                     </tr>
                   </tfoot>
                 </table>
