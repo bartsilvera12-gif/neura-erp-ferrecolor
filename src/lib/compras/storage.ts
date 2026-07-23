@@ -111,6 +111,7 @@ export interface CompraHeaderPayload {
   comprobante_storage_path?: string | null;
   comprobante_nombre?: string | null;
   comprobante_mime_type?: string | null;
+  descuenta_caja?: boolean;
 }
 
 export interface UploadComprobanteResult {

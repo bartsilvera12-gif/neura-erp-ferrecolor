@@ -191,6 +191,8 @@ export interface CompraHeaderInput {
   comprobante_mime_type: string | null;
   created_by: string | null;
   usuario_nombre: string | null;
+  /** Si true y hay caja abierta, se genera egreso en caja_movimientos. Aplica solo a contado + PYG. */
+  descuenta_caja?: boolean;
 }
 
 /** Una línea (producto) de la compra. */
@@ -320,6 +322,31 @@ export async function insertComprasConImpactoTx(
     // Mantener relación producto↔proveedor (costo_habitual). No pisa marca.
     await upsertProveedorProducto(
       client, tPP, empresaId, it.producto_id, header.proveedor_id, it.costo_unitario
+    );
+  }
+
+  // Egreso en caja si la compra se paga en efectivo desde la caja abierta.
+  // Aplica solo a contado + PYG. Si el usuario pidio descontar pero no hay
+  // caja abierta, la transaccion falla para no dejar la compra desincronizada.
+  if (header.descuenta_caja && header.tipo_pago === "contado" && header.moneda === "PYG") {
+    const tCajas = quoteSchemaTable(schema, "cajas");
+    const tCm = quoteSchemaTable(schema, "caja_movimientos");
+    const totalCompra = insertedRows.reduce((s, r) => s + (Number(r.total) || 0), 0);
+    const cajaR = await client.query<{ id: string }>(
+      `SELECT id FROM ${tCajas}
+        WHERE empresa_id = $1::uuid AND estado = 'abierta'
+        ORDER BY apertura_at DESC LIMIT 1`,
+      [empresaId]
+    );
+    if (cajaR.rowCount === 0) {
+      throw new Error("No hay caja abierta para descontar esta compra. Abrí una caja o desactivá 'Descontar de caja'.");
+    }
+    const cajaId = cajaR.rows[0].id;
+    const concepto = `Compra ${numero}: ${header.proveedor_nombre}`.slice(0, 200);
+    await client.query(
+      `INSERT INTO ${tCm} (empresa_id, caja_id, tipo, concepto, monto, medio_pago, usuario_id, usuario_email)
+       VALUES ($1::uuid, $2::uuid, 'egreso', $3, $4::numeric, 'efectivo', $5::uuid, $6)`,
+      [empresaId, cajaId, concepto, totalCompra, header.created_by, header.usuario_nombre]
     );
   }
 

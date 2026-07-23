@@ -29,6 +29,7 @@ export default function GastoForm({ gasto, onSuccess }: Props) {
     recurrente: gasto?.recurrente ?? false,
     frecuencia: gasto?.frecuencia ?? "",
     fecha: gasto?.fecha ?? hoyAsuncionYmd(),
+    descuenta_caja: gasto?.descuenta_caja ?? false,
   });
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
@@ -164,6 +165,25 @@ export default function GastoForm({ gasto, onSuccess }: Props) {
             />
           </div>
         </div>
+
+        {!gasto && (
+          <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50/60 p-4">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.descuenta_caja ?? false}
+                onChange={(e) => setForm((p) => ({ ...p, descuenta_caja: e.target.checked }))}
+                className="mt-0.5 h-4 w-4 accent-amber-600"
+              />
+              <span className="flex-1">
+                <span className="block text-sm font-semibold text-amber-900">Descontar de caja</span>
+                <span className="mt-0.5 block text-xs text-amber-700">
+                  Activá si pagaste este gasto en efectivo desde la caja. Se registra como egreso automático y se resta del cierre. Si pagaste con banco / tarjeta / transferencia, dejalo desactivado.
+                </span>
+              </span>
+            </label>
+          </div>
+        )}
       </div>
 
       <div className="flex gap-4">

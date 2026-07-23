@@ -58,6 +58,45 @@ export async function POST(request: NextRequest) {
     const descripcion = body.descripcion != null ? String(body.descripcion).trim() : "";
     const recurrente = body.recurrente === true;
     const frecuencia = body.frecuencia != null ? String(body.frecuencia).trim() : "";
+    const descuentaCaja = body.descuenta_caja === true;
+
+    // Si el gasto descuenta de caja, buscamos una caja abierta AHORA
+    // (no permite descontar de cajas cerradas — mantiene arqueos historicos limpios).
+    let cajaMovimientoId: string | null = null;
+    if (descuentaCaja) {
+      const cajaQ = await ctx.supabase
+        .from("cajas")
+        .select("id")
+        .eq("empresa_id", ctx.auth.empresa_id)
+        .eq("estado", "abierta")
+        .order("apertura_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (cajaQ.error) return NextResponse.json(errorResponse(cajaQ.error.message), { status: 500 });
+      if (!cajaQ.data) {
+        return NextResponse.json(
+          errorResponse("No hay caja abierta para descontar este gasto. Abrí una caja o desactivá 'Descontar de caja'."),
+          { status: 400 }
+        );
+      }
+      const concepto = `Gasto: ${descripcion || categoria || "sin descripción"}`.slice(0, 200);
+      const insMov = await ctx.supabase
+        .from("caja_movimientos")
+        .insert({
+          empresa_id: ctx.auth.empresa_id,
+          caja_id: cajaQ.data.id,
+          tipo: "egreso",
+          concepto,
+          monto,
+          medio_pago: "efectivo",
+          usuario_id: ctx.auth.usuarioCatalogId ?? null,
+          usuario_email: ctx.auth.user?.email ?? null,
+        })
+        .select("id")
+        .single();
+      if (insMov.error) return NextResponse.json(errorResponse(insMov.error.message), { status: 500 });
+      cajaMovimientoId = String(insMov.data.id);
+    }
 
     const { data, error } = await ctx.supabase
       .from("gastos")
@@ -70,11 +109,19 @@ export async function POST(request: NextRequest) {
         recurrente,
         frecuencia: frecuencia || null,
         fecha,
+        descuenta_caja: descuentaCaja,
+        caja_movimiento_id: cajaMovimientoId,
       })
       .select()
       .single();
 
     if (error) {
+      // Rollback best-effort del movimiento de caja si el gasto no se pudo guardar.
+      if (cajaMovimientoId) {
+        try {
+          await ctx.supabase.from("caja_movimientos").delete().eq("id", cajaMovimientoId);
+        } catch { /* rollback best-effort */ }
+      }
       return NextResponse.json(errorResponse(error.message), { status: 400 });
     }
     return NextResponse.json(successResponse(data));

@@ -13,6 +13,8 @@ export type Gasto = {
   recurrente: boolean;
   frecuencia?: string;
   fecha: string;
+  descuenta_caja: boolean;
+  caja_movimiento_id: string | null;
   created_at: string;
 };
 
@@ -24,6 +26,7 @@ export type GastoInput = {
   recurrente: boolean;
   frecuencia?: string;
   fecha: string;
+  descuenta_caja?: boolean;
 };
 
 function mapRow(r: Record<string, unknown>): Gasto {
@@ -37,6 +40,8 @@ function mapRow(r: Record<string, unknown>): Gasto {
     recurrente: Boolean(r.recurrente),
     frecuencia: r.frecuencia as string | undefined,
     fecha: (r.fecha as string) ?? "",
+    descuenta_caja: Boolean(r.descuenta_caja),
+    caja_movimiento_id: (r.caja_movimiento_id as string | null) ?? null,
     created_at: (r.created_at as string) ?? "",
   };
 }

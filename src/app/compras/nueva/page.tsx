@@ -100,6 +100,7 @@ export default function NuevaCompraPage() {
     plazo_dias: "",
     moneda: "PYG" as Moneda,
     tipo_cambio: "",
+    descuenta_caja: false,
   });
 
   // Líneas de la compra (editables inline)
@@ -279,6 +280,7 @@ export default function NuevaCompraPage() {
           comprobante_storage_path: comprobante?.comprobante_storage_path ?? null,
           comprobante_nombre: comprobante?.comprobante_nombre ?? null,
           comprobante_mime_type: comprobante?.comprobante_mime_type ?? null,
+          descuenta_caja: cab.descuenta_caja && cab.tipo_pago === "contado" && cab.moneda === "PYG",
         },
         items
       );
@@ -507,6 +509,24 @@ export default function NuevaCompraPage() {
                 </div>
               )}
             </div>
+            {cab.tipo_pago === "contado" && cab.moneda === "PYG" && (
+              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/60 p-4">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={cab.descuenta_caja}
+                    onChange={(e) => setCab((p) => ({ ...p, descuenta_caja: e.target.checked }))}
+                    className="mt-0.5 h-4 w-4 accent-amber-600"
+                  />
+                  <span className="flex-1">
+                    <span className="block text-sm font-semibold text-amber-900">Descontar de caja</span>
+                    <span className="mt-0.5 block text-xs text-amber-700">
+                      Activá si pagaste esta compra en efectivo desde la caja abierta. Se registra como egreso automático. Si pagaste con banco / transferencia, dejalo desactivado.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            )}
           </section>
 
           {/* ── Productos de la compra ───────────────────────────────────────── */}
