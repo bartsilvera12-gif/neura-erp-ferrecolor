@@ -615,7 +615,7 @@ export default function NuevaCompraPage() {
                       <th className="py-2 px-3 font-medium w-32">IVA</th>
                       <th className="py-2 px-3 font-medium text-right w-32">Precio venta</th>
                       <th className="py-2 px-3 font-medium text-right">Total línea</th>
-                      <th className="py-2 px-2" />
+                      <th className="py-2 px-2 text-center text-[11px] uppercase tracking-wide">Quitar</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -662,10 +662,13 @@ export default function NuevaCompraPage() {
                           )}
                         </td>
                         <td className="py-2 px-3 text-right tabular-nums font-semibold text-gray-800">{formatGs(l.total)}</td>
-                        <td className="py-2 px-2 text-right">
+                        <td className="py-2 px-2 text-center">
                           <button type="button" onClick={() => handleQuitarLinea(i)}
-                            className="rounded-md p-1.5 text-red-400 hover:bg-red-50 hover:text-red-600" aria-label="Quitar línea">
-                            <Trash2 className="h-4 w-4" />
+                            className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 hover:border-red-300 transition-colors"
+                            aria-label="Quitar línea"
+                            title="Quitar este producto de la compra">
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Quitar
                           </button>
                         </td>
                       </tr>
@@ -677,7 +680,13 @@ export default function NuevaCompraPage() {
                         Total compra ({lineas.length} {lineas.length === 1 ? "ítem" : "ítems"})
                       </td>
                       <td className="py-2 px-3 text-right tabular-nums font-bold text-[#0EA5E9]">{formatGs(totales.total)}</td>
-                      <td />
+                      <td className="py-2 px-2 text-center">
+                        <button type="button" onClick={() => setLineas([])}
+                          className="text-[11px] font-medium text-slate-500 hover:text-red-600 hover:underline"
+                          title="Quitar todos los productos">
+                          Vaciar
+                        </button>
+                      </td>
                     </tr>
                   </tfoot>
                 </table>
