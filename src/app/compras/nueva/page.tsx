@@ -97,6 +97,7 @@ export default function NuevaCompraPage() {
     nro_timbrado: "",
     numero_factura: "",
     fecha_factura: "",
+    fecha: new Date().toISOString().slice(0, 10),
     tipo_pago: "contado" as TipoPago,
     plazo_dias: "",
     moneda: "PYG" as Moneda,
@@ -279,6 +280,7 @@ export default function NuevaCompraPage() {
           nro_timbrado: cab.nro_timbrado,
           numero_factura: cab.numero_factura,
           fecha_factura: cab.fecha_factura || null,
+          fecha: cab.fecha || null,
           comprobante_storage_path: comprobante?.comprobante_storage_path ?? null,
           comprobante_nombre: comprobante?.comprobante_nombre ?? null,
           comprobante_mime_type: comprobante?.comprobante_mime_type ?? null,
@@ -413,12 +415,19 @@ export default function NuevaCompraPage() {
                   onChange={(e) => setCab((p) => ({ ...p, numero_factura: e.target.value }))}
                   placeholder="Ej: 001-001-0000123" className={inputClass} />
               </div>
-              <div className="sm:col-span-2">
-                <label className={labelClass}>Fecha del documento <span className="text-gray-400 font-normal">(opcional — si no se completa, se usa hoy)</span></label>
+              <div>
+                <label className={labelClass}>Fecha de la compra <span className="text-gray-400 font-normal">(default hoy)</span></label>
+                <input type="date" name="fecha" value={cab.fecha}
+                  onChange={(e) => setCab((p) => ({ ...p, fecha: e.target.value }))}
+                  className={inputClass} />
+                <p className="mt-1 text-[11px] text-gray-500">Fecha en que se realizó la compra. Se usa para reportes y dashboard.</p>
+              </div>
+              <div>
+                <label className={labelClass}>Fecha del documento <span className="text-gray-400 font-normal">(opcional)</span></label>
                 <input type="date" name="fecha_factura" value={cab.fecha_factura}
                   onChange={(e) => setCab((p) => ({ ...p, fecha_factura: e.target.value }))}
                   className={inputClass} />
-                <p className="mt-1 text-[11px] text-gray-500">Fecha impresa en la factura del proveedor. Puede ser distinta de hoy (ej: llegó la mercadería después del emitido).</p>
+                <p className="mt-1 text-[11px] text-gray-500">Fecha impresa en la factura del proveedor. Puede ser distinta de la fecha de compra.</p>
               </div>
               <div className="sm:col-span-2">
                 <label className={labelClass}>Proveedor <span className="text-red-500">*</span></label>

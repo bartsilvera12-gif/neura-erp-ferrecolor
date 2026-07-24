@@ -75,6 +75,7 @@ export async function POST(request: NextRequest) {
       created_by: ctx.auth.usuarioCatalogId ?? null,
       usuario_nombre: ctx.auth.user?.email ?? null,
       descuenta_caja: body.descuenta_caja === true,
+      fecha: typeof body.fecha === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.fecha) ? body.fecha : null,
     };
 
     const items: CompraItemInput[] = [];

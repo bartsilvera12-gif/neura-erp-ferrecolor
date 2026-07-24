@@ -193,6 +193,8 @@ export interface CompraHeaderInput {
   usuario_nombre: string | null;
   /** Si true y hay caja abierta, se genera egreso en caja_movimientos. Aplica solo a contado + PYG. */
   descuenta_caja?: boolean;
+  /** Fecha de la compra (YYYY-MM-DD). Si null/undefined, usa now(). Permite backdate. */
+  fecha?: string | null;
 }
 
 /** Una línea (producto) de la compra. */
@@ -260,7 +262,7 @@ export async function insertComprasConImpactoTx(
          $11, $12::numeric, $13::numeric, $14::numeric, $15::numeric, $16::numeric,
          $17, $18::integer, $19, $20, $21::date, $22,
          $23, $24::uuid,
-         $25, 'registrada', now(),
+         $25, 'registrada', COALESCE($32::timestamptz, now()),
          $26, $27, $28, $29,
          $30::uuid, $31
        )
@@ -278,6 +280,7 @@ export async function insertComprasConImpactoTx(
         header.comprobante_url, header.comprobante_storage_path,
         header.comprobante_nombre, header.comprobante_mime_type,
         header.created_by, header.usuario_nombre,
+        header.fecha ?? null,
       ]
     );
     insertedRows.push(compraRows[0]);
