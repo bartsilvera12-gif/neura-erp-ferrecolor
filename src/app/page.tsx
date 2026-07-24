@@ -3,6 +3,7 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
+import { BarChart3, Wallet, Package, ShoppingCart, Truck, type LucideIcon } from "lucide-react";
 // MobileDashboard se renderiza solo en mobile (md:hidden). El dashboard desktop
 // que vive en este mismo archivo queda intacto.
 import MobileDashboard from "@/app/_components/MobileDashboard";
@@ -2299,12 +2300,12 @@ export default function DashboardPage() {
     }
   }, [tab, effectiveTabs]);
 
-  const TAB_META: Record<TabDash, { label: string; icon: string }> = {
-    comercial: { label: "Comercial", icon: "📊" },
-    financiero: { label: "Financiero", icon: "💰" },
-    inventario: { label: "Inventario", icon: "📦" },
-    ventas: { label: "Ventas", icon: "🛒" },
-    compras: { label: "Compras", icon: "🚚" },
+  const TAB_META: Record<TabDash, { label: string; Icon: LucideIcon }> = {
+    comercial: { label: "Comercial", Icon: BarChart3 },
+    financiero: { label: "Financiero", Icon: Wallet },
+    inventario: { label: "Inventario", Icon: Package },
+    ventas: { label: "Ventas", Icon: ShoppingCart },
+    compras: { label: "Compras", Icon: Truck },
   };
 
   if (!config) {
@@ -2482,7 +2483,7 @@ export default function DashboardPage() {
                     : { color: Z.muted }
                 }
               >
-                <span aria-hidden>{meta.icon}</span>
+                <meta.Icon className="h-4 w-4" strokeWidth={2} aria-hidden />
                 {meta.label}
               </button>
             );
