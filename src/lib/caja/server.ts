@@ -188,7 +188,7 @@ export async function getReporteCajas(
   // 2) Ventas de esas cajas (en lote).
   const vQ = await sb
     .from("ventas")
-    .select("id, caja_id, total, metodo_pago, estado")
+    .select("id, caja_id, total, metodo_pago, tipo_venta, estado")
     .eq("empresa_id", empresaId)
     .in("caja_id", cajaIds);
   if (vQ.error) throw new Error(vQ.error.message);
@@ -197,6 +197,7 @@ export async function getReporteCajas(
     caja_id: string | null;
     total: number | string;
     metodo_pago: string | null;
+    tipo_venta: string | null;
     estado: string | null;
   }>;
 
@@ -306,6 +307,10 @@ export async function getReporteCajas(
     const t = num(v.total);
     a.cantidad_ventas++;
     a.total_vendido += t;
+    // Ventas a credito: NO entra plata a caja al momento de la venta.
+    // Se cuentan en total_vendido pero no en ningun medio de pago.
+    // El cobro efectivo llega despues via cobros_clientes.
+    if ((v.tipo_venta ?? "").toLowerCase() === "credito") continue;
     // Si es mixto (o hay pagos_detalle registrados), usar el desglose real.
     const bk = pagosByVenta.get(v.id);
     if (v.metodo_pago === "mixto" && bk) {
@@ -507,6 +512,8 @@ export async function getDetalleCaja(
     if (v.estado === "anulada" || v.estado === "devuelta_total") continue;
     cantidadVentas++;
     totalVendido += v.total;
+    // Ventas a credito: no impactan la caja hasta que se cobren via cobros_clientes.
+    if ((v.tipo_venta ?? "").toLowerCase() === "credito") continue;
     const bk = detallePagos.get(v.id);
     if (v.metodo_pago === "mixto" && bk) {
       totalEfectivo += bk.efectivo;
@@ -834,7 +841,7 @@ async function computeResumen(
   // Ventas asociadas (excluye anuladas si la columna estado existe).
   const vQ = await sb
     .from("ventas")
-    .select("id, total, metodo_pago, estado")
+    .select("id, total, metodo_pago, tipo_venta, estado")
     .eq("empresa_id", empresaId)
     .eq("caja_id", caja.id);
   if (vQ.error) throw new Error(vQ.error.message);
@@ -842,6 +849,7 @@ async function computeResumen(
     id: string;
     total: number | string;
     metodo_pago: string | null;
+    tipo_venta: string | null;
     estado: string | null;
   }>;
 
@@ -876,6 +884,9 @@ async function computeResumen(
     count++;
     const t = num(v.total);
     totalVendido += t;
+    // Ventas a credito: se cuentan en total_vendido pero no en ningun medio de pago
+    // (el cobro efectivo llega despues via cobros_clientes).
+    if ((v.tipo_venta ?? "").toLowerCase() === "credito") continue;
     const bk = detalleByVenta.get(v.id);
     if (v.metodo_pago === "mixto" && bk) {
       totalEfectivo += bk.efectivo;

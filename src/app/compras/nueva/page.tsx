@@ -96,6 +96,7 @@ export default function NuevaCompraPage() {
     proveedor_id: "",
     nro_timbrado: "",
     numero_factura: "",
+    fecha_factura: "",
     tipo_pago: "contado" as TipoPago,
     plazo_dias: "",
     moneda: "PYG" as Moneda,
@@ -277,6 +278,7 @@ export default function NuevaCompraPage() {
           plazo_dias: cab.tipo_pago === "credito" && cab.plazo_dias ? parseInt(cab.plazo_dias) : undefined,
           nro_timbrado: cab.nro_timbrado,
           numero_factura: cab.numero_factura,
+          fecha_factura: cab.fecha_factura || null,
           comprobante_storage_path: comprobante?.comprobante_storage_path ?? null,
           comprobante_nombre: comprobante?.comprobante_nombre ?? null,
           comprobante_mime_type: comprobante?.comprobante_mime_type ?? null,
@@ -410,6 +412,13 @@ export default function NuevaCompraPage() {
                 <input type="text" name="numero_factura" value={cab.numero_factura}
                   onChange={(e) => setCab((p) => ({ ...p, numero_factura: e.target.value }))}
                   placeholder="Ej: 001-001-0000123" className={inputClass} />
+              </div>
+              <div className="sm:col-span-2">
+                <label className={labelClass}>Fecha del documento <span className="text-gray-400 font-normal">(opcional — si no se completa, se usa hoy)</span></label>
+                <input type="date" name="fecha_factura" value={cab.fecha_factura}
+                  onChange={(e) => setCab((p) => ({ ...p, fecha_factura: e.target.value }))}
+                  className={inputClass} />
+                <p className="mt-1 text-[11px] text-gray-500">Fecha impresa en la factura del proveedor. Puede ser distinta de hoy (ej: llegó la mercadería después del emitido).</p>
               </div>
               <div className="sm:col-span-2">
                 <label className={labelClass}>Proveedor <span className="text-red-500">*</span></label>
