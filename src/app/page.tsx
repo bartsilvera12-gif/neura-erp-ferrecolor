@@ -2280,7 +2280,12 @@ export default function DashboardPage() {
 
   // Instancia En lo de Mari: solo Ventas / Inventario / Financiero (sin Comercial/CRM/Pipeline).
   const MARI_ALLOWED_TABS: TabDash[] = ["ventas", "inventario", "financiero", "compras"];
-  const rawTabs: TabDash[] = dashScope.kind === "scoped" ? dashScope.tabs : TAB_VALID;
+  // 'compras' es un tab nuevo que aun no esta registrado en el catalogo
+  // dashboard_views de la DB. Lo inyectamos siempre para que aparezca sin
+  // depender de una migracion.
+  const rawTabs: TabDash[] = dashScope.kind === "scoped"
+    ? Array.from(new Set<TabDash>([...dashScope.tabs, "compras"]))
+    : TAB_VALID;
   const effectiveTabs: TabDash[] = rawTabs.filter((t) => MARI_ALLOWED_TABS.includes(t));
   const showTabNav = effectiveTabs.length > 1;
 
