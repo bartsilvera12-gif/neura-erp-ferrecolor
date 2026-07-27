@@ -33,16 +33,27 @@ export async function GET(request: NextRequest) {
     const tipo = (new URL(request.url).searchParams.get("tipo") ?? "reventa").toLowerCase();
     const prefijoTipo = PREFIJO_TIPO[tipo] ?? "REV";
 
-    const { data, error } = await ctx.supabase
-      .from("productos")
-      .select("sku")
-      .eq("empresa_id", ctx.auth.empresa_id);
-    if (error) throw new Error(error.message);
+    // Paginado: Supabase corta a 1000 filas por default. Si el tenant tiene mas
+    // productos, se pierden los SKUs mas altos y la sugerencia queda desactualizada
+    // (bug: sugiere un numero ya tomado).
+    const PAGE = 1000;
+    const skus: string[] = [];
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await ctx.supabase
+        .from("productos")
+        .select("sku")
+        .eq("empresa_id", ctx.auth.empresa_id)
+        .range(from, from + PAGE - 1);
+      if (error) throw new Error(error.message);
+      const chunk = (data ?? []) as Array<{ sku: string | null }>;
+      for (const r of chunk) if (r.sku) skus.push(r.sku);
+      if (chunk.length < PAGE) break;
+    }
 
     // prefix -> { maxNum, width }
     const map = new Map<string, { maxNum: number; width: number }>();
-    for (const r of (data ?? []) as Array<{ sku: string | null }>) {
-      const p = r.sku ? parseSku(r.sku) : null;
+    for (const sku of skus) {
+      const p = parseSku(sku);
       if (!p) continue;
       const cur = map.get(p.prefix);
       if (!cur) map.set(p.prefix, { maxNum: p.num, width: p.width });
