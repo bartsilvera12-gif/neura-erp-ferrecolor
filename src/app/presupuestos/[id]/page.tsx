@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { FileText, ArrowLeft, Loader2, Download, FileCheck2 } from "lucide-react";
+import { FileText, ArrowLeft, Loader2, Download, FileCheck2, Pencil } from "lucide-react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { ESTADO_LABEL, type EstadoPresupuesto } from "@/lib/presupuestos/types";
 
@@ -187,6 +187,15 @@ export default function PresupuestoDetallePage() {
           <button onClick={abrirPdf} className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
             <Download className="h-4 w-4" /> Descargar PDF
           </button>
+          {presu.estado !== "convertido" && (
+            <Link
+              href={`/presupuestos/${presu.id}/editar`}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              title="Editar productos, cliente y condiciones"
+            >
+              <Pencil className="h-4 w-4" /> Editar
+            </Link>
+          )}
           {presu.estado === "aprobado" && (
             <Link
               href={`/ventas/nueva?presupuesto_id=${presu.id}`}

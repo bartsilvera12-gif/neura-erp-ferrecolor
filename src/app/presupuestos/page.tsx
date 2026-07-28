@@ -241,9 +241,16 @@ export default function PresupuestosPage() {
                       )}
                     </td>
                     <td className="py-3 px-4 text-right">
-                      <Link href={`/presupuestos/${r.id}`} className="text-sm font-medium text-[#4FAEB2] hover:underline">
-                        Ver
-                      </Link>
+                      <div className="inline-flex items-center gap-3">
+                        <Link href={`/presupuestos/${r.id}`} className="text-sm font-medium text-[#4FAEB2] hover:underline">
+                          Ver
+                        </Link>
+                        {r.estado !== "convertido" && (
+                          <Link href={`/presupuestos/${r.id}/editar`} className="text-sm font-medium text-slate-600 hover:underline">
+                            Editar
+                          </Link>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
