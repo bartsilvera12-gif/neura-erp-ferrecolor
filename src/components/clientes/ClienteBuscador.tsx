@@ -51,8 +51,12 @@ export default function ClienteBuscador({
 
   const filtrados = useMemo(() => {
     const q = query.trim();
-    if (q === "") return clientes.slice(0, 30);
-    return clientes.filter((c) => productoMatchesQuery(q, c.nombre, c.ruc ?? undefined)).slice(0, 40);
+    const ordenados = [...clientes].sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+    if (q === "") return ordenados;
+    return ordenados.filter((c) =>
+      productoMatchesQuery(q, c.nombre, c.ruc ?? undefined)
+      || (c.telefono ? c.telefono.replace(/\D/g, "").includes(q.replace(/\D/g, "")) && q.replace(/\D/g, "").length > 0 : false)
+    );
   }, [clientes, query]);
 
   const inputC = "w-full rounded-lg border border-slate-200 bg-white pl-9 pr-9 py-2 text-sm outline-none focus:ring-2 focus:ring-[#4FAEB2]/30";
