@@ -6,6 +6,7 @@ import Link from "next/link";
 import { FileText, ArrowLeft, Plus, Trash2, Loader2 } from "lucide-react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import SelectFromList from "@/components/inventario/SelectFromList";
+import ClienteBuscador, { type ClienteBuscadorItem } from "@/components/clientes/ClienteBuscador";
 import { calcMontoIvaIncluido, type IvaTipoPresupuesto } from "@/lib/presupuestos/types";
 
 type ProductoLite = {
@@ -249,14 +250,23 @@ export default function NuevoPresupuestoPage() {
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
         <h2 className="text-sm font-semibold text-gray-700 mb-3">Cliente</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className={labelClass}>Cliente existente (opcional)</label>
-            <select value={clienteId} onChange={(e) => seleccionarCliente(e.target.value)} className={`${inputClass} bg-white`}>
-              <option value="">— Cargar manualmente —</option>
-              {clientes.map((c) => (
-                <option key={c.id} value={c.id}>{c.nombre}{c.ruc ? ` (${c.ruc})` : ""}</option>
-              ))}
-            </select>
+          <div className="sm:col-span-2">
+            <ClienteBuscador
+              clientes={clientes as ClienteBuscadorItem[]}
+              value={clienteId}
+              onSelect={(c) => {
+                setClienteId(c.id);
+                setClienteNombre(c.nombre);
+                setClienteRuc(c.ruc ?? "");
+                setClienteTel(c.telefono ?? "");
+                setClienteDir(c.direccion ?? "");
+              }}
+              onClear={() => {
+                setClienteId("");
+              }}
+              label="Cliente existente (opcional)"
+            />
+            <p className="mt-1 text-[11px] text-gray-400">O completá los campos de abajo manualmente si es un cliente nuevo.</p>
           </div>
           <div>
             <label className={labelClass}>Nombre / Razón social *</label>
