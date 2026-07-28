@@ -341,9 +341,14 @@ function renderNotaRemision(opts: {
   td.desc .sku { display:block; font-size:11px; color:#888; font-family:ui-monospace,monospace; }
   .obs { font-size:12px; margin-top:12px; }
   .legal { margin-top:18px; font-size:11px; color:#555; border-top:1px dashed #bbb; padding-top:10px; }
-  @media print { body { background:#fff; padding:0; } .doc { box-shadow:none; max-width:none; } }
+  .actions { max-width:720px; margin:0 auto 12px; text-align:right; }
+  .actions button { background:#4FAEB2; color:#fff; border:none; border-radius:8px; padding:8px 16px; font-size:13px; font-weight:600; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.15); }
+  .actions button:hover { background:#3F8E91; }
+  @media print { body { background:#fff; padding:0; } .doc { box-shadow:none; max-width:none; } .actions { display:none; } }
 </style></head>
-<body><div class="doc">
+<body>
+<div class="actions"><button type="button" onclick="window.print()">🖨 Imprimir</button></div>
+<div class="doc">
   ${membreteA4()}
   <div class="titulo">NOTA DE REMISIÓN</div>
   <div class="row">
