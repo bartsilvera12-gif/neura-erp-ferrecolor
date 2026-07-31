@@ -208,8 +208,9 @@ export async function GET(
       )
       .join("");
 
-    // Filas vacias para completar la hoja (min 12 filas para look homogeneo)
-    const MIN_FILAS = 12;
+    // Filas vacias minimas para dar espacio visual (min 2 para look homogeneo).
+    // Antes eran 12 y hacian que un solo producto ocupe la hoja entera.
+    const MIN_FILAS = 2;
     const vacias = Math.max(0, MIN_FILAS - filas.length);
     const filasVaciasHtml = Array.from({ length: vacias })
       .map(
@@ -229,22 +230,14 @@ export async function GET(
 <title>Comprobante ${escapeHtml(numeroControl)} — Ferrecolor</title>
 <style>
   * { box-sizing: border-box; }
-  @page { size: A4 portrait; margin: 10mm; }
+  @page { size: A4 portrait; margin: 8mm; }
   html, body { margin: 0; padding: 0; background: #f1f1f1; color: #111; font-family: 'Courier New', ui-monospace, monospace; font-size: 11.5px; }
   .hoja {
     background: #fff;
-    width: 210mm; min-height: 148mm; margin: 20px auto;
-    padding: 10mm 12mm; box-shadow: 0 1px 6px rgba(0,0,0,.12);
+    width: 210mm; min-height: 0; margin: 20px auto;
+    padding: 8mm 10mm; box-shadow: 0 1px 6px rgba(0,0,0,.12);
   }
   .corte { display:none; }
-  @media print {
-    html, body { background:#fff; }
-    .hoja { box-shadow:none; margin:0; padding: 8mm 10mm; min-height:0; }
-    .actions { display:none; }
-    .corte { display:flex; align-items:center; gap:8px; margin-top:12px; padding-top:6px;
-             font-size:10px; color:#888; border-top:1px dashed #999; }
-    .corte span { flex:1; text-align:center; letter-spacing:1px; text-transform:uppercase; }
-  }
 
   /* Cabecera: logo + datos empresa a la izquierda + fecha a la derecha */
   .header-top {
@@ -327,9 +320,23 @@ export async function GET(
   }
   .print-btn:hover { background: #3F8E91; }
   @media print {
-    body { background: #fff; }
-    .hoja { box-shadow: none; margin: 0; width: auto; min-height: auto; padding: 6mm 10mm; }
+    html, body { background: #fff; font-size: 10.5px; }
+    .hoja { box-shadow: none; margin: 0; width: auto; min-height: 0; padding: 4mm 6mm; }
     .print-btn { display: none; }
+    .header-top { margin-bottom: 6px; }
+    .header-top .logo { max-height: 42px; }
+    .fecha-top { font-size: 11px; }
+    .info { gap: 20px; margin-bottom: 6px; }
+    .info .linea { font-size: 10.5px; padding: 2px 0 1px; }
+    table.items { font-size: 10px; margin-top: 4px; }
+    table.items thead th { padding: 2px 4px; font-size: 9.5px; }
+    table.items tbody td { padding: 2px 4px; }
+    .pie { margin-top: 4px; font-size: 10px; }
+    .pie .linea { padding: 2px 0 1px; }
+    .pie .total-final { font-size: 12px; padding-top: 3px; }
+    .corte { display:flex; align-items:center; gap:8px; margin-top:8px; padding-top:4px;
+             font-size:9px; color:#888; border-top:1px dashed #999; }
+    .corte span { flex:1; text-align:center; letter-spacing:1px; text-transform:uppercase; }
   }
 </style></head>
 <body>
