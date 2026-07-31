@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
         .select("id")
         .eq("empresa_id", ctx.auth.empresa_id)
         .eq("estado", "abierta")
-        .order("apertura_at", { ascending: false })
+        .order("fecha_apertura", { ascending: false })
         .limit(1)
         .maybeSingle();
       if (cajaQ.error) return NextResponse.json(errorResponse(cajaQ.error.message), { status: 500 });

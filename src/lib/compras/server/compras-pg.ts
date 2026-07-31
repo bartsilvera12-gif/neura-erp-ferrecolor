@@ -338,7 +338,7 @@ export async function insertComprasConImpactoTx(
     const cajaR = await client.query<{ id: string }>(
       `SELECT id FROM ${tCajas}
         WHERE empresa_id = $1::uuid AND estado = 'abierta'
-        ORDER BY apertura_at DESC LIMIT 1`,
+        ORDER BY fecha_apertura DESC LIMIT 1`,
       [empresaId]
     );
     if (cajaR.rowCount === 0) {
