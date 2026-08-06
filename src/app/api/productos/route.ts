@@ -86,48 +86,53 @@ export async function GET(request: NextRequest) {
     const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(0, limitRaw), 500) : 0;
     const offset = Number.isFinite(offsetRaw) ? Math.max(0, offsetRaw) : 0;
 
-    let query = ctx.supabase
-      .from("productos")
-      .select(PRODUCTO_COLS, {
-        // count: "planned" usa pg_stats en vez de COUNT(*) exacto.
-        // En tablas grandes (16k+ productos) baja el TTFB de ~1.5s a <100ms.
-        // El total es aproximado (ej. "16.869" puede mostrarse como "16.880"),
-        // suficiente para mostrar paginacion en la UI.
-        count: "planned",
-      })
-      .eq("empresa_id", ctx.auth.empresa_id)
-      .eq("activo", true);
+    /** Construye el query base con todos los filtros comunes. Se re-crea por
+     *  cada chunk porque los builders de supabase-js no son reutilizables una
+     *  vez ejecutados. */
+    const buildBase = () => {
+      let base = ctx.supabase
+        .from("productos")
+        .select(PRODUCTO_COLS, {
+          // count: "planned" usa pg_stats en vez de COUNT(*) exacto.
+          count: "planned",
+        })
+        .eq("empresa_id", ctx.auth.empresa_id)
+        .eq("activo", true);
+      if (q) base = applyTokenSearch(base, q, ["nombre", "sku"]);
+      if (categoria === "__sin__") base = base.is("categoria_principal_id", null);
+      else if (categoria) base = base.eq("categoria_principal_id", categoria);
+      return base.order("nombre");
+    };
 
-    if (q) {
-      // Búsqueda por tokens (palabras en cualquier orden) en nombre o sku.
-      query = applyTokenSearch(query, q, ["nombre", "sku"]);
-    }
-    if (categoria === "__sin__") {
-      query = query.is("categoria_principal_id", null);
-    } else if (categoria) {
-      query = query.eq("categoria_principal_id", categoria);
-    }
-
-    query = query.order("nombre");
     if (limit > 0) {
-      query = query.range(offset, offset + limit - 1);
-    } else {
-      // limit=0 = "sin paginar". PostgREST capa silenciosamente a 1000 filas
-      // por default si no se setea .range() explicito. Forzar un range alto
-      // garantiza traer realmente todo el catalogo (hasta 100k productos).
-      query = query.range(0, 99999);
+      const { data, error, count } = await buildBase().range(offset, offset + limit - 1);
+      if (error) throw new Error(error.message);
+      const rows = ((data ?? []) as unknown as Record<string, unknown>[]).map(rowToApi);
+      return NextResponse.json(
+        successResponse({ productos: rows, total: count ?? 0, limit, offset })
+      );
     }
 
-    const { data, error, count } = await query;
-    if (error) throw new Error(error.message);
-    const rows = ((data ?? []) as unknown as Record<string, unknown>[]).map(rowToApi);
+    // limit=0 = "sin paginar". PostgREST/Supabase cortan silenciosamente a 1000
+    // filas aunque pasemos un range mas grande (max-rows a nivel servidor).
+    // Solucion: fetch por lotes de 1000 hasta agotar. Asi tenants con >1000
+    // productos (Ferrecolor con miles) devuelven todo.
+    const CHUNK = 1000;
+    const MAX_TOTAL = 100_000; // guard-rail
+    const allRows: Record<string, unknown>[] = [];
+    let totalCount = 0;
+    for (let from = 0; from < MAX_TOTAL; from += CHUNK) {
+      const { data, error, count } = await buildBase().range(from, from + CHUNK - 1);
+      if (error) throw new Error(error.message);
+      const batch = (data ?? []) as unknown as Record<string, unknown>[];
+      if (batch.length === 0) break;
+      allRows.push(...batch);
+      if (count != null) totalCount = count;
+      if (batch.length < CHUNK) break;
+    }
+    const rows = allRows.map(rowToApi);
     return NextResponse.json(
-      successResponse({
-        productos: rows,
-        total: count ?? 0,
-        limit,
-        offset,
-      })
+      successResponse({ productos: rows, total: totalCount || rows.length, limit, offset })
     );
   } catch (err) {
     console.error("[/api/productos GET]", err instanceof Error ? err.message : err);
