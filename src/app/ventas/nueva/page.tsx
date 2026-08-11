@@ -1311,13 +1311,14 @@ export default function NuevaVentaPage() {
                               <button type="button" onClick={() => changeCantidadItem(idx, 1)} className="h-8 w-8 rounded-r-md text-slate-500 hover:bg-slate-100"><Plus className="mx-auto h-3.5 w-3.5" /></button>
                             </div>
                           </td>
-                          {/* Precio unitario editable */}
+                          {/* Precio unitario (read-only: el cajero no puede modificarlo) */}
                           <td className="px-3 py-2.5 text-right">
-                            <input
-                              type="number" min={0} value={item.precio_venta}
-                              onChange={(e) => updateItemCampo(idx, { precio_venta: Math.max(0, Number(e.target.value) || 0) })}
-                              className="h-8 w-28 rounded-md border border-slate-200 bg-white px-2 text-right text-sm tabular-nums"
-                            />
+                            <span
+                              className="inline-block h-8 w-28 rounded-md border border-slate-200 bg-slate-50 px-2 text-right text-sm font-medium tabular-nums text-slate-700 leading-8"
+                              title="Precio definido en Inventario. No se puede modificar desde la venta."
+                            >
+                              {formatGs(item.precio_venta)}
+                            </span>
                           </td>
                           {/* Stock */}
                           <td className="px-3 py-2.5 text-right">
