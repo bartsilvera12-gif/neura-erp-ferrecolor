@@ -1311,14 +1311,28 @@ export default function NuevaVentaPage() {
                               <button type="button" onClick={() => changeCantidadItem(idx, 1)} className="h-8 w-8 rounded-r-md text-slate-500 hover:bg-slate-100"><Plus className="mx-auto h-3.5 w-3.5" /></button>
                             </div>
                           </td>
-                          {/* Precio unitario (read-only: el cajero no puede modificarlo) */}
+                          {/* Precio unitario: solo se puede AUMENTAR (no bajar del precio de inventario). */}
                           <td className="px-3 py-2.5 text-right">
-                            <span
-                              className="inline-block h-8 w-28 rounded-md border border-slate-200 bg-slate-50 px-2 text-right text-sm font-medium tabular-nums text-slate-700 leading-8"
-                              title="Precio definido en Inventario. No se puede modificar desde la venta."
-                            >
-                              {formatGs(item.precio_venta)}
-                            </span>
+                            <input
+                              type="number"
+                              min={item.precio_venta_original}
+                              value={item.precio_venta}
+                              onChange={(e) => {
+                                const nuevo = Math.max(item.precio_venta_original, Number(e.target.value) || item.precio_venta_original);
+                                updateItemCampo(idx, { precio_venta: nuevo });
+                              }}
+                              onBlur={(e) => {
+                                const nuevo = Math.max(item.precio_venta_original, Number(e.target.value) || item.precio_venta_original);
+                                if (nuevo !== item.precio_venta) updateItemCampo(idx, { precio_venta: nuevo });
+                              }}
+                              className="h-8 w-28 rounded-md border border-slate-200 bg-white px-2 text-right text-sm tabular-nums"
+                              title={`Precio mínimo (Inventario): ${formatGs(item.precio_venta_original)}. Podés cobrar más pero no menos.`}
+                            />
+                            {item.precio_venta > item.precio_venta_original && (
+                              <div className="mt-0.5 text-[10px] text-emerald-600">
+                                +{formatGs(item.precio_venta - item.precio_venta_original)} vs. inventario
+                              </div>
+                            )}
                           </td>
                           {/* Stock */}
                           <td className="px-3 py-2.5 text-right">
