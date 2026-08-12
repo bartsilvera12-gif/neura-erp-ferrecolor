@@ -1252,6 +1252,9 @@ export default function NuevaVentaPage() {
                       const controla = prod ? prod.controla_stock !== false : true;
                       const stock = prod?.stock_actual ?? 0;
                       const stockBajo = controla && item.cantidad > stock;
+                      // Piso del precio de venta = costo de compra del producto. El cajero
+                      // puede bajar el precio, pero nunca por debajo del costo (regla del cliente).
+                      const costoMin = prod?.costo_promedio ?? 0;
                       return (
                         <tr key={idx} className="align-middle transition-colors hover:bg-[#0EA5E9]/5">
                           {/* Producto + SKU */}
@@ -1311,31 +1314,35 @@ export default function NuevaVentaPage() {
                               <button type="button" onClick={() => changeCantidadItem(idx, 1)} className="h-8 w-8 rounded-r-md text-slate-500 hover:bg-slate-100"><Plus className="mx-auto h-3.5 w-3.5" /></button>
                             </div>
                           </td>
-                          {/* Precio unitario: solo se puede AUMENTAR (no bajar del precio de inventario). */}
+                          {/* Precio unitario: editable libremente; el piso es el costo de compra. */}
                           <td className="px-3 py-2.5 text-right">
                             <input
                               type="text"
                               inputMode="numeric"
                               value={item.precio_venta === 0 ? "" : String(item.precio_venta)}
                               onChange={(e) => {
-                                // Solo dígitos: se puede editar libremente (borrar, retipear, volver
-                                // al precio de inventario) SIN forzar el mínimo en cada tecla.
+                                // Solo dígitos: se puede editar libremente (subir, bajar, retipear)
+                                // SIN forzar el mínimo en cada tecla.
                                 const soloDigitos = e.target.value.replace(/[^\d]/g, "");
                                 updateItemCampo(idx, { precio_venta: soloDigitos === "" ? 0 : Number(soloDigitos) });
                               }}
                               onBlur={() => {
-                                // Al salir del campo se respeta el mínimo (precio de inventario):
-                                // no se cobra por debajo, pero durante la edición no molesta.
-                                if (item.precio_venta < item.precio_venta_original) {
-                                  updateItemCampo(idx, { precio_venta: item.precio_venta_original });
+                                // Al salir del campo se respeta el piso (costo de compra):
+                                // no se puede vender por debajo del costo.
+                                if (costoMin > 0 && item.precio_venta < costoMin) {
+                                  updateItemCampo(idx, { precio_venta: costoMin });
                                 }
                               }}
-                              className="h-8 w-28 rounded-md border border-slate-200 bg-white px-2 text-right text-sm tabular-nums"
-                              title={`Precio mínimo (Inventario): ${formatGs(item.precio_venta_original)}. Podés cobrar más pero no menos.`}
+                              className={`h-8 w-28 rounded-md border bg-white px-2 text-right text-sm tabular-nums ${
+                                costoMin > 0 && item.precio_venta < costoMin ? "border-red-300 bg-red-50" : "border-slate-200"
+                              }`}
+                              title={costoMin > 0
+                                ? `Precio mínimo (costo de compra): ${formatGs(costoMin)}. No se puede cobrar por debajo del costo.`
+                                : "Precio unitario"}
                             />
-                            {item.precio_venta > item.precio_venta_original && (
-                              <div className="mt-0.5 text-[10px] text-emerald-600">
-                                +{formatGs(item.precio_venta - item.precio_venta_original)} vs. inventario
+                            {costoMin > 0 && item.precio_venta < costoMin && (
+                              <div className="mt-0.5 text-[10px] text-red-600">
+                                Bajo el costo ({formatGs(costoMin)})
                               </div>
                             )}
                           </td>
