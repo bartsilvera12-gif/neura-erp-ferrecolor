@@ -1314,16 +1314,21 @@ export default function NuevaVentaPage() {
                           {/* Precio unitario: solo se puede AUMENTAR (no bajar del precio de inventario). */}
                           <td className="px-3 py-2.5 text-right">
                             <input
-                              type="number"
-                              min={item.precio_venta_original}
-                              value={item.precio_venta}
+                              type="text"
+                              inputMode="numeric"
+                              value={item.precio_venta === 0 ? "" : String(item.precio_venta)}
                               onChange={(e) => {
-                                const nuevo = Math.max(item.precio_venta_original, Number(e.target.value) || item.precio_venta_original);
-                                updateItemCampo(idx, { precio_venta: nuevo });
+                                // Solo dígitos: se puede editar libremente (borrar, retipear, volver
+                                // al precio de inventario) SIN forzar el mínimo en cada tecla.
+                                const soloDigitos = e.target.value.replace(/[^\d]/g, "");
+                                updateItemCampo(idx, { precio_venta: soloDigitos === "" ? 0 : Number(soloDigitos) });
                               }}
-                              onBlur={(e) => {
-                                const nuevo = Math.max(item.precio_venta_original, Number(e.target.value) || item.precio_venta_original);
-                                if (nuevo !== item.precio_venta) updateItemCampo(idx, { precio_venta: nuevo });
+                              onBlur={() => {
+                                // Al salir del campo se respeta el mínimo (precio de inventario):
+                                // no se cobra por debajo, pero durante la edición no molesta.
+                                if (item.precio_venta < item.precio_venta_original) {
+                                  updateItemCampo(idx, { precio_venta: item.precio_venta_original });
+                                }
                               }}
                               className="h-8 w-28 rounded-md border border-slate-200 bg-white px-2 text-right text-sm tabular-nums"
                               title={`Precio mínimo (Inventario): ${formatGs(item.precio_venta_original)}. Podés cobrar más pero no menos.`}
