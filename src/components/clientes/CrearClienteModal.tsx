@@ -47,6 +47,9 @@ export default function CrearClienteModal({
   const [ciudad, setCiudad] = useState("");
   const [pais, setPais] = useState("PARAGUAY");
   const [usaNotaRemision, setUsaNotaRemision] = useState(false);
+  // Contribuyente inscripto en la SET → factura B2B con RUC (evita el rechazo 0301).
+  // Por defecto sí para empresa; se apaga al pasar a persona.
+  const [esContribuyente, setEsContribuyente] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -60,13 +63,19 @@ export default function CrearClienteModal({
       setErr("La razón social es obligatoria para empresas.");
       return;
     }
+    const rucTrim = ruc.trim();
+    if (esContribuyente && !rucTrim) {
+      setErr("Contribuyente inscripto en la SET: ingresá el RUC (necesario para facturar).");
+      return;
+    }
     setBusy(true);
     try {
       const res = await apiCreateCliente({
         tipo_cliente: tipo,
         empresa: tipo === "empresa" ? empresa.trim().toUpperCase() : undefined,
         nombre_contacto: contacto.trim().toUpperCase(),
-        ruc: tipo === "empresa" ? (ruc.trim() || undefined) : undefined,
+        // RUC: empresa siempre; persona solo si es contribuyente (RUC = CI + dígito).
+        ruc: rucTrim || undefined,
         documento: tipo === "persona" ? (documento.trim() || undefined) : undefined,
         telefono: telefono.trim() || undefined,
         email: email.trim() || undefined,
@@ -75,6 +84,10 @@ export default function CrearClienteModal({
         pais: pais.trim().toUpperCase() || undefined,
         estado: "activo",
         usa_nota_remision: usaNotaRemision,
+        // Contribuyente con RUC → receptor SIFEN B2B (contribuyente paraguayo).
+        ...(esContribuyente && rucTrim
+          ? { sifen_receptor_manual: true, sifen_receptor_naturaleza: "contribuyente_paraguayo" }
+          : {}),
       });
       if (!res.ok) {
         setErr(res.error || "No se pudo crear el cliente.");
@@ -85,7 +98,7 @@ export default function CrearClienteModal({
       onCreated({
         id: res.data.id,
         label,
-        ruc: (tipo === "empresa" ? ruc.trim() : documento.trim()) || null,
+        ruc: (rucTrim || documento.trim()) || null,
         usa_nota_remision: usaNotaRemision,
       });
     } catch (e) {
@@ -120,7 +133,7 @@ export default function CrearClienteModal({
               <button
                 key={t}
                 type="button"
-                onClick={() => setTipo(t)}
+                onClick={() => { setTipo(t); setEsContribuyente(t === "empresa"); }}
                 className={`flex-1 py-2 transition-colors ${tipo === t ? "bg-[#4FAEB2] text-white" : "bg-white text-slate-600 hover:bg-slate-50"} ${t === "persona" ? "border-l-2 border-slate-200" : ""}`}
               >
                 {t === "empresa" ? "Empresa" : "Persona"}
@@ -168,6 +181,23 @@ export default function CrearClienteModal({
               <label className={labelClass}>País</label>
               <input className={`${inputClass} uppercase`} value={pais} onChange={(e) => setPais(e.target.value)} placeholder="País" />
             </div>
+          </div>
+
+          {/* Contribuyente SET → factura electrónica B2B con RUC */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+              <input type="checkbox" checked={esContribuyente} onChange={(e) => setEsContribuyente(e.target.checked)} />
+              Es contribuyente inscripto en la SET
+            </label>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Activalo para facturar B2B con RUC (evita el rechazo 0301 de la SET). En personas, el RUC es la CI + dígito verificador.
+            </p>
+            {esContribuyente && tipo === "persona" && (
+              <div className="mt-2">
+                <label className={labelClass}>RUC de la persona <span className="text-red-500">*</span></label>
+                <input className={inputClass} value={ruc} onChange={(e) => setRuc(e.target.value)} placeholder="2431868-0" />
+              </div>
+            )}
           </div>
 
           <label className="flex items-center gap-2 text-sm text-slate-700">
