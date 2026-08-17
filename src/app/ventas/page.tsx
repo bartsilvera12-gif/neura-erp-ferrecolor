@@ -372,7 +372,21 @@ export default function VentasPage() {
                           >
                             Imprimir
                           </a>
-                          {/* Boton Factura oculto: facturacion electronica desactivada para Ferrecolor */}
+                          {/* Puente venta→factura: si la venta tiene factura ERP, link al
+                              detalle /facturas/[id] (panel SIFEN: firma/envío/KUDE). */}
+                          {v.factura_id && (
+                            <Link
+                              href={`/facturas/${v.factura_id}`}
+                              className="inline-flex items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 transition-colors"
+                              title={
+                                v.factura_estado_sifen
+                                  ? `Factura ${v.numero_factura ?? ""} · SIFEN: ${v.factura_estado_sifen}`
+                                  : `Factura ${v.numero_factura ?? ""}`
+                              }
+                            >
+                              {v.numero_factura ? `Factura ${v.numero_factura}` : "Factura"}
+                            </Link>
+                          )}
                           {v.genera_nota_remision && (
                             <a
                               href={`/api/ventas/${v.id}/ticket?tipo=remision`}
