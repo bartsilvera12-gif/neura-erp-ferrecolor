@@ -58,12 +58,10 @@ import {
   type TributarioFormState,
 } from "@/components/clientes/ClientePerfilTributarioForm";
 import { ClienteDatosSifenReceptorForm } from "@/components/clientes/ClienteDatosSifenReceptorForm";
-import { NEURA_CLIENT_SCHEMA } from "@/lib/supabase/schema";
 
-/** Instancias monocliente con formulario/detalle de clientes simplificado (sin campos SaaS/Neura). */
-const SIMPLE_CLIENTE =
-  NEURA_CLIENT_SCHEMA === "reservacaacupe" ||
-  NEURA_CLIENT_SCHEMA === "ferreteriarepublica";
+/** Ferrecolor usa el formulario/detalle de clientes COMPLETO (como darocha): incluye
+ *  datos SIFEN del receptor y campos SaaS/Neura. Necesario para factura electrónica. */
+const SIMPLE_CLIENTE = false;
 // ── Estilos ────────────────────────────────────────────────────────────────────
 
 const inputClass =

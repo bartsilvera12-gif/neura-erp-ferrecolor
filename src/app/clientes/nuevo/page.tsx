@@ -26,20 +26,13 @@ import { ClienteDatosSifenReceptorForm } from "@/components/clientes/ClienteDato
 import type { ClienteTipoServicioRow } from "@/lib/clientes/tipo-servicio-catalogo";
 import { filasTiposDesdeSistemaEstatico, fetchTiposFormCliente } from "@/lib/clientes/fetch-tipos-servicio-form";
 import type { Plan } from "@/lib/planes/types";
-import { NEURA_CLIENT_SCHEMA } from "@/lib/supabase/schema";
 
 /**
- * Instancias monocliente con formulario de clientes simplificado (sin
- * campos SaaS/Neura: sin Plan, sin vendedor responsable ERP, sin facturacion
- * mensual recurrente, sin campos de email secundario, condicion de pago
- * por defecto CONTADO, etc).
- *
- * Lo aplico a ferreteriarepublica porque una ferreteria solo necesita los
- * datos basicos del cliente (nombre, telefono, RUC/CI opcional, direccion).
+ * Ferrecolor usa el formulario de clientes COMPLETO (como darocha): incluye los
+ * datos SIFEN del receptor (contribuyente/RUC, nombre para facturación) además
+ * de los campos SaaS/Neura. Necesario para emitir factura electrónica B2B.
  */
-const SIMPLE_CLIENTE =
-  NEURA_CLIENT_SCHEMA === "reservacaacupe" ||
-  NEURA_CLIENT_SCHEMA === "ferreteriarepublica";
+const SIMPLE_CLIENTE = false;
 
 // ── Estilos ────────────────────────────────────────────────────────────────────
 
