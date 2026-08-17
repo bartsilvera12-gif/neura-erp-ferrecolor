@@ -84,10 +84,8 @@ export default function CrearClienteModal({
         pais: pais.trim().toUpperCase() || undefined,
         estado: "activo",
         usa_nota_remision: usaNotaRemision,
-        // Contribuyente con RUC → receptor SIFEN B2B (contribuyente paraguayo).
-        ...(esContribuyente && rucTrim
-          ? { sifen_receptor_manual: true, sifen_receptor_naturaleza: "contribuyente_paraguayo" }
-          : {}),
+        // Facturación B2B: alcanza con el RUC. El receptor SIFEN se detecta
+        // automáticamente del RUC — no forzamos modo manual (exigiría iTiOpe).
       });
       if (!res.ok) {
         setErr(res.error || "No se pudo crear el cliente.");
