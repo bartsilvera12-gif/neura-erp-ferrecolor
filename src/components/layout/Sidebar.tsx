@@ -173,8 +173,7 @@ const MENU_STRUCTURE: MenuItem[] = [
     href: "/configuracion",
     icon: Settings,
     children: [
-      // Facturación oculta: facturación electrónica desactivada para Ferrecolor.
-      // { label: "Facturación", href: "/configuracion/facturacion" },
+      { label: "Facturación", href: "/configuracion/facturacion" },
       { label: "Equipos y supervisión", href: "/configuracion/omnicanal-equipos" },
     ],
   },
