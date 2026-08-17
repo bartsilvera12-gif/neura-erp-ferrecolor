@@ -108,7 +108,9 @@ function formatMonto(nStr: string, moneda: string): string {
 }
 
 function readLogoBytes(): Uint8Array | null {
-  const p = path.join(process.cwd(), "public", "logo-neura.png");
+  // Logo por defecto del KuDE = logo de Ferrecolor (bundle). Solo se usa si la
+  // empresa NO subió un logo propio en la config (kude_logo_path), que tiene prioridad.
+  const p = path.join(process.cwd(), "public", "logo-ferrecolor.png");
   try {
     if (fs.existsSync(p)) return new Uint8Array(fs.readFileSync(p));
   } catch {
