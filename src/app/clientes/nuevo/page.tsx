@@ -28,11 +28,14 @@ import { filasTiposDesdeSistemaEstatico, fetchTiposFormCliente } from "@/lib/cli
 import type { Plan } from "@/lib/planes/types";
 
 /**
- * Ferrecolor usa el formulario de clientes COMPLETO (como darocha): incluye los
- * datos SIFEN del receptor (contribuyente/RUC, nombre para facturación) además
- * de los campos SaaS/Neura. Necesario para emitir factura electrónica B2B.
+ * Ferrecolor usa el formulario de clientes SIMPLE (ferretería): oculta los campos
+ * SaaS/Neura que no aplican (Tipo de servicio Marketing/SaaS/Branding/Web, Plan,
+ * vendedor responsable, suscripción mensual, y el override manual de receptor SIFEN).
+ * Para facturar B2B alcanza con el RUC del cliente: el receptor SIFEN se detecta
+ * automáticamente del RUC/documento. Empresa muestra RUC; el modal rápido de la
+ * Caja tiene el toggle contribuyente + RUC para personas.
  */
-const SIMPLE_CLIENTE = false;
+const SIMPLE_CLIENTE = true;
 
 // ── Estilos ────────────────────────────────────────────────────────────────────
 

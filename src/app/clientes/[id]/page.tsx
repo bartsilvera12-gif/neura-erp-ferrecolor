@@ -59,9 +59,9 @@ import {
 } from "@/components/clientes/ClientePerfilTributarioForm";
 import { ClienteDatosSifenReceptorForm } from "@/components/clientes/ClienteDatosSifenReceptorForm";
 
-/** Ferrecolor usa el formulario/detalle de clientes COMPLETO (como darocha): incluye
- *  datos SIFEN del receptor y campos SaaS/Neura. Necesario para factura electrónica. */
-const SIMPLE_CLIENTE = false;
+/** Ferrecolor usa el formulario/detalle de clientes SIMPLE (ferretería): oculta los
+ *  campos SaaS/Neura (Tipo de servicio, Plan, vendedor, suscripción). */
+const SIMPLE_CLIENTE = true;
 // ── Estilos ────────────────────────────────────────────────────────────────────
 
 const inputClass =
