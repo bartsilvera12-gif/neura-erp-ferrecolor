@@ -125,7 +125,7 @@ export async function handleNcSifenXmlPost(opts: {
     timbradoFechaInicio: loaded.payload.emisor.timbrado_fecha_inicio_vigencia,
     timbradoFechaFin: `${yAnio}-12-31`,
     ambiente: loaded.ambiente,
-    emisorTelefono: "021000000",
+    emisorTelefono: "0973866442",
     emisorEmail: "facturacion@configurar-empresa.com.py",
     emisorDireccion: loaded.payload.emisor.direccion_fiscal.trim(),
     emisorNumCasa: 0,
