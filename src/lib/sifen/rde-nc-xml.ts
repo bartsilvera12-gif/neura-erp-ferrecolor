@@ -263,7 +263,11 @@ export function buildOfficialRdeNotaCreditoElectronicaXml(
     recParts.push(textEl("dRucRec", formatoCuerpoRucTipoTruc(dRucRec)));
     recParts.push(textEl("dDVRec", dDVRec));
     recParts.push(textEl("dNomRec", receptor.nombre.trim()));
-    if (receptor.direccion?.trim()) recParts.push(textEl("dDirRec", receptor.direccion.trim()));
+    // Si se informa dirección, SET exige el número de casa (dNumCasRec). Default 0.
+    if (receptor.direccion?.trim()) {
+      recParts.push(textEl("dDirRec", receptor.direccion.trim()));
+      recParts.push(textEl("dNumCasRec", "0"));
+    }
     if (receptor.telefono?.trim()) {
       const tr = receptor.telefono.replace(/\D/g, "");
       if (tr.length >= 8) recParts.push(textEl("dTelRec", tr.slice(0, 15)));
@@ -281,7 +285,11 @@ export function buildOfficialRdeNotaCreditoElectronicaXml(
     recParts.push(textEl("dDTipIDRec", XSD_DES_DOC_CI_PY));
     recParts.push(textEl("dNumIDRec", doc.slice(0, 20)));
     recParts.push(textEl("dNomRec", receptor.nombre.trim()));
-    if (receptor.direccion?.trim()) recParts.push(textEl("dDirRec", receptor.direccion.trim()));
+    // Si se informa dirección, SET exige el número de casa (dNumCasRec). Default 0.
+    if (receptor.direccion?.trim()) {
+      recParts.push(textEl("dDirRec", receptor.direccion.trim()));
+      recParts.push(textEl("dNumCasRec", "0"));
+    }
     if (receptor.telefono?.trim()) {
       const tr = receptor.telefono.replace(/\D/g, "");
       if (tr.length >= 8) recParts.push(textEl("dTelRec", tr.slice(0, 15)));
