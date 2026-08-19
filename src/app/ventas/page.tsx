@@ -92,6 +92,7 @@ export default function VentasPage() {
   const [busqueda,   setBusqueda]   = useState("");
   const [filtroTipo, setFiltroTipo] = useState<TipoVenta | "">("");
   const [filtroIva,  setFiltroIva]  = useState<TipoIvaVenta | "">("");
+  const [filtroCliente, setFiltroCliente] = useState<string>("");
   const [mostrarAnuladas, setMostrarAnuladas] = useState(true);
   const [detalle,    setDetalle]    = useState<Venta | null>(null);
   const [anularTarget, setAnularTarget] = useState<Venta | null>(null);
@@ -135,6 +136,8 @@ export default function VentasPage() {
       ...v.items.map((i) => i.producto_nombre),
       ...v.items.map((i) => i.sku),
     )) return false;
+    // Cliente (selector): coincide por id del cliente asociado a la venta.
+    if (filtroCliente !== "" && v.cliente_id !== filtroCliente) return false;
     // Tipo de venta
     if (filtroTipo !== "" && v.tipo_venta !== filtroTipo) return false;
     // IVA: coincide si al menos un ítem tiene ese tipo
@@ -143,7 +146,21 @@ export default function VentasPage() {
     return true;
   });
 
-  const hayFiltros = busqueda || filtroTipo || filtroIva || mostrarAnuladas;
+  const hayFiltros = busqueda || filtroTipo || filtroIva || filtroCliente || mostrarAnuladas;
+
+  // Opciones del selector de clientes: clientes únicos que tienen al menos una venta.
+  const opcionesCliente = [
+    { value: "", label: "Todos los clientes" },
+    ...[
+      ...new Map(
+        todas
+          .filter((v) => v.cliente_id && v.cliente_nombre)
+          .map((v) => [v.cliente_id as string, v.cliente_nombre as string])
+      ).entries(),
+    ]
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, "es")),
+  ];
 
   return (
     <div className="space-y-8">
@@ -228,6 +245,14 @@ export default function VentasPage() {
               { value: "10%", label: "IVA 10%" },
             ]}
           />
+          <FancySelect
+            value={filtroCliente}
+            onChange={(v) => setFiltroCliente(v)}
+            ariaLabel="Filtrar por cliente"
+            className="w-56"
+            size="sm"
+            options={opcionesCliente}
+          />
           <label className="inline-flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none">
             <input
               type="checkbox"
@@ -239,7 +264,7 @@ export default function VentasPage() {
           </label>
           {hayFiltros && (
             <button
-              onClick={() => { setBusqueda(""); setFiltroTipo(""); setFiltroIva(""); setMostrarAnuladas(false); }}
+              onClick={() => { setBusqueda(""); setFiltroTipo(""); setFiltroIva(""); setFiltroCliente(""); setMostrarAnuladas(false); }}
               className="text-sm text-gray-400 hover:text-gray-600 transition-colors px-2"
             >
               Limpiar filtros

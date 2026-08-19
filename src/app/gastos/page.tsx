@@ -7,7 +7,9 @@ import { getGastos, deleteGasto } from "@/lib/gastos/actions";
 import type { Gasto } from "@/lib/gastos/actions";
 
 function formatGs(valor: number) {
-  return `${valor.toLocaleString("es-PY")} ₲`;
+  // Espacio duro (nbsp) entre el número y el símbolo ₲ para que no se separe/baje
+  // de línea en contenedores angostos.
+  return `${valor.toLocaleString("es-PY")}${String.fromCharCode(160)}₲`;
 }
 
 function formatFecha(fecha: string) {
