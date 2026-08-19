@@ -16,7 +16,9 @@ const inputFilterClass =
   "border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none bg-white";
 
 function formatGs(valor: number) {
-  return `Gs. ${Math.round(valor).toLocaleString("es-PY")}`;
+  // Espacio duro (nbsp) entre "Gs." y el número para que no se separen ni se baje
+  // de línea el símbolo en columnas angostas (ej. Total del listado de compras).
+  return `Gs.${String.fromCharCode(160)}${Math.round(valor).toLocaleString("es-PY")}`;
 }
 
 function formatFecha(iso: string) {
@@ -93,6 +95,7 @@ export default function ComprasPage() {
   const [ordenes, setOrdenes] = useState<OrdenCompra[]>([]);
   const [busqueda, setBusqueda] = useState("");
   const [filtroTipoPago, setFiltroTipoPago] = useState<TipoPago | "">("");
+  const [filtroProveedor, setFiltroProveedor] = useState<string>("");
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
   const [anularTarget, setAnularTarget] = useState<{ numero_oc: string; estado: EstadoOrdenCompra } | null>(null);
   const [anularCompraTarget, setAnularCompraTarget] = useState<{ numero_control: string; total: number } | null>(null);
@@ -131,11 +134,20 @@ export default function ComprasPage() {
         ...g.items.map((i) => i.producto_nombre),
       );
       const coincideTipoPago = filtroTipoPago === "" || g.tipo_pago === filtroTipoPago;
-      return coincideTexto && coincideTipoPago;
+      const coincideProveedor = filtroProveedor === "" || g.proveedor_nombre === filtroProveedor;
+      return coincideTexto && coincideTipoPago && coincideProveedor;
     });
-  }, [grupos, busqueda, filtroTipoPago]);
+  }, [grupos, busqueda, filtroTipoPago, filtroProveedor]);
 
-  const hayFiltros = busqueda || filtroTipoPago;
+  const hayFiltros = busqueda || filtroTipoPago || filtroProveedor;
+
+  // Opciones del selector de proveedor: proveedores únicos con compras registradas.
+  const opcionesProveedor = useMemo(() => [
+    { value: "", label: "Todos los proveedores" },
+    ...[...new Set(grupos.map((g) => g.proveedor_nombre).filter((x): x is string => !!x))]
+      .sort((a, b) => a.localeCompare(b, "es"))
+      .map((nombre) => ({ value: nombre, label: nombre })),
+  ], [grupos]);
 
   function toggle(numero: string) {
     setExpandidos((prev) => {
@@ -270,8 +282,11 @@ export default function ComprasPage() {
               { value: "contado", label: "Contado" },
               { value: "credito", label: "Crédito" },
             ]} />
+          <FancySelect value={filtroProveedor} onChange={(v) => setFiltroProveedor(v)}
+            ariaLabel="Filtrar por proveedor" className="w-56" size="sm"
+            options={opcionesProveedor} />
           {hayFiltros && (
-            <button onClick={() => { setBusqueda(""); setFiltroTipoPago(""); }}
+            <button onClick={() => { setBusqueda(""); setFiltroTipoPago(""); setFiltroProveedor(""); }}
               className="text-sm text-gray-400 hover:text-gray-600 transition-colors px-2">
               Limpiar filtros
             </button>
