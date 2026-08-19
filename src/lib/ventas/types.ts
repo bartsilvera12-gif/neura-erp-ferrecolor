@@ -62,6 +62,11 @@ export interface Venta {
   /** Nombre del usuario que registró la venta (auditoría). */
   usuario_nombre?: string | null;
 
+  /** Cliente asociado a la venta (opcional; una venta puede no tener cliente). */
+  cliente_id?: string | null;
+  /** Nombre del cliente (razón social / contacto) para mostrar y filtrar en el listado. */
+  cliente_nombre?: string | null;
+
   /** Factura ERP linkeada por el puente venta→factura (SIFEN). NULL si fue solo ticket. */
   factura_id?: string | null;
   /** Número de la factura ERP (FAC-XXXXXX) si `factura_id` está seteado. */

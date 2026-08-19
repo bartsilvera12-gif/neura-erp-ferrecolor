@@ -18,6 +18,7 @@ interface VentaRow {
   fecha: string;
   usuario_nombre?: string | null;
   factura_id?: string | null;
+  cliente_id?: string | null;
 }
 
 interface VentaItemRow {
@@ -65,7 +66,7 @@ export async function GET(request: NextRequest) {
     const ventasQ = await ctx.supabase
       .from("ventas")
       .select(
-        "id, empresa_id, numero_control, moneda, tipo_cambio, subtotal, monto_iva, total, tipo_venta, plazo_dias, metodo_pago, fecha, genera_nota_remision, nota_remision_numero, usuario_nombre, estado, anulada_at, anulada_motivo, factura_id"
+        "id, empresa_id, numero_control, moneda, tipo_cambio, subtotal, monto_iva, total, tipo_venta, plazo_dias, metodo_pago, fecha, genera_nota_remision, nota_remision_numero, usuario_nombre, estado, anulada_at, anulada_motivo, factura_id, cliente_id"
       )
       .eq("empresa_id", empresaId)
       .order("fecha", { ascending: false })
@@ -118,6 +119,27 @@ export async function GET(request: NextRequest) {
     const ventasRows = (ventasQ.data ?? []) as VentaRow[];
     const itemsRows = (itemsQ.data ?? []) as VentaItemRow[];
 
+    // Nombre del cliente por venta: batch-load desde `clientes` para poder filtrar/mostrar
+    // en el listado (empresa → razón social; persona → nombre de contacto). Best-effort.
+    const clienteIds = [
+      ...new Set(ventasRows.map((v) => v.cliente_id).filter((x): x is string => !!x)),
+    ];
+    const clienteNombreById = new Map<string, string>();
+    if (clienteIds.length > 0) {
+      const cliQ = await ctx.supabase
+        .from("clientes")
+        .select("id, empresa, nombre_contacto, nombre")
+        .eq("empresa_id", empresaId)
+        .in("id", clienteIds);
+      if (!cliQ.error) {
+        const s = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : "");
+        for (const row of (cliQ.data ?? []) as Array<Record<string, unknown>>) {
+          const nombre = s(row.empresa) || s(row.nombre_contacto) || s(row.nombre);
+          if (nombre) clienteNombreById.set(String(row.id), nombre);
+        }
+      }
+    }
+
     const byVenta = new Map<string, VentaItemRow[]>();
     for (const row of itemsRows) {
       const list = byVenta.get(row.venta_id) ?? [];
@@ -151,6 +173,8 @@ export async function GET(request: NextRequest) {
         nota_remision_numero: (r as unknown as { nota_remision_numero?: string | null }).nota_remision_numero ?? null,
         fecha: r.fecha,
         usuario_nombre: r.usuario_nombre ?? null,
+        cliente_id: r.cliente_id ?? null,
+        cliente_nombre: r.cliente_id ? clienteNombreById.get(r.cliente_id) ?? null : null,
         factura_id: r.factura_id ?? null,
         numero_factura: r.factura_id ? numeroFacturaByIdMap.get(r.factura_id) ?? null : null,
         factura_estado_sifen: r.factura_id ? estadoSifenByFacturaMap.get(r.factura_id) ?? null : null,

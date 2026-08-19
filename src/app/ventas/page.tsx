@@ -127,10 +127,11 @@ export default function VentasPage() {
   const filtradas = todas.filter((v) => {
     // Anuladas ocultas por defecto (toggle "Ver anuladas" las muestra).
     if (!mostrarAnuladas && v.estado === "anulada") return false;
-    // Búsqueda por tokens: número de control, nombre o SKU de cualquier ítem.
+    // Búsqueda por tokens: número de control, nombre del cliente, y nombre o SKU de cualquier ítem.
     if (busqueda.trim() !== "" && !productoMatchesQuery(
       busqueda,
       v.numero_control,
+      v.cliente_nombre ?? "",
       ...v.items.map((i) => i.producto_nombre),
       ...v.items.map((i) => i.sku),
     )) return false;
@@ -197,7 +198,7 @@ export default function VentasPage() {
         <div className="flex flex-wrap items-center gap-3 mb-5 pb-5 border-b border-gray-100">
           <input
             type="text"
-            placeholder="Buscar por número, producto o SKU..."
+            placeholder="Buscar por número, cliente, producto o SKU..."
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
             className={`${inputFilterClass} min-w-0 flex-1 sm:min-w-64`}
@@ -308,6 +309,11 @@ export default function VentasPage() {
                             </span>
                           )}
                         </div>
+                        {v.cliente_nombre && (
+                          <div className="mt-1 font-sans text-[11px] font-medium text-slate-600 normal-case truncate max-w-[160px]" title={v.cliente_nombre}>
+                            {v.cliente_nombre}
+                          </div>
+                        )}
                       </td>
                       <td className="py-4 pr-4 align-middle">
                         <ResumenProductos v={v} />
