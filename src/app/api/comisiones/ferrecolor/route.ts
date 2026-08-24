@@ -64,17 +64,34 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(successResponse({ por_vendedor: [], periodo: { desde, hasta }, escalas: ESCALAS }));
     }
 
-    // 2) Movimientos SALIDA (costo real snapshot) para esas ventas
-    const { data: movs, error: eM } = await ctx.supabase
-      .from("movimientos_inventario")
-      .select("venta_id, cantidad, costo_unitario, tipo, anulado_at")
-      .eq("empresa_id", empresaId)
-      .eq("tipo", "SALIDA")
-      .in("venta_id", ventaIds);
-    if (eM) throw new Error(eM.message);
+    // 2) Movimientos SALIDA (costo real snapshot) para esas ventas.
+    //    Se consulta por lotes chicos de venta_id: con cientos de ventas en el
+    //    periodo, un unico .in() arma una URL enorme y la request falla (la
+    //    pantalla mostraba "No se pudieron calcular las comisiones"). Ademas se
+    //    pagina, porque PostgREST corta en 1000 filas y los costos salian cortos.
+    type MovRow = { venta_id: string | null; cantidad: number | string | null; costo_unitario: number | string | null; anulado_at: string | null };
+    const CHUNK = 25;
+    const PAGE = 1000;
+    const movs: MovRow[] = [];
+    for (let i = 0; i < ventaIds.length; i += CHUNK) {
+      const ids = ventaIds.slice(i, i + CHUNK);
+      for (let desdeFila = 0; ; desdeFila += PAGE) {
+        const { data, error: eM } = await ctx.supabase
+          .from("movimientos_inventario")
+          .select("venta_id, cantidad, costo_unitario, tipo, anulado_at")
+          .eq("empresa_id", empresaId)
+          .eq("tipo", "SALIDA")
+          .in("venta_id", ids)
+          .range(desdeFila, desdeFila + PAGE - 1);
+        if (eM) throw new Error(eM.message);
+        const lote = (data ?? []) as MovRow[];
+        movs.push(...lote);
+        if (lote.length < PAGE) break;
+      }
+    }
 
     const costoPorVenta = new Map<string, number>();
-    for (const m of movs ?? []) {
+    for (const m of movs) {
       if (m.anulado_at) continue;
       const vid = String(m.venta_id ?? "");
       if (!vid) continue;
@@ -130,7 +147,12 @@ export async function GET(request: NextRequest) {
       },
     }));
   } catch (err) {
-    console.error("[/api/comisiones/ferrecolor GET]", err instanceof Error ? err.message : err);
-    return NextResponse.json(errorResponse("No se pudieron calcular las comisiones."), { status: 500 });
+    const detalle = err instanceof Error ? err.message : String(err);
+    console.error("[/api/comisiones/ferrecolor GET]", detalle);
+    // Se incluye el detalle: antes el mensaje generico obligaba a adivinar la causa.
+    return NextResponse.json(
+      errorResponse(`No se pudieron calcular las comisiones: ${detalle}`),
+      { status: 500 }
+    );
   }
 }
