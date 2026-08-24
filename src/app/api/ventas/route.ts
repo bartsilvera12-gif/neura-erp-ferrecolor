@@ -108,16 +108,33 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const itemsQ = await ctx.supabase
-      .from("ventas_items")
-      .select(
-        "venta_id, producto_id, producto_nombre, sku, cantidad, precio_venta_original, precio_venta, tipo_iva, tipo_precio, subtotal, monto_iva, total_linea"
-      )
-      .eq("empresa_id", empresaId);
-    if (itemsQ.error) throw new Error(itemsQ.error.message);
-
     const ventasRows = (ventasQ.data ?? []) as VentaRow[];
-    const itemsRows = (itemsQ.data ?? []) as VentaItemRow[];
+
+    // Ítems de las ventas listadas. ANTES se pedían TODOS los ventas_items de la
+    // empresa sin límite: PostgREST corta en 1000 filas, así que a partir de cierto
+    // volumen las ventas nuevas aparecían "Sin líneas cargadas" (0 ítems, cant. 0).
+    // Ahora se piden solo los de las ventas visibles, por lotes y paginando.
+    const ITEM_COLS =
+      "venta_id, producto_id, producto_nombre, sku, cantidad, precio_venta_original, precio_venta, tipo_iva, tipo_precio, subtotal, monto_iva, total_linea";
+    const CHUNK_VENTAS = 100;   // ids por consulta
+    const PAGE = 1000;          // filas por página (tope de PostgREST)
+    const itemsRows: VentaItemRow[] = [];
+    for (let i = 0; i < ventasRows.length; i += CHUNK_VENTAS) {
+      const ids = ventasRows.slice(i, i + CHUNK_VENTAS).map((v) => v.id);
+      if (ids.length === 0) continue;
+      for (let desde = 0; ; desde += PAGE) {
+        const q = await ctx.supabase
+          .from("ventas_items")
+          .select(ITEM_COLS)
+          .eq("empresa_id", empresaId)
+          .in("venta_id", ids)
+          .range(desde, desde + PAGE - 1);
+        if (q.error) throw new Error(q.error.message);
+        const lote = (q.data ?? []) as VentaItemRow[];
+        itemsRows.push(...lote);
+        if (lote.length < PAGE) break;
+      }
+    }
 
     // Nombre del cliente por venta: batch-load desde `clientes` para poder filtrar/mostrar
     // en el listado (empresa → razón social; persona → nombre de contacto). Best-effort.
