@@ -20,16 +20,37 @@ export async function fetchWithSupabaseSession(
   init?: RequestInit
 ): Promise<Response> {
   try {
-    const token = await resolveAccessToken();
-    const headers = new Headers(init?.headers);
-    if (token) {
-      headers.set("Authorization", `Bearer ${token}`);
+    const pedir = async (token: string | null) => {
+      const headers = new Headers(init?.headers);
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+      return fetch(input, { ...init, headers, credentials: init?.credentials ?? "include" });
+    };
+
+    let res = await pedir(await resolveAccessToken());
+
+    // Sesión vencida: el server responde 401 y antes eso llegaba a la pantalla
+    // como un "No autenticado" suelto (p. ej. dentro del modal de crear cliente).
+    // Se intenta UNA renovación y se repite el pedido; si sigue 401, la sesión
+    // esta realmente muerta y se manda al login con aviso.
+    if (res.status === 401) {
+      let renovado: string | null = null;
+      try {
+        const { data, error } = await supabase.auth.refreshSession();
+        if (!error) renovado = data.session?.access_token ?? null;
+      } catch { /* sin sesión renovable */ }
+
+      if (renovado) res = await pedir(renovado);
+
+      if (res.status === 401 && typeof window !== "undefined") {
+        const yaEnLogin = window.location.pathname.startsWith("/login");
+        if (!yaEnLogin) {
+          const volverA = window.location.pathname + window.location.search;
+          window.location.href = `/login?expirada=1&next=${encodeURIComponent(volverA)}`;
+        }
+      }
     }
-    return await fetch(input, {
-      ...init,
-      headers,
-      credentials: init?.credentials ?? "include",
-    });
+
+    return res;
   } catch (e) {
     // Preservar AbortError tal cual para que el caller pueda hacer
     //   catch (err) { if (err instanceof DOMException && err.name === "AbortError") return; }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
@@ -14,6 +14,15 @@ export default function LoginPage() {
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Aviso cuando se llega acá porque la sesión vencio (fetchWithSupabaseSession
+  // redirige con ?expirada=1 tras un 401 que no se pudo renovar).
+  const [sesionExpirada, setSesionExpirada] = useState(false);
+
+  useEffect(() => {
+    try {
+      setSesionExpirada(new URLSearchParams(window.location.search).get("expirada") === "1");
+    } catch { /* noop */ }
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -111,6 +120,13 @@ export default function LoginPage() {
                 </button>
               </div>
             </div>
+
+            {sesionExpirada && !error && (
+              <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800 sm:px-4 sm:py-3">
+                <span aria-hidden>⏱</span>
+                <span>Tu sesión expiró por inactividad. Iniciá sesión de nuevo para seguir.</span>
+              </div>
+            )}
 
             {error && (
               <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700 sm:px-4 sm:py-3">
