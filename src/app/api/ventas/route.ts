@@ -110,30 +110,37 @@ export async function GET(request: NextRequest) {
 
     const ventasRows = (ventasQ.data ?? []) as VentaRow[];
 
-    // Ítems de las ventas listadas. ANTES se pedían TODOS los ventas_items de la
-    // empresa sin límite: PostgREST corta en 1000 filas, así que a partir de cierto
-    // volumen las ventas nuevas aparecían "Sin líneas cargadas" (0 ítems, cant. 0).
-    // Ahora se piden solo los de las ventas visibles, por lotes y paginando.
+    // Ítems de las ventas listadas. Se piden por lotes chicos y paginando, porque
+    // pedir TODOS los ventas_items de la empresa de una vez chocaba con el tope de
+    // 1000 filas de PostgREST y las ventas nuevas salian "Sin lineas cargadas".
+    //
+    // BEST-EFFORT a proposito: si esta parte falla, el listado igual devuelve las
+    // ventas (sin el detalle) en vez de quedar en blanco. Los items son enriquecido,
+    // no el dato principal.
     const ITEM_COLS =
       "venta_id, producto_id, producto_nombre, sku, cantidad, precio_venta_original, precio_venta, tipo_iva, tipo_precio, subtotal, monto_iva, total_linea";
-    const CHUNK_VENTAS = 100;   // ids por consulta
-    const PAGE = 1000;          // filas por página (tope de PostgREST)
+    const CHUNK_VENTAS = 25;    // ids por consulta (URL corta: ~25 uuid por request)
+    const PAGE = 1000;          // filas por pagina (tope de PostgREST)
     const itemsRows: VentaItemRow[] = [];
-    for (let i = 0; i < ventasRows.length; i += CHUNK_VENTAS) {
-      const ids = ventasRows.slice(i, i + CHUNK_VENTAS).map((v) => v.id);
-      if (ids.length === 0) continue;
-      for (let desde = 0; ; desde += PAGE) {
-        const q = await ctx.supabase
-          .from("ventas_items")
-          .select(ITEM_COLS)
-          .eq("empresa_id", empresaId)
-          .in("venta_id", ids)
-          .range(desde, desde + PAGE - 1);
-        if (q.error) throw new Error(q.error.message);
-        const lote = (q.data ?? []) as VentaItemRow[];
-        itemsRows.push(...lote);
-        if (lote.length < PAGE) break;
+    try {
+      for (let i = 0; i < ventasRows.length; i += CHUNK_VENTAS) {
+        const ids = ventasRows.slice(i, i + CHUNK_VENTAS).map((v) => v.id);
+        if (ids.length === 0) continue;
+        for (let desde = 0; ; desde += PAGE) {
+          const q = await ctx.supabase
+            .from("ventas_items")
+            .select(ITEM_COLS)
+            .eq("empresa_id", empresaId)
+            .in("venta_id", ids)
+            .range(desde, desde + PAGE - 1);
+          if (q.error) throw new Error(q.error.message);
+          const lote = (q.data ?? []) as VentaItemRow[];
+          itemsRows.push(...lote);
+          if (lote.length < PAGE) break;
+        }
       }
+    } catch (e) {
+      console.error("[/api/ventas GET] items:", e instanceof Error ? e.message : e);
     }
 
     // Nombre del cliente por venta: batch-load desde `clientes` para poder filtrar/mostrar
