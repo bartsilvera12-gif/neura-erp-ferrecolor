@@ -49,4 +49,9 @@ export interface Compra {
   // Anulación (soft delete). Si anulada_at != null, la compra fue revertida.
   anulada_at?: string | null;
   anulada_motivo?: string | null;
+
+  // Estado de pago. Para compras a crédito: 'pendiente' hasta que se marca 'pagada'.
+  estado_pago?: "pendiente" | "pagada";
+  pagada_at?: string | null;
+  pago_caja_movimiento_id?: string | null;
 }

@@ -354,7 +354,7 @@ export default function NuevaVentaPage() {
     setPresupuestoId(pid);
     (async () => {
       try {
-        const res = await fetch(`/api/presupuestos/${pid}`, { credentials: "include", cache: "no-store" });
+        const res = await fetchWithSupabaseSession(`/api/presupuestos/${pid}`, { cache: "no-store" });
         const j = await res.json();
         const presu = j?.data?.presupuesto as Record<string, unknown> | undefined;
         const items = j?.data?.items as Record<string, unknown>[] | undefined;
@@ -384,14 +384,35 @@ export default function NuevaVentaPage() {
               total_linea: totalLinea,
             };
           });
+        // Las lineas cargadas a mano en el presupuesto (sin producto del catalogo) no
+        // se pueden vender: la venta necesita producto_id para mover stock. Antes se
+        // descartaban en silencio y el cajero veia la venta vacia; ahora se avisa.
+        const sinProducto = items.filter((it) => !it.producto_id && (Number(it.cantidad) || 0) > 0);
+        if (!cancelled && sinProducto.length > 0) {
+          const nombres = sinProducto
+            .map((it) => (typeof it.producto_nombre === "string" ? it.producto_nombre.trim() : ""))
+            .filter(Boolean);
+          setErrorVenta(
+            `Este presupuesto tiene ${sinProducto.length} ${sinProducto.length === 1 ? "línea cargada" : "líneas cargadas"} a mano, sin producto del catálogo` +
+            (nombres.length ? ` (${nombres.join(", ")})` : "") +
+            `. No se ${sinProducto.length === 1 ? "pudo pasar" : "pudieron pasar"} a la venta: agregá ${sinProducto.length === 1 ? "ese producto" : "esos productos"} desde el buscador.`
+          );
+        }
         if (!cancelled && lineas.length) setItems(lineas);
+        if (!cancelled && !lineas.length && sinProducto.length === 0) {
+          setErrorVenta("No se pudieron cargar los productos del presupuesto. Actualizá la página o cargalos manualmente.");
+        }
         if (!cancelled && presu.cliente_id) setClienteId(String(presu.cliente_id));
         // Nombre del cliente en el input (aunque el id no venga en la primer pagina de /api/clientes,
         // o aunque el presupuesto se haya guardado con nombre libre sin id).
         if (!cancelled && typeof presu.cliente_nombre === "string" && presu.cliente_nombre.trim()) {
           setClienteQuery(presu.cliente_nombre.trim());
         }
-      } catch { /* silencioso */ }
+      } catch (e) {
+        if (!cancelled) {
+          setErrorVenta(`No se pudo cargar el presupuesto: ${e instanceof Error ? e.message : "error de red"}. Cargá los productos manualmente.`);
+        }
+      }
     })();
     return () => { cancelled = true; };
   }, []);
@@ -408,7 +429,7 @@ export default function NuevaVentaPage() {
     setPedidoId(pid);
     (async () => {
       try {
-        const res = await fetch(`/api/proyectos/${pid}`, { credentials: "include", cache: "no-store" });
+        const res = await fetchWithSupabaseSession(`/api/proyectos/${pid}`, { cache: "no-store" });
         const j = await res.json();
         if (cancelled || !j?.success || !j.data?.proyecto) return;
         const p = j.data.proyecto as { brief_data?: unknown; cliente_id?: string | null; metadata?: unknown };
@@ -467,10 +488,7 @@ export default function NuevaVentaPage() {
     setPedidoCajaId(pid);
     (async () => {
       try {
-        const res = await fetch(`/api/pedidos-caja/${pid}`, {
-          credentials: "include",
-          cache: "no-store",
-        });
+        const res = await fetchWithSupabaseSession(`/api/pedidos-caja/${pid}`, { cache: "no-store" });
         const j = await res.json();
         if (cancelled || !j?.success || !j.data?.pedido) return;
         const p = j.data.pedido as {

@@ -91,6 +91,9 @@ export interface CompraRow {
   anulada_at: string | null;
   anulada_por: string | null;
   anulada_motivo: string | null;
+  estado_pago: string;
+  pagada_at: string | null;
+  pago_caja_movimiento_id: string | null;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -106,6 +109,7 @@ const COLS = `
   numero_control, estado, fecha,
   comprobante_url, comprobante_storage_path, comprobante_nombre, comprobante_mime_type,
   anulada_at, anulada_por, anulada_motivo,
+  estado_pago, pagada_at, pago_caja_movimiento_id,
   created_at, updated_at, created_by, usuario_nombre
 `;
 

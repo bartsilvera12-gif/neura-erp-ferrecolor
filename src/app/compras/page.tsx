@@ -52,6 +52,7 @@ type GrupoCompra = {
   comprobante: boolean;
   orden_compra_numero: string | null;
   anulada: boolean;
+  pagada: boolean;
 };
 
 function agrupar(rows: Compra[]): GrupoCompra[] {
@@ -71,6 +72,7 @@ function agrupar(rows: Compra[]): GrupoCompra[] {
         comprobante: false,
         orden_compra_numero: c.orden_compra_numero ?? null,
         anulada: !!c.anulada_at,
+        pagada: c.estado_pago === "pagada",
       };
       map.set(key, g);
     }
@@ -78,6 +80,7 @@ function agrupar(rows: Compra[]): GrupoCompra[] {
     g.total += Number(c.total) || 0;
     if (c.comprobante_storage_path) g.comprobante = true;
     if (c.anulada_at) g.anulada = true;
+    if (c.estado_pago === "pagada") g.pagada = true;
   }
   return [...map.values()].sort(
     (a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
@@ -100,6 +103,7 @@ export default function ComprasPage() {
   const [anularTarget, setAnularTarget] = useState<{ numero_oc: string; estado: EstadoOrdenCompra } | null>(null);
   const [anularCompraTarget, setAnularCompraTarget] = useState<{ numero_control: string; total: number } | null>(null);
   const [editarCompraTarget, setEditarCompraTarget] = useState<{ numero_control: string; numero_factura: string; fecha_factura: string; nro_timbrado: string; observacion: string } | null>(null);
+  const [pagarCompraTarget, setPagarCompraTarget] = useState<{ numero_control: string; total: number; proveedor_nombre: string } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
@@ -391,6 +395,25 @@ export default function ComprasPage() {
                               >
                                 Editar
                               </button>
+                              {g.tipo_pago === "credito" && (
+                                g.pagada ? (
+                                  <span
+                                    className="rounded-full bg-green-50 px-2 py-1 text-xs font-semibold text-green-700"
+                                    title="Compra a crédito ya saldada"
+                                  >
+                                    Pagada
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPagarCompraTarget({ numero_control: g.numero_control, total: g.total, proveedor_nombre: g.proveedor_nombre })}
+                                    className="text-xs font-semibold text-green-700 hover:underline"
+                                    title="Marcar la compra a crédito como pagada"
+                                  >
+                                    Marcar pagada
+                                  </button>
+                                )
+                              )}
                               <button
                                 type="button"
                                 onClick={() => setAnularCompraTarget({ numero_control: g.numero_control, total: g.total })}
@@ -452,6 +475,15 @@ export default function ComprasPage() {
           data={editarCompraTarget}
           onClose={() => setEditarCompraTarget(null)}
           onDone={() => { setEditarCompraTarget(null); setReloadKey((k) => k + 1); }}
+        />
+      )}
+      {pagarCompraTarget && (
+        <MarcarPagadaModal
+          numero_control={pagarCompraTarget.numero_control}
+          total={pagarCompraTarget.total}
+          proveedor_nombre={pagarCompraTarget.proveedor_nombre}
+          onClose={() => setPagarCompraTarget(null)}
+          onDone={() => { setPagarCompraTarget(null); setReloadKey((k) => k + 1); }}
         />
       )}
     </div>
@@ -627,6 +659,107 @@ function AnularCompraModal({
               className="rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50"
             >
               {loading ? "Anulando..." : "Anular compra"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MarcarPagadaModal({
+  numero_control,
+  total,
+  proveedor_nombre,
+  onClose,
+  onDone,
+}: {
+  numero_control: string;
+  total: number;
+  proveedor_nombre: string;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [descontarCaja, setDescontarCaja] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/compras/${encodeURIComponent(numero_control)}/pagar`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ descontar_caja: descontarCaja }),
+        }
+      );
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error ?? `Error ${res.status}`);
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo marcar la compra como pagada.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md overflow-hidden rounded-2xl border-2 border-green-200 bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-b border-green-100 bg-green-50/60 px-5 py-4">
+          <h3 className="text-base font-bold text-green-800">Marcar pagada — compra {numero_control}</h3>
+          <p className="mt-1 text-xs text-green-700">
+            {proveedor_nombre ? `${proveedor_nombre} · ` : ""}Total Gs. {Math.round(total).toLocaleString("es-PY")}.
+            La compra a crédito quedará marcada como PAGADA y dejará de figurar como deuda con proveedores.
+          </p>
+        </div>
+        <div className="p-5 space-y-3">
+          <label className="flex items-start gap-3 rounded-lg border border-slate-200 px-3 py-3 cursor-pointer hover:bg-slate-50">
+            <input
+              type="checkbox"
+              checked={descontarCaja}
+              onChange={(e) => setDescontarCaja(e.target.checked)}
+              disabled={loading}
+              className="mt-0.5 h-4 w-4 accent-green-600"
+            />
+            <span className="text-sm">
+              <span className="font-medium text-slate-800">Descontar de caja</span>
+              <span className="mt-0.5 block text-xs text-slate-500">
+                Si está activo, se genera un egreso de Gs. {Math.round(total).toLocaleString("es-PY")} en la caja
+                abierta. Requiere una caja abierta; si no hay, el pago no se registra.
+              </span>
+            </span>
+          </label>
+          {error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              {error}
+            </div>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={loading}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={loading}
+              className="rounded-lg bg-green-600 px-4 py-2 text-sm font-bold text-white hover:bg-green-700 disabled:opacity-50"
+            >
+              {loading ? "Guardando..." : "Marcar pagada"}
             </button>
           </div>
         </div>

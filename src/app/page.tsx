@@ -1965,6 +1965,7 @@ const DashCompras = memo(function DashCompras({
     plazo_dias: number | null;
     vencimientoDate: Date | null;
     diasHastaVence: number | null;
+    pagada: boolean;
   };
   const hoy = new Date();
   hoy.setHours(0, 0, 0, 0);
@@ -1992,9 +1993,11 @@ const DashCompras = memo(function DashCompras({
         plazo_dias: c.plazo_dias ?? null,
         vencimientoDate,
         diasHastaVence,
+        pagada: c.estado_pago === "pagada",
       });
     } else {
       g.total += Number(c.total) || 0;
+      if (c.estado_pago === "pagada") g.pagada = true;
     }
   }
   const grupos = [...gruposMap.values()];
@@ -2004,7 +2007,8 @@ const DashCompras = memo(function DashCompras({
   const totalPeriodo = gruposPeriodo.reduce((s, g) => s + g.total, 0);
 
   // Deuda con proveedores = compras crédito no vencidas ni anuladas (ya excluidas)
-  const conCredito = grupos.filter((g) => g.tipo_pago === "credito" && g.vencimientoDate);
+  // ni pagadas (las saldadas dejan de contar como deuda / vencida).
+  const conCredito = grupos.filter((g) => g.tipo_pago === "credito" && g.vencimientoDate && !g.pagada);
   const deudaTotal = conCredito.reduce((s, g) => s + g.total, 0);
   const porVencer = conCredito
     .filter((g) => (g.diasHastaVence ?? 0) >= 0 && (g.diasHastaVence ?? 0) <= 30)

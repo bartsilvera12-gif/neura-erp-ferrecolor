@@ -99,6 +99,7 @@ export interface CompraRaw {
   tipo_pago?: "contado" | "credito" | string | null;
   plazo_dias?: number | null;
   anulada_at?: string | null;
+  estado_pago?: string | null;
   total: number;
   fecha: string;
 }
@@ -494,6 +495,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       tipo_pago: (r.tipo_pago as string | null) ?? null,
       plazo_dias: r.plazo_dias == null ? null : Number(r.plazo_dias) || null,
       anulada_at: (r.anulada_at as string | null) ?? null,
+      estado_pago: (r.estado_pago as string | null) ?? null,
       total: toNum(r.total),
       fecha: toCalendarDateStr(r.fecha as string),
     }));

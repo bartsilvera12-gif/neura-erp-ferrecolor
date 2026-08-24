@@ -19,6 +19,9 @@ interface CompraApiRow {
   comprobante_mime_type?: string | null;
   anulada_at?: string | null;
   anulada_motivo?: string | null;
+  estado_pago?: string | null;
+  pagada_at?: string | null;
+  pago_caja_movimiento_id?: string | null;
 }
 
 function mapRow(r: CompraApiRow): Compra {
@@ -53,6 +56,9 @@ function mapRow(r: CompraApiRow): Compra {
     comprobante_mime_type: r.comprobante_mime_type ?? null,
     anulada_at: r.anulada_at ?? null,
     anulada_motivo: r.anulada_motivo ?? null,
+    estado_pago: r.estado_pago === "pagada" ? "pagada" : "pendiente",
+    pagada_at: r.pagada_at ?? null,
+    pago_caja_movimiento_id: r.pago_caja_movimiento_id ?? null,
     fecha: r.fecha,
   };
 }
