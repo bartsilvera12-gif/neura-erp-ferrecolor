@@ -48,7 +48,8 @@ export async function GET(request: NextRequest, ctxParams: { params: Promise<{ i
  * PATCH /api/presupuestos/[id] — dos modos:
  *   1) Solo `estado` en el body → cambio de estado (creado|enviado|aprobado|rechazado).
  *   2) Body con `items` (y opcionalmente cliente_*, moneda, condiciones) → edicion
- *      completa: reemplaza header + items. Prohibido si estado === 'convertido'.
+ *      completa: reemplaza header + items. Permitida tambien si ya esta
+ *      'convertido' (no re-convierte ni toca el pedido generado).
  * NO permite setear 'convertido' por acá (eso lo hace /convertir). NO toca stock.
  */
 function asIva(v: unknown): "EXENTA" | "5%" | "10%" {
@@ -67,7 +68,6 @@ export async function PATCH(request: NextRequest, ctxParams: { params: Promise<{
       return NextResponse.json(errorResponse("JSON inválido."), { status: 400 });
     }
 
-    // Verificar estado actual (no editable si convertido).
     const cur = await ctx.supabase
       .from("presupuestos")
       .select("estado")
@@ -76,9 +76,13 @@ export async function PATCH(request: NextRequest, ctxParams: { params: Promise<{
       .maybeSingle();
     if (cur.error) throw new Error(cur.error.message);
     if (!cur.data) return NextResponse.json(errorResponse(API_ERRORS.NOT_FOUND), { status: 404 });
-    if ((cur.data as { estado: string }).estado === "convertido") {
-      return NextResponse.json(errorResponse("El presupuesto ya fue convertido; no se puede editar."), { status: 409 });
-    }
+    const estadoActual = (cur.data as { estado: string }).estado;
+
+    // Un presupuesto convertido SI se puede editar (corregir items, precios o
+    // datos del cliente). La edicion solo reemplaza header + items: no toca
+    // `estado` ni `convertido_pedido_id`/`convertido_venta_id`, asi que no vuelve
+    // a convertir ni duplica el pedido, y el vinculo con el ya generado se
+    // mantiene. Lo que sigue bloqueado es CAMBIARLE EL ESTADO (modo 1).
 
     // ═══════ MODO 2: edicion completa (body incluye items) ═══════
     if (Array.isArray(body.items)) {
@@ -166,6 +170,12 @@ export async function PATCH(request: NextRequest, ctxParams: { params: Promise<{
     }
 
     // ═══════ MODO 1: cambio de estado ═══════
+    if (estadoActual === "convertido") {
+      return NextResponse.json(
+        errorResponse("El presupuesto ya fue convertido: podés editar su contenido, pero no cambiarle el estado."),
+        { status: 409 }
+      );
+    }
     const nuevoEstado = body.estado as EstadoPresupuesto | undefined;
     if (!nuevoEstado || !ESTADOS_PRESUPUESTO.includes(nuevoEstado)) {
       return NextResponse.json(errorResponse("Estado inválido."), { status: 400 });

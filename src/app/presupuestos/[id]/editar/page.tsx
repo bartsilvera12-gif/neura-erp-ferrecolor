@@ -64,6 +64,9 @@ export default function EditarPresupuestoPage() {
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bloqueado, setBloqueado] = useState<string | null>(null);
+  // El presupuesto ya se convirtio en pedido: se puede editar igual, pero el
+  // pedido generado conserva los valores con los que se creo.
+  const [yaConvertido, setYaConvertido] = useState(false);
 
   // Cargar productos y clientes
   useEffect(() => {
@@ -102,10 +105,10 @@ export default function EditarPresupuestoPage() {
         if (!r.ok || !j?.success) { setError(j?.error ?? "No se pudo cargar el presupuesto."); setCargando(false); return; }
         const p = j.data.presupuesto as Record<string, unknown>;
         const its = (j.data.items ?? []) as Record<string, unknown>[];
+        // Un presupuesto convertido se puede editar: los cambios quedan en el
+        // presupuesto y NO vuelven a convertirlo ni tocan el pedido ya generado.
         if (p.estado === "convertido") {
-          setBloqueado("Este presupuesto ya fue convertido en pedido y no se puede editar.");
-          setCargando(false);
-          return;
+          setYaConvertido(true);
         }
         setNumeroControl(String(p.numero_control ?? ""));
         setClienteId(p.cliente_id ? String(p.cliente_id) : "");
@@ -255,6 +258,13 @@ export default function EditarPresupuestoPage() {
         <FileText className="h-7 w-7 text-[#4FAEB2]" />
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">Editar {numeroControl}</h1>
       </div>
+
+      {yaConvertido && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          Este presupuesto ya fue convertido en pedido. Podés corregirlo y guardarlo: los cambios quedan
+          en el presupuesto y <strong>no</strong> generan otro pedido ni modifican el que ya se creó.
+        </div>
+      )}
 
       {error && <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">{error}</div>}
 

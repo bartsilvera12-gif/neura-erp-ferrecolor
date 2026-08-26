@@ -245,11 +245,9 @@ export default function PresupuestosPage() {
                         <Link href={`/presupuestos/${r.id}`} className="text-sm font-medium text-[#4FAEB2] hover:underline">
                           Ver
                         </Link>
-                        {r.estado !== "convertido" && (
-                          <Link href={`/presupuestos/${r.id}/editar`} className="text-sm font-medium text-slate-600 hover:underline">
-                            Editar
-                          </Link>
-                        )}
+                        <Link href={`/presupuestos/${r.id}/editar`} className="text-sm font-medium text-slate-600 hover:underline">
+                          Editar
+                        </Link>
                       </div>
                     </td>
                   </tr>
