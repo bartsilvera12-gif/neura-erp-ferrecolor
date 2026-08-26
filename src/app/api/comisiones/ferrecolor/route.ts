@@ -10,12 +10,14 @@ import { API_ERRORS } from "@/lib/api/errors";
  * como precio_venta - costo_unitario a nivel item, usando el costo snapshot
  * guardado en movimientos_inventario al momento de la SALIDA.
  *
- * Escalas Ferrecolor:
- *   - Ganancia acumulada < 20.000.000 → 0%
- *   - Ganancia acumulada 20M a 35M     → 5% de la ganancia total
- *   - Ganancia acumulada >= 35M        → 7% de la ganancia total
+ * Escalas Ferrecolor. OJO: el tramo lo define lo VENDIDO en el periodo, pero el
+ * porcentaje se aplica sobre la GANANCIA de esas ventas.
+ *   - Vendido < 20.000.000  → 0%
+ *   - Vendido 20M a 35M     → 5% de la ganancia
+ *   - Vendido >= 35M        → 7% de la ganancia
  *
- * Se aplica el porcentaje del tramo al TOTAL de ganancia (no solo el excedente).
+ * Ej: vendio 25.000.000 y genero 6.000.000 de ganancia → 6.000.000 x 5% = 300.000.
+ * Se aplica el porcentaje a TODA la ganancia (no solo al excedente).
  */
 
 const ESCALAS = [
@@ -24,9 +26,10 @@ const ESCALAS = [
   { desde: 35_000_000, hasta: null,       porcentaje: 7 },
 ];
 
-function tramoParaGanancia(ganancia: number) {
+/** El tramo se determina por el MONTO VENDIDO (ingresos) del periodo. */
+function tramoParaVentas(ingresos: number) {
   for (const e of ESCALAS) {
-    if (ganancia >= e.desde && (e.hasta === null || ganancia < e.hasta)) {
+    if (ingresos >= e.desde && (e.hasta === null || ingresos < e.hasta)) {
       return e;
     }
   }
@@ -118,7 +121,8 @@ export async function GET(request: NextRequest) {
     // 4) Aplicar tramo por vendedor
     const filas = [...porVendedor.values()]
       .map((a) => {
-        const tramo = tramoParaGanancia(a.ganancia);
+        // Tramo por lo vendido; porcentaje sobre la ganancia generada.
+        const tramo = tramoParaVentas(a.ingresos);
         const comision = Math.max(0, Math.round((a.ganancia * tramo.porcentaje) / 100));
         return {
           vendedor: a.vendedor,

@@ -4,10 +4,11 @@
  * Comisiones (Ferrecolor) — se calculan sobre la GANANCIA acumulada del vendedor
  * en el período. Ganancia = precio_venta − costo_unitario_snapshot (movimientos_inventario).
  *
- * Escalas:
- *   - < 20.000.000 → 0%
- *   - 20M a 35M    → 5% de la ganancia total
- *   - ≥ 35M        → 7% de la ganancia total
+ * El TRAMO se define por lo VENDIDO en el periodo; el porcentaje se aplica
+ * sobre la GANANCIA generada por esas ventas.
+ *   - Vendido < 20.000.000 → 0%
+ *   - Vendido 20M a 35M    → 5% de la ganancia
+ *   - Vendido ≥ 35M        → 7% de la ganancia
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
@@ -77,7 +78,7 @@ export default function ComisionesPage() {
   const escalaLabel = useCallback((e: Escala) => {
     const desde = fmtGs(e.desde);
     const hasta = e.hasta === null ? "∞" : fmtGs(e.hasta);
-    return `${desde} → ${hasta} · ${e.porcentaje}%`;
+    return `Vendido ${desde} → ${hasta} · ${e.porcentaje}% de la ganancia`;
   }, []);
 
   const inputC = "rounded-md border border-slate-200 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[#4FAEB2]/30";
@@ -95,10 +96,10 @@ export default function ComisionesPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Comisiones por vendedor</h1>
-          <p className="mt-1 text-sm text-slate-500">Calculadas sobre la ganancia acumulada del período (precio venta − costo).</p>
+          <p className="mt-1 text-sm text-slate-500">El tramo lo define lo vendido en el período; ese porcentaje se aplica sobre la ganancia generada (precio venta − costo).</p>
           {escalas.length > 0 && (
             <div className="mt-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Escalas activas</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Escalas activas (según lo vendido)</p>
               {explicacion}
             </div>
           )}

@@ -38,19 +38,23 @@ function pyMonthBounds(offsetMonths = 0): { desde: string; hasta: string; label:
 }
 
 /**
- * Devuelve la ganancia acumulada del mes actual por vendedor.
- * Ganancia = ventas.total - Σ(cantidad * costo_unitario) de movimientos SALIDA activos.
+ * Totales del periodo por vendedor: lo VENDIDO y la GANANCIA.
+ * El tramo de comision se decide por lo vendido; el porcentaje se aplica sobre
+ * la ganancia (ventas.total - Σ cantidad*costo_unitario de SALIDAS activas).
  */
-async function gananciaPorVendedor(
+export interface TotalesVendedor { vendido: number; ganancia: number }
+
+async function totalesPorVendedor(
   schema: string,
   empresaId: string,
   desde: string,
   hasta: string
-): Promise<Map<string, number>> {
+): Promise<Map<string, TotalesVendedor>> {
   const tV = quoteSchemaTable(schema, "ventas");
   const tM = quoteSchemaTable(schema, "movimientos_inventario");
-  const { rows } = await pool().query<{ vendedor: string; ganancia: string }>(
+  const { rows } = await pool().query<{ vendedor: string; vendido: string; ganancia: string }>(
     `SELECT COALESCE(v.usuario_nombre, 'Sin vendedor') AS vendedor,
+            SUM(v.total)::text AS vendido,
             SUM(v.total - COALESCE(costos.costo, 0))::text AS ganancia
        FROM ${tV} v
        LEFT JOIN (
@@ -66,35 +70,45 @@ async function gananciaPorVendedor(
       GROUP BY v.usuario_nombre`,
     [empresaId, desde, hasta]
   );
-  const m = new Map<string, number>();
-  for (const r of rows) m.set(r.vendedor, Number(r.ganancia) || 0);
+  const m = new Map<string, TotalesVendedor>();
+  for (const r of rows) {
+    m.set(r.vendedor, { vendido: Number(r.vendido) || 0, ganancia: Number(r.ganancia) || 0 });
+  }
   return m;
+}
+
+/** Porcentaje segun lo VENDIDO en el periodo. */
+function porcentajePorVendido(vendido: number): number {
+  if (vendido >= UMBRALES[1]) return PORCENTAJES[1];
+  if (vendido >= UMBRALES[0]) return PORCENTAJES[0];
+  return 0;
 }
 
 /**
  * (A) Evalúa cruces de tramo. Se llama después de crear una venta.
- * Compara la ganancia ANTES y DESPUÉS de la venta con los umbrales; si cruzó
- * uno, inserta una notificación (con dedupe por umbral+mes).
+ * Compara lo VENDIDO en el mes ANTES y DESPUÉS de la venta con los umbrales
+ * (el tramo se define por lo vendido); si cruzó uno, notifica (dedupe por
+ * umbral + mes + vendedor).
  */
 export async function evaluarCruceTramoComision(
   schemaRaw: string,
   empresaId: string,
   vendedorNombre: string,
-  ventaGanancia: number
+  ventaTotal: number
 ): Promise<void> {
-  if (ventaGanancia <= 0 || !vendedorNombre) return;
+  if (ventaTotal <= 0 || !vendedorNombre) return;
   const schema = assertAllowedChatDataSchema(schemaRaw);
   const { desde, hasta, label } = pyMonthBounds(0);
-  const totales = await gananciaPorVendedor(schema, empresaId, desde, hasta);
-  const despues = totales.get(vendedorNombre) ?? ventaGanancia;
-  const antes = despues - ventaGanancia;
+  const totales = await totalesPorVendedor(schema, empresaId, desde, hasta);
+  const despues = totales.get(vendedorNombre)?.vendido ?? ventaTotal;
+  const antes = despues - ventaTotal;
 
   const t = quoteSchemaTable(schema, "notificaciones");
   for (let i = 0; i < UMBRALES.length; i++) {
     const umbral = UMBRALES[i];
     if (antes < umbral && despues >= umbral) {
       const titulo = `Comisión ${PORCENTAJES[i]}% desbloqueada`;
-      const mensaje = `${vendedorNombre} superó ${new Intl.NumberFormat("es-PY").format(umbral)} de ganancia en ${label}. Ahora comisiona al ${PORCENTAJES[i]}%.`;
+      const mensaje = `${vendedorNombre} superó ${new Intl.NumberFormat("es-PY").format(umbral)} en ventas en ${label}. Ahora comisiona al ${PORCENTAJES[i]}% de la ganancia.`;
       await pool().query(
         `INSERT INTO ${t} (empresa_id, tipo, titulo, mensaje, url)
          VALUES ($1::uuid, $2, $3, $4, '/comisiones')
@@ -126,16 +140,15 @@ export async function evaluarComisionesMensuales(schemaRaw: string, empresaId: s
 
   const schema = assertAllowedChatDataSchema(schemaRaw);
   const { desde, hasta, label } = pyMonthBounds(-1);
-  const totales = await gananciaPorVendedor(schema, empresaId, desde, hasta);
+  const totales = await totalesPorVendedor(schema, empresaId, desde, hasta);
   if (totales.size === 0) return;
 
   let totalComision = 0;
   const lineas: string[] = [];
-  for (const [vend, gan] of totales) {
-    let pct = 0;
-    if (gan >= UMBRALES[1]) pct = PORCENTAJES[1];
-    else if (gan >= UMBRALES[0]) pct = PORCENTAJES[0];
-    const com = Math.round((gan * pct) / 100);
+  for (const [vend, t] of totales) {
+    // Tramo por lo vendido, porcentaje sobre la ganancia.
+    const pct = porcentajePorVendido(t.vendido);
+    const com = Math.round((t.ganancia * pct) / 100);
     totalComision += com;
     if (com > 0) lineas.push(`${vend}: ${new Intl.NumberFormat("es-PY").format(com)}`);
   }
