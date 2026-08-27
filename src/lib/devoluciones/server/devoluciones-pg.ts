@@ -507,6 +507,27 @@ export async function crearDevolucion(
       [input.venta_id, empresaId, nuevoEstado]
     );
 
+    // ── 14b) Venta a CRÉDITO: bajar la deuda por lo devuelto.
+    //
+    // Antes la devolución no tocaba la cuenta por cobrar: si el cliente devolvía
+    // la mercadería y no pagaba, la deuda seguía figurando vencida para siempre.
+    // Ahora el saldo baja por el importe devuelto (nunca por debajo de 0) y, si
+    // se devolvió todo y no queda nada por cobrar, la cuenta se da por saldada.
+    const tCxc = quoteSchemaTable(schema, "cuentas_por_cobrar");
+    await client.query(
+      `UPDATE ${tCxc}
+          SET saldo = GREATEST(0, COALESCE(saldo, 0) - $3::numeric),
+              estado = CASE
+                WHEN GREATEST(0, COALESCE(saldo, 0) - $3::numeric) <= 0 THEN 'anulado'
+                ELSE estado
+              END,
+              updated_at = now()
+        WHERE empresa_id = $2::uuid
+          AND venta_id = $1::uuid
+          AND estado <> 'anulado'`,
+      [input.venta_id, empresaId, totalDevuelto]
+    );
+
     await client.query("COMMIT");
 
     const dev = await getDevolucion(schema, empresaId, devolucionId);
@@ -545,7 +566,7 @@ export async function anularDevolucion(
 
     const dQ = await client.query(
       `SELECT id::text, numero_devolucion, venta_id::text AS venta_id, estado, diferencia,
-              metodo_reembolso, caja_id::text AS caja_id
+              metodo_reembolso, caja_id::text AS caja_id, total_devuelto
          FROM ${tD} WHERE id = $1::uuid AND empresa_id = $2::uuid FOR UPDATE`,
       [devolucionId, empresaId]
     );
@@ -666,6 +687,21 @@ export async function anularDevolucion(
     await client.query(
       `UPDATE ${tV} SET estado = $3, updated_at = now() WHERE id = $1::uuid AND empresa_id = $2::uuid`,
       [String(d.venta_id), empresaId, estadoVenta]
+    );
+
+    // Al confirmar la devolución se le bajó la deuda al cliente; si la
+    // devolución se anula, esa deuda tiene que volver.
+    const tCxcAnu = quoteSchemaTable(schema, "cuentas_por_cobrar");
+    await client.query(
+      `UPDATE ${tCxcAnu}
+          SET saldo = COALESCE(saldo, 0) + $3::numeric,
+              estado = CASE
+                WHEN COALESCE(saldo, 0) + $3::numeric > 0 AND estado = 'anulado' THEN 'pendiente'
+                ELSE estado
+              END,
+              updated_at = now()
+        WHERE empresa_id = $2::uuid AND venta_id = $1::uuid`,
+      [String(d.venta_id), empresaId, num(d.total_devuelto)]
     );
 
     await client.query("COMMIT");
