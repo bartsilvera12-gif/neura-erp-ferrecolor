@@ -418,6 +418,17 @@ export default function VentasPage() {
                               {v.numero_factura ? `Factura ${v.numero_factura}` : "Factura"}
                             </Link>
                           )}
+                          {v.tipo_venta === "CREDITO" && !isAnulada && (
+                            <a
+                              href={`/api/ventas/${v.id}/pagare?auto=1`}
+                              target="_blank"
+                              rel="noopener"
+                              className="inline-flex items-center justify-center rounded-md border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-100 transition-colors"
+                              title="Imprimir el pagaré de esta venta a crédito"
+                            >
+                              Pagaré
+                            </a>
+                          )}
                           {v.genera_nota_remision && (
                             <a
                               href={`/api/ventas/${v.id}/ticket?tipo=remision`}
