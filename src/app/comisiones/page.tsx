@@ -31,6 +31,7 @@ type Escala = { desde: number; hasta: number | null; porcentaje: number };
 type Payload = {
   periodo: { desde: string; hasta: string };
   escalas: Escala[];
+  escalas_origen?: "configurada" | "default";
   por_vendedor: Fila[];
   totales: { ventas: number; ingresos: number; costo: number; ganancia: number; comision: number };
 };
@@ -99,7 +100,14 @@ export default function ComisionesPage() {
           <p className="mt-1 text-sm text-slate-500">El tramo lo define lo vendido en el período; ese porcentaje se aplica sobre la ganancia generada (precio venta − costo).</p>
           {escalas.length > 0 && (
             <div className="mt-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Escalas activas (según lo vendido)</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Escalas activas (según lo vendido)
+                {data?.escalas_origen === "default" && (
+                  <span className="ml-2 font-normal normal-case tracking-normal text-amber-600">
+                    valores por defecto · configurables en Configuración › Comisiones
+                  </span>
+                )}
+              </p>
               {explicacion}
             </div>
           )}
@@ -123,9 +131,10 @@ export default function ComisionesPage() {
       {err && <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</p>}
 
       {totales && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatCard label="Ventas" value={String(totales.ventas)} />
-          <StatCard label="Ingresos" value={fmtGs(totales.ingresos)} />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <StatCard label="Cant. ventas" value={String(totales.ventas)} />
+          <StatCard label="Ingresos totales" value={fmtGs(totales.ingresos)} />
+          <StatCard label="Costo total" value={fmtGs(totales.costo)} />
           <StatCard label="Ganancia total" value={fmtGs(totales.ganancia)} highlight />
           <StatCard label="Comisiones a pagar" value={fmtGs(totales.comision)} highlight />
         </div>

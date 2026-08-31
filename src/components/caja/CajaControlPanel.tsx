@@ -805,6 +805,9 @@ function ModalCerrar({
           </div>
         </div>
 
+        {/* Comisión del vendedor: cuánto vendió y cuánto lleva generado. */}
+        <ResumenComisionCierre cajaId={resumen.caja.id} aRendir={esperado} />
+
         {/* Toggle Contar/Monto oculto para Ferrecolor: solo monto directo. */}
         {false && <ModoArqueoToggle modo={modo} onChange={setModo} />}
 
@@ -1084,6 +1087,71 @@ function Row({
       >
         {value}
       </span>
+    </div>
+  );
+}
+
+/**
+ * Comisión del vendedor en el cierre de caja.
+ *
+ * El turno es el dato del día; la comisión es del MES, porque el tramo (0/5/7%)
+ * se define por el total vendido en el período: un turno suelto nunca llega al
+ * primer escalón y siempre daría 0%.
+ *
+ * La comisión NO se descuenta de lo que rinde: el vendedor entrega todo el
+ * efectivo de la caja y la comisión se liquida aparte a fin de mes. Por eso "A
+ * rendir" repite el efectivo esperado y no una resta.
+ *
+ * Best-effort: si el cálculo falla el bloque no se muestra y el cierre sigue
+ * funcionando. Nunca puede trabar un cierre de caja.
+ */
+function ResumenComisionCierre({ cajaId, aRendir }: { cajaId: string; aRendir: number }) {
+  type MiCierre = {
+    vendedor: string;
+    turno: { ventas: number; vendido: number; ganancia: number };
+    mes: { ventas: number; vendido: number; ganancia: number; porcentaje: number; comision: number };
+    proximo_tramo: { desde: number; porcentaje: number; falta: number } | null;
+  };
+  const [data, setData] = useState<MiCierre | null>(null);
+
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/comisiones/mi-cierre?caja_id=${encodeURIComponent(cajaId)}`, {
+          cache: "no-store",
+        });
+        const j = await r.json();
+        if (!cancel && r.ok && j?.success !== false && j?.data) setData(j.data as MiCierre);
+      } catch {
+        /* best-effort: el cierre no depende de esto */
+      }
+    })();
+    return () => { cancel = true; };
+  }, [cajaId]);
+
+  if (!data) return null;
+
+  return (
+    <div className="rounded-xl border border-[#4FAEB2]/30 bg-[#4FAEB2]/[0.06] p-3 text-xs space-y-1">
+      <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-[#3F8E91]">
+        Tu comisión · {data.vendedor}
+      </p>
+      <Row label={`Vendido en este turno (${data.turno.ventas})`} value={fmtGs(data.turno.vendido)} />
+      <Row label={`Vendido en el mes (${data.mes.ventas})`} value={fmtGs(data.mes.vendido)} />
+      <Row label="Ganancia del mes" value={fmtGs(data.mes.ganancia)} subtle />
+      <Row label={`Comisión generada (${data.mes.porcentaje}% de la ganancia)`} value={fmtGs(data.mes.comision)} bold />
+      {data.proximo_tramo && (
+        <p className="pt-1 text-[11px] text-slate-500">
+          Te faltan {fmtGs(data.proximo_tramo.falta)} de venta para pasar al {data.proximo_tramo.porcentaje}%.
+        </p>
+      )}
+      <div className="mt-2 border-t border-[#4FAEB2]/30 pt-2">
+        <Row label="A rendir (efectivo)" value={fmtGs(aRendir)} bold highlightTurquesa />
+        <p className="pt-1 text-[11px] text-slate-500">
+          La comisión se liquida a fin de mes: no se descuenta de lo que rendís hoy.
+        </p>
+      </div>
     </div>
   );
 }
