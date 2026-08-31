@@ -21,6 +21,7 @@ import {
   MSG_USUARIO_BLOQUEO_NC_TIMBRADO,
 } from "@/lib/sifen/gtimb-nc-coherencia";
 import { obtenerSifenPrevueloFacturaParaNcs } from "./pre-vuelo-nc-sifen";
+import { SIFEN_EMISOR_EMAIL, SIFEN_EMISOR_TELEFONO } from "@/lib/sifen/emisor-contacto";
 
 /**
  * Igual criterio que FE: `error_envio` permite regenerar y reintentar envío.
@@ -125,8 +126,8 @@ export async function handleNcSifenXmlPost(opts: {
     timbradoFechaInicio: loaded.payload.emisor.timbrado_fecha_inicio_vigencia,
     timbradoFechaFin: `${yAnio}-12-31`,
     ambiente: loaded.ambiente,
-    emisorTelefono: "09923602828",
-    emisorEmail: "ferrecolorpinturas@gmail.com",
+    emisorTelefono: SIFEN_EMISOR_TELEFONO,
+    emisorEmail: SIFEN_EMISOR_EMAIL,
     emisorDireccion: loaded.payload.emisor.direccion_fiscal.trim(),
     emisorNumCasa: 0,
     actividadEconomicaCodigo: loaded.payload.emisor.actividad_economica_codigo,
