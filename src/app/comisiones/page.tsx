@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
+import EscalasComisionEditor from "@/components/comisiones/EscalasComisionEditor";
 
 type Fila = {
   vendedor: string;
@@ -127,6 +128,8 @@ export default function ComisionesPage() {
           </button>
         </div>
       </div>
+
+      <EscalasComisionEditor onGuardado={() => void cargar()} />
 
       {err && <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</p>}
 
