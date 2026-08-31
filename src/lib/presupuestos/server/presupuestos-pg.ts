@@ -227,14 +227,30 @@ export async function convertirEnPedido(
   const estadoId = (estadoQ.data as { id: string }).id;
 
   const fechaIso = new Date().toISOString();
-  const itemsSnapshot = items.map((it) => ({
-    producto_id: it.producto_id,
-    producto_nombre: it.producto_nombre,
-    sku: it.sku,
-    cantidad: Number(it.cantidad),
-    precio_venta: Number(it.precio_unitario),
-    total_linea: Number(it.total),
-  }));
+  // Snapshot de items para el pedido. `precio_venta` va NETO de descuento (precio
+  // unitario efectivo) porque caja recalcula el total como cantidad x precio_venta:
+  // si guardabamos el precio de lista, el descuento del presupuesto se perdia al
+  // pasar el pedido a caja. Se conservan `precio_lista`, `descuento` e `iva_tipo`
+  // para poder mostrar el descuento y respetar el IVA original.
+  const itemsSnapshot = items.map((it) => {
+    const cantidad = Number(it.cantidad) || 0;
+    const precioLista = Number(it.precio_unitario) || 0;
+    const descuento = Math.max(0, Number(it.descuento) || 0);
+    const precioNeto = cantidad > 0 && descuento > 0
+      ? Math.max(0, (cantidad * precioLista - descuento) / cantidad)
+      : precioLista;
+    return {
+      producto_id: it.producto_id,
+      producto_nombre: it.producto_nombre,
+      sku: it.sku,
+      cantidad,
+      precio_venta: precioNeto,
+      precio_lista: precioLista,
+      descuento,
+      iva_tipo: it.iva_tipo ?? "10%",
+      total_linea: Number(it.total),
+    };
+  });
 
   const titulo = `Pedido desde ${String(p.numero_control)} · ${String(p.cliente_nombre)}`.slice(0, 200);
 

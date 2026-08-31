@@ -50,6 +50,11 @@ const num = (v: unknown): number => Number(v ?? 0) || 0;
 
 // ── Estado de cuenta ─────────────────────────────────────────────────────────
 
+/**
+ * NOTA: las ventas anuladas y las compras anuladas se excluyen de TODOS los
+ * calculos e items de este reporte: antes seguian sumando en ingresos, resultado
+ * y movimientos aunque la operacion estuviera anulada.
+ */
 export async function getEstadoCuenta(
   schemaRaw: string,
   empresaId: string,
@@ -63,12 +68,14 @@ export async function getEstadoCuenta(
 
   const ventasQ = p.query<{ total: number }>(
     `SELECT COALESCE(SUM(total),0)::float8 AS total FROM ${tVentas}
-      WHERE empresa_id=$1::uuid AND fecha>=$2::timestamptz AND fecha<=$3::timestamptz`,
+      WHERE empresa_id=$1::uuid AND fecha>=$2::timestamptz AND fecha<=$3::timestamptz
+        AND COALESCE(estado,'') <> 'anulada'`,
     [empresaId, b.start, b.end]
   );
   const comprasQ = p.query<{ total: number }>(
     `SELECT COALESCE(SUM(total),0)::float8 AS total FROM ${tCompras}
-      WHERE empresa_id=$1::uuid AND fecha>=$2::timestamptz AND fecha<=$3::timestamptz`,
+      WHERE empresa_id=$1::uuid AND fecha>=$2::timestamptz AND fecha<=$3::timestamptz
+        AND anulada_at IS NULL`,
     [empresaId, b.start, b.end]
   );
   const gastosQ = p.query<{ total: number }>(
@@ -78,12 +85,14 @@ export async function getEstadoCuenta(
   );
   const porCobrarQ = p.query<{ total: number }>(
     `SELECT COALESCE(SUM(total),0)::float8 AS total FROM ${tVentas}
-      WHERE empresa_id=$1::uuid AND tipo_venta='CREDITO' AND fecha>=$2::timestamptz AND fecha<=$3::timestamptz`,
+      WHERE empresa_id=$1::uuid AND tipo_venta='CREDITO' AND fecha>=$2::timestamptz AND fecha<=$3::timestamptz
+        AND COALESCE(estado,'') <> 'anulada'`,
     [empresaId, b.start, b.end]
   );
   const porPagarQ = p.query<{ total: number }>(
     `SELECT COALESCE(SUM(total),0)::float8 AS total FROM ${tCompras}
-      WHERE empresa_id=$1::uuid AND tipo_pago='credito' AND fecha>=$2::timestamptz AND fecha<=$3::timestamptz`,
+      WHERE empresa_id=$1::uuid AND tipo_pago='credito' AND fecha>=$2::timestamptz AND fecha<=$3::timestamptz
+        AND anulada_at IS NULL`,
     [empresaId, b.start, b.end]
   );
   // Compras agrupadas por numero_control (modelo plano): una fila por compra real.
@@ -93,11 +102,13 @@ export async function getEstadoCuenta(
                'Venta a cliente'::text AS descripcion, total::float8 AS entrada, 0::float8 AS salida
           FROM ${tVentas}
          WHERE empresa_id=$1::uuid AND fecha>=$2::timestamptz AND fecha<=$3::timestamptz
+           AND COALESCE(estado,'') <> 'anulada'
         UNION ALL
         SELECT MIN(fecha) AS fecha, 'Compra'::text, numero_control,
                MIN(proveedor_nombre), 0::float8, SUM(total)::float8
           FROM ${tCompras}
          WHERE empresa_id=$1::uuid AND fecha>=$2::timestamptz AND fecha<=$3::timestamptz
+           AND anulada_at IS NULL
          GROUP BY numero_control
         UNION ALL
         SELECT fecha::timestamptz, 'Gasto'::text, COALESCE(categoria,''),

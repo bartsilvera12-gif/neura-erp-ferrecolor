@@ -364,10 +364,18 @@ export default function NuevaVentaPage() {
           .filter((it) => it.producto_id && (Number(it.cantidad) || 0) > 0)
           .map((it) => {
             const cantidad = Number(it.cantidad) || 0;
-            const precio = Number(it.precio_unitario) || 0;
+            const precioLista = Number(it.precio_unitario) || 0;
             const ivaRaw = String(it.iva_tipo ?? "10%");
             const iva: TipoIvaVenta = ivaRaw === "5%" ? "5%" : ivaRaw === "EXENTA" ? "EXENTA" : "10%";
-            const totalLinea = cantidad * precio;
+            // El descuento del presupuesto es un MONTO por linea. La venta no tiene
+            // campo descuento propio, asi que lo trasladamos al precio unitario
+            // efectivo: asi el total cobrado en caja es exactamente el total aprobado
+            // en el presupuesto (antes se ignoraba y el descuento se perdia).
+            const desc = Math.max(0, Number(it.descuento) || 0);
+            const precio = cantidad > 0 && desc > 0
+              ? Math.max(0, (cantidad * precioLista - desc) / cantidad)
+              : precioLista;
+            const totalLinea = Math.round(cantidad * precio);
             const montoIva = calcIva(iva, totalLinea);
             const subtotal = totalLinea - montoIva;
             return {
@@ -375,7 +383,7 @@ export default function NuevaVentaPage() {
               producto_nombre: typeof it.producto_nombre === "string" ? it.producto_nombre : "",
               sku: typeof it.sku === "string" ? it.sku : "",
               cantidad,
-              precio_venta_original: precio,
+              precio_venta_original: precioLista,
               precio_venta: precio,
               tipo_iva: iva,
               tipo_precio: "minorista" as TipoPrecioVenta,
@@ -447,10 +455,19 @@ export default function NuevaVentaPage() {
           .filter((it) => it.producto_id && (Number(it.cantidad) || 0) > 0)
           .map((it) => {
             const cantidad = Number(it.cantidad) || 0;
-            const precio = Number(it.precio_venta) || 0;
-            const iva: TipoIvaVenta = "10%";
+            // El snapshot del pedido guarda `precio_venta` ya neto de descuento y
+            // `precio_lista` aparte. Pedidos viejos solo tienen `precio_venta` (bruto)
+            // y `descuento`: en ese caso lo aplicamos aca para no perder el descuento.
+            const precioLista = Number(it.precio_lista ?? it.precio_venta) || 0;
+            const precioRaw = Number(it.precio_venta) || 0;
+            const desc = Math.max(0, Number(it.descuento) || 0);
+            const precio = cantidad > 0 && desc > 0 && precioRaw === precioLista
+              ? Math.max(0, (cantidad * precioRaw - desc) / cantidad)
+              : precioRaw;
+            const ivaRaw = String(it.iva_tipo ?? "10%");
+            const iva: TipoIvaVenta = ivaRaw === "5%" ? "5%" : ivaRaw === "EXENTA" ? "EXENTA" : "10%";
             // IVA incluido: total de línea = precio × cantidad; IVA desglosado desde adentro.
-            const totalLinea = cantidad * precio;
+            const totalLinea = Math.round(cantidad * precio);
             const montoIva = calcIva(iva, totalLinea);
             const subtotal = totalLinea - montoIva;
             return {
@@ -458,7 +475,7 @@ export default function NuevaVentaPage() {
               producto_nombre: typeof it.producto_nombre === "string" ? it.producto_nombre : "",
               sku: typeof it.sku === "string" ? it.sku : "",
               cantidad,
-              precio_venta_original: precio,
+              precio_venta_original: precioLista,
               precio_venta: precio,
               tipo_iva: iva,
               tipo_precio: "minorista" as TipoPrecioVenta,
