@@ -14,6 +14,13 @@ export interface RegistrarCobroInput {
   usuario_id?: string | null;
   usuario_nombre?: string | null;
   entidad_nombre_snapshot?: string | null;
+  /**
+   * Id del usuario en la tabla `usuarios` del tenant (NO el de auth). Se usa
+   * para el movimiento de caja: la caja resuelve los nombres contra `usuarios`,
+   * asi que con el id de auth el movimiento saldria sin autor.
+   */
+  usuario_catalog_id?: string | null;
+  usuario_email?: string | null;
 }
 
 export class CobroError extends Error {
@@ -37,12 +44,23 @@ function metodoValido(m: unknown): MetodoPagoCobro {
  * Registra un cobro contra una cuenta por cobrar: inserta en `cobros_clientes`,
  * descuenta el saldo y recalcula el estado (pendiente|parcial|pagado).
  * No permite cobrar más que el saldo. NO toca stock ni ventas.
+ *
+ * ADEMAS genera el movimiento de caja correspondiente. Una venta a credito no
+ * mueve plata al facturarse —la caja la cuenta en total_vendido pero en ningun
+ * medio de pago—, asi que la plata entra recien cuando se cobra. Sin este
+ * puente, un cobro en efectivo no aparecia por ningun lado y al cajero no le
+ * cerraba el arqueo: tenia el billete en la mano y el sistema no lo contaba.
+ *
+ * - En EFECTIVO exige caja abierta: si no hay ninguna, la plata quedaria sin
+ *   registrar en ningun turno, que es justamente el problema que esto arregla.
+ * - En transferencia/tarjeta/otro el movimiento se registra solo si hay una
+ *   caja abierta, y es informativo: no afecta el efectivo esperado.
  */
 export async function registrarCobro(
   sb: AppSupabaseClient,
   empresaId: string,
   input: RegistrarCobroInput
-): Promise<{ cobro_id: string; saldo_nuevo: number; estado: string }> {
+): Promise<{ cobro_id: string; saldo_nuevo: number; estado: string; caja_movimiento_id: string | null }> {
   const monto = round2(Number(input.monto) || 0);
   if (!(monto > 0)) throw new CobroError("El monto del cobro debe ser mayor a cero.");
   if (!input.cuenta_por_cobrar_id) throw new CobroError("Falta la cuenta por cobrar.");
@@ -76,6 +94,29 @@ export async function registrarCobro(
   const fechaPago =
     typeof input.fecha_pago === "string" && input.fecha_pago.trim() ? input.fecha_pago : new Date().toISOString();
 
+  const metodo = metodoValido(input.metodo_pago);
+  const esEfectivo = metodo === "efectivo";
+
+  // Caja abierta donde imputar el cobro. Se busca ANTES de insertar nada: si un
+  // cobro en efectivo no tiene donde caer, conviene frenar y no dejar el cobro
+  // registrado y la plata fuera de toda caja.
+  const cajaQ = await sb
+    .from("cajas")
+    .select("id, numero_caja")
+    .eq("empresa_id", empresaId)
+    .eq("estado", "abierta")
+    .order("fecha_apertura", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (cajaQ.error) throw new CobroError(cajaQ.error.message, 500);
+  const cajaAbiertaId = cajaQ.data ? String((cajaQ.data as { id: string }).id) : null;
+  if (esEfectivo && !cajaAbiertaId) {
+    throw new CobroError(
+      "No hay ninguna caja abierta para registrar un cobro en efectivo. Abrí la caja y volvé a cobrar, así el dinero queda en el arqueo del turno.",
+      409
+    );
+  }
+
   // 1) Insertar el cobro.
   const ins = await sb
     .from("cobros_clientes")
@@ -86,7 +127,7 @@ export async function registrarCobro(
       venta_id: cxc.venta_id,
       fecha_pago: fechaPago,
       monto,
-      metodo_pago: metodoValido(input.metodo_pago),
+      metodo_pago: metodo,
       entidad_bancaria_id: input.entidad_bancaria_id || null,
       entidad_nombre_snapshot: input.entidad_nombre_snapshot?.trim() || null,
       referencia: input.referencia?.trim() || null,
@@ -116,5 +157,69 @@ export async function registrarCobro(
     throw new CobroError(upd.error.message, 500);
   }
 
-  return { cobro_id: cobroId, saldo_nuevo: saldoNuevo < 0 ? 0 : saldoNuevo, estado: estadoNuevo };
+  // 3) Movimiento de caja: es lo que hace que el cobro aparezca en el arqueo.
+  let cajaMovimientoId: string | null = null;
+  if (cajaAbiertaId) {
+    // El numero de la venta ayuda al cajero a identificar el cobro en el detalle.
+    let refVenta = "";
+    try {
+      const vQ = await sb
+        .from("ventas")
+        .select("numero_control")
+        .eq("empresa_id", empresaId)
+        .eq("id", cxc.venta_id)
+        .maybeSingle();
+      const nc = (vQ.data as { numero_control?: string | null } | null)?.numero_control;
+      if (nc) refVenta = ` ${nc}`;
+    } catch {
+      /* el concepto igual sirve sin el numero */
+    }
+    const concepto = `Cobro crédito${refVenta}`.slice(0, 200);
+
+    const insMov = await sb
+      .from("caja_movimientos")
+      .insert({
+        empresa_id: empresaId,
+        caja_id: cajaAbiertaId,
+        tipo: "ingreso",
+        concepto,
+        monto,
+        medio_pago: metodo,
+        usuario_id: input.usuario_catalog_id || null,
+        usuario_email: input.usuario_email || null,
+        // A proposito NO se setea venta_id: el reporte de cajas descarta los
+        // movimientos cuya venta quedo devuelta_total, y eso borraria del arqueo
+        // un cobro que si entro. La trazabilidad va en la observacion.
+        observacion: `cobro:${cobroId}`,
+      })
+      .select("id")
+      .single();
+
+    if (insMov.error) {
+      // Rollback best-effort: sin transacciones en PostgREST, se deshace a mano
+      // para no dejar el saldo descontado sin la plata registrada.
+      try {
+        await sb
+          .from("cuentas_por_cobrar")
+          .update({ saldo: saldoActual, estado: cxc.estado, updated_at: new Date().toISOString() })
+          .eq("empresa_id", empresaId)
+          .eq("id", cxc.id);
+      } catch {}
+      try {
+        await sb.from("cobros_clientes").delete().eq("id", cobroId).eq("empresa_id", empresaId);
+      } catch {}
+      throw new CobroError(
+        `El cobro no se registró porque no se pudo imputar a la caja: ${insMov.error.message}`,
+        500
+      );
+    }
+    cajaMovimientoId = String((insMov.data as { id: string }).id);
+  }
+
+  return {
+    cobro_id: cobroId,
+    saldo_nuevo: saldoNuevo < 0 ? 0 : saldoNuevo,
+    estado: estadoNuevo,
+    caja_movimiento_id: cajaMovimientoId,
+  };
 }

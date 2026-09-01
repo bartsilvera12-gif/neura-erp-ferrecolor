@@ -31,6 +31,10 @@ export async function POST(request: NextRequest) {
       fecha_pago: typeof body.fecha_pago === "string" ? body.fecha_pago : null,
       usuario_id: usuarioId,
       usuario_nombre: usuarioNombre,
+      // Para el movimiento de caja: la caja resuelve el autor contra `usuarios`,
+      // no contra auth, asi que necesita el id del catalogo.
+      usuario_catalog_id: ctx.auth.usuarioCatalogId ?? null,
+      usuario_email: ctx.auth.user?.email ?? null,
     });
 
     return NextResponse.json(successResponse(result));
