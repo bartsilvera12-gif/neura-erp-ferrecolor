@@ -743,10 +743,17 @@ export default function NuevaVentaPage() {
 
   // Cliente (opcional) — selección + filtrado del buscador.
   const clienteSel = clientes.find((c) => c.id === clienteId) ?? null;
-  const clientesFiltrados = (clienteQuery.trim() === ""
+  // El tope existe solo para no renderizar miles de nodos de golpe. Antes era de
+  // 50 y los clientes vienen ordenados por fecha de alta descendente, asi que el
+  // cajero veia unicamente los 50 mas nuevos y los viejos "no aparecian" salvo
+  // que supiera escribir el nombre. Ahora el tope es mas alto y, cuando recorta,
+  // se avisa en la lista en vez de esconderlo.
+  const CLIENTES_VISIBLES = 200;
+  const clientesCoinciden = clienteQuery.trim() === ""
     ? clientes
-    : clientes.filter((c) => productoMatchesQuery(clienteQuery, c.label, c.ruc))
-  ).slice(0, 50);
+    : clientes.filter((c) => productoMatchesQuery(clienteQuery, c.label, c.ruc));
+  const clientesFiltrados = clientesCoinciden.slice(0, CLIENTES_VISIBLES);
+  const clientesOcultos = clientesCoinciden.length - clientesFiltrados.length;
 
   // Cobro: entidad seleccionada + filtrado por código/nombre (tokens).
   const entidadSel = entidades.find((e) => e.id === pagoEntidadId) ?? null;
@@ -1120,6 +1127,11 @@ export default function NuevaVentaPage() {
                         {c.usa_nota_remision && <span className="ml-2 text-[10px] rounded-full bg-sky-100 text-sky-700 px-1.5 py-0.5 font-semibold">Nota remisión</span>}
                       </button>
                     ))
+                  )}
+                  {clientesOcultos > 0 && (
+                    <p className="border-t border-slate-100 px-3 py-2 text-xs text-slate-400">
+                      y {clientesOcultos} más — escribí para buscarlos
+                    </p>
                   )}
                 </div>
               )}

@@ -75,7 +75,9 @@ export function ClienteSearchSelect({ clientes, value, onChange }: Props) {
           className="absolute left-0 right-0 z-20 mt-1 max-h-52 overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg"
           role="listbox"
         >
-          {filtered.slice(0, 100).map((c) => (
+          {/* El tope es solo para no renderizar de mas; cuando recorta se avisa
+              abajo, si no el usuario cree que el cliente no existe. */}
+          {filtered.slice(0, 200).map((c) => (
             <li key={c.id}>
               <button
                 type="button"
@@ -90,6 +92,11 @@ export function ClienteSearchSelect({ clientes, value, onChange }: Props) {
               </button>
             </li>
           ))}
+          {filtered.length > 200 ? (
+            <li className="border-t border-slate-100 px-3 py-2 text-xs text-slate-400">
+              y {filtered.length - 200} más — escribí para buscarlos
+            </li>
+          ) : null}
         </ul>
       ) : null}
 
