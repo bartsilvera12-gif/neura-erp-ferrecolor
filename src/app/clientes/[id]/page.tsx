@@ -26,6 +26,7 @@ import {
   type EliminarClientePreview,
 } from "@/lib/api/client";
 import { getFacturas, getSuscripciones } from "@/lib/facturacion/storage";
+import { EstadoCuentaClienteBlock } from "@/components/cobros/EstadoCuentaClienteBlock";
 import { getMarketingTasks, createMarketingTask, updateTaskStatus } from "@/lib/marketing/storage";
 import { getUsuariosActivosEmpresa, type UsuarioEmpresa } from "@/lib/usuarios/empresa";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
@@ -2053,6 +2054,14 @@ export default function ClienteDetailPage() {
           {/* ── ESTADO DE CUENTA ─────────────────────────────────────────── */}
           {activeTab === "estado_cuenta" && (
             <div className="space-y-4">
+              {/* Deuda real del cliente: cuentas por cobrar + cobros. Va primero
+                  porque es lo que se busca al abrir esta pestaña. Antes solo se
+                  listaban las `facturas` (modelo de suscripciones, que aca solo
+                  se llena al emitir factura electronica), asi que un cliente con
+                  ventas a credito y saldo pendiente aparecia sin ningun
+                  movimiento. */}
+              <EstadoCuentaClienteBlock clienteId={id} />
+
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <SectionTitle>Facturas del cliente</SectionTitle>
                 <div className="flex flex-wrap gap-2">

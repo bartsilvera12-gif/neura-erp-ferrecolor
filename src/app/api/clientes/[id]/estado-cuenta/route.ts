@@ -34,12 +34,15 @@ export async function GET(request: NextRequest, ctxParams: { params: Promise<{ i
     };
 
     // Ventas del cliente → total vendido (excluye anuladas).
+    // Se usa `or(estado.is.null, ...)` y no `neq`: en SQL `NULL <> 'anulada'` no
+    // es verdadero, asi que un `neq` descartaba tambien las ventas con estado
+    // sin setear y el total vendido salia mas bajo de lo real.
     const vq = await ctx.supabase
       .from("ventas")
       .select("total")
       .eq("empresa_id", empresaId)
       .eq("cliente_id", id)
-      .neq("estado", "anulada");
+      .or("estado.is.null,estado.neq.anulada");
     if (vq.error) throw new Error(vq.error.message);
     const totalVendido = ((vq.data ?? []) as Record<string, unknown>[]).reduce((acc, r) => acc + (Number(r.total) || 0), 0);
 
