@@ -16,6 +16,7 @@ type SupabaseLike = { from: (t: string) => any };
 
 export type VentaConGanancia = {
   id: string;
+  numero_control: string | null;
   vendedor: string;
   caja_id: string | null;
   fecha: string;
@@ -38,7 +39,7 @@ export async function cargarVentasConGanancia(
 ): Promise<VentaConGanancia[]> {
   const { data: ventasRaw, error: eV } = await sb
     .from("ventas")
-    .select("id, total, fecha, estado, usuario_nombre, caja_id")
+    .select("id, numero_control, total, fecha, estado, usuario_nombre, caja_id")
     .eq("empresa_id", empresaId)
     .gte("fecha", desde)
     .lte("fecha", hastaTs);
@@ -46,6 +47,7 @@ export async function cargarVentasConGanancia(
 
   type VentaRow = {
     id: string;
+    numero_control: string | null;
     total: number | string | null;
     fecha: string;
     estado: string | null;
@@ -102,6 +104,7 @@ export async function cargarVentasConGanancia(
     const costo = costoPorVenta.get(String(v.id)) ?? 0;
     return {
       id: String(v.id),
+      numero_control: v.numero_control ?? null,
       vendedor: v.usuario_nombre?.trim() || SIN_VENDEDOR,
       caja_id: v.caja_id ?? null,
       fecha: v.fecha,

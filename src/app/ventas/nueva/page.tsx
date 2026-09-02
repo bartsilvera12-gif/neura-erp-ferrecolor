@@ -1815,6 +1815,18 @@ export default function NuevaVentaPage() {
                   Abrir nota de remisión
                 </a>
               )}
+              {/* En credito el pagare se firma al entregar la mercaderia, asi que
+                  el acceso tiene que estar aca y no solo en el listado de ventas. */}
+              {postVenta.credito && (
+                <a
+                  href={`/api/ventas/${postVenta.id}/pagare?auto=1`}
+                  target="_blank"
+                  rel="noopener"
+                  className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-700 hover:bg-amber-100"
+                >
+                  Imprimir pagaré
+                </a>
+              )}
               {/* Recibo de dinero solo para venta contado (en crédito el recibo sale al cobrar). */}
               {!postVenta.credito && (
                 <button

@@ -11,7 +11,7 @@
  *   - Vendido ≥ 35M        → 7% de la ganancia
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import EscalasComisionEditor from "@/components/comisiones/EscalasComisionEditor";
 
@@ -28,6 +28,16 @@ type Fila = {
 };
 
 type Escala = { desde: number; hasta: number | null; porcentaje: number };
+
+/** Una venta del desglose: de aca sale la ganancia que paga la comisión. */
+type DetalleVenta = {
+  id: string;
+  numero_control: string | null;
+  fecha: string;
+  ingresos: number;
+  costo: number;
+  ganancia: number;
+};
 
 type Payload = {
   periodo: { desde: string; hasta: string };
@@ -52,6 +62,11 @@ export default function ComisionesPage() {
   const [data, setData] = useState<Payload | null>(null);
   const [cargando, setCargando] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Desglose: vendedor abierto + sus ventas. Se pide aparte para no traer el
+  // detalle de todos los vendedores en cada carga del reporte.
+  const [abierto, setAbierto] = useState<string | null>(null);
+  const [detalle, setDetalle] = useState<DetalleVenta[] | null>(null);
+  const [detalleCargando, setDetalleCargando] = useState(false);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -72,6 +87,30 @@ export default function ComisionesPage() {
   }, [rango]);
 
   useEffect(() => { void cargar(); }, [cargar]);
+
+  // Al cambiar el período, el desglose abierto deja de corresponder.
+  useEffect(() => { setAbierto(null); setDetalle(null); }, [rango]);
+
+  const toggleDesglose = useCallback(async (vendedor: string) => {
+    if (abierto === vendedor) { setAbierto(null); setDetalle(null); return; }
+    setAbierto(vendedor);
+    setDetalle(null);
+    setDetalleCargando(true);
+    try {
+      const r = await fetchWithSupabaseSession(
+        `/api/comisiones/ferrecolor?desde=${rango.desde}&hasta=${rango.hasta}&vendedor=${encodeURIComponent(vendedor)}`,
+        { cache: "no-store" }
+      );
+      const j = await r.json();
+      if (!r.ok || j?.success === false) throw new Error(j?.error ?? `Error ${r.status}`);
+      setDetalle((j.data?.detalle ?? []) as DetalleVenta[]);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "No se pudo cargar el desglose.");
+      setAbierto(null);
+    } finally {
+      setDetalleCargando(false);
+    }
+  }, [abierto, rango]);
 
   const escalas = data?.escalas ?? [];
   const filas = data?.por_vendedor ?? [];
@@ -160,9 +199,20 @@ export default function ComisionesPage() {
             {filas.length === 0 ? (
               <tr><td colSpan={7} className="py-10 text-center text-sm text-slate-400">{cargando ? "Calculando…" : "Sin ventas en el período."}</td></tr>
             ) : (
-              filas.map((f) => (
-                <tr key={f.vendedor} className="hover:bg-slate-50/50">
-                  <td className="px-4 py-3 font-medium text-slate-800">{f.vendedor}</td>
+              filas.flatMap((f) => [
+                <tr
+                  key={f.vendedor}
+                  onClick={() => void toggleDesglose(f.vendedor)}
+                  className="cursor-pointer hover:bg-slate-50/50"
+                >
+                  <td className="px-4 py-3 font-medium text-slate-800">
+                    <span className="inline-flex items-center gap-1.5">
+                      {abierto === f.vendedor
+                        ? <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+                        : <ChevronRight className="h-3.5 w-3.5 text-slate-400" />}
+                      {f.vendedor}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-right tabular-nums text-slate-700">{f.ventas}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-slate-700">{fmtGs(f.ingresos)}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-slate-500">{fmtGs(f.costo)}</td>
@@ -173,8 +223,57 @@ export default function ComisionesPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums font-bold text-slate-900">{fmtGs(f.comision)}</td>
-                </tr>
-              ))
+                </tr>,
+                ...(abierto === f.vendedor
+                  ? [
+                      <tr key={`${f.vendedor}-detalle`} className="bg-slate-50/70">
+                        <td colSpan={7} className="px-4 py-3">
+                          {detalleCargando ? (
+                            <p className="text-xs text-slate-500">Cargando desglose…</p>
+                          ) : !detalle || detalle.length === 0 ? (
+                            <p className="text-xs text-slate-500">Sin ventas en el período.</p>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="w-full min-w-[560px] text-xs">
+                                <thead>
+                                  <tr className="text-left text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                                    <th className="py-1.5 pr-3">Venta</th>
+                                    <th className="py-1.5 pr-3">Fecha</th>
+                                    <th className="py-1.5 pr-3 text-right">Vendido</th>
+                                    <th className="py-1.5 pr-3 text-right">Costo</th>
+                                    <th className="py-1.5 text-right">Ganancia</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-200">
+                                  {detalle.map((d) => (
+                                    <tr key={d.id}>
+                                      <td className="py-1.5 pr-3 font-medium text-slate-700">{d.numero_control ?? "—"}</td>
+                                      <td className="py-1.5 pr-3 text-slate-500">{d.fecha.slice(0, 10)}</td>
+                                      <td className="py-1.5 pr-3 text-right tabular-nums text-slate-700">{fmtGs(d.ingresos)}</td>
+                                      <td className="py-1.5 pr-3 text-right tabular-nums text-slate-500">{fmtGs(d.costo)}</td>
+                                      <td className="py-1.5 text-right tabular-nums font-semibold text-emerald-700">{fmtGs(d.ganancia)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                                <tfoot>
+                                  <tr className="border-t border-slate-300 font-bold text-slate-800">
+                                    <td className="py-1.5 pr-3" colSpan={2}>{detalle.length} ventas</td>
+                                    <td className="py-1.5 pr-3 text-right tabular-nums">{fmtGs(detalle.reduce((s, d) => s + d.ingresos, 0))}</td>
+                                    <td className="py-1.5 pr-3 text-right tabular-nums">{fmtGs(detalle.reduce((s, d) => s + d.costo, 0))}</td>
+                                    <td className="py-1.5 text-right tabular-nums text-emerald-700">{fmtGs(detalle.reduce((s, d) => s + d.ganancia, 0))}</td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                              <p className="mt-2 text-[11px] text-slate-500">
+                                Ganancia {fmtGs(f.ganancia)} × {f.porcentaje}% = <strong>{fmtGs(f.comision)}</strong>
+                              </p>
+                            </div>
+                          )}
+                        </td>
+                      </tr>,
+                    ]
+                  : []),
+              ])
             )}
           </tbody>
           {totales && filas.length > 0 && (

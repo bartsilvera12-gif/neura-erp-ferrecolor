@@ -39,6 +39,23 @@ export async function GET(request: NextRequest) {
 
     const ventas = await cargarVentasConGanancia(ctx.supabase, empresaId, desde, hastaTs);
 
+    // Desglose venta por venta de UN vendedor, para poder verificar de donde
+    // sale la ganancia sobre la que se calcula la comision.
+    const vendedorDetalle = (sp.get("vendedor") || "").trim();
+    const detalle = vendedorDetalle
+      ? ventas
+          .filter((v) => v.vendedor === vendedorDetalle)
+          .sort((a, b) => (a.fecha < b.fecha ? 1 : -1))
+          .map((v) => ({
+            id: v.id,
+            numero_control: v.numero_control,
+            fecha: v.fecha,
+            ingresos: Math.round(v.ingresos),
+            costo: Math.round(v.costo),
+            ganancia: Math.round(v.ganancia),
+          }))
+      : null;
+
     const filas = agruparPorVendedor(ventas)
       .map((a) => {
         const { tramo, comision } = calcularComision(escalas, a.ingresos, a.ganancia);
@@ -61,6 +78,8 @@ export async function GET(request: NextRequest) {
       escalas,
       escalas_origen: escalasOrigen,
       por_vendedor: filas,
+      detalle_vendedor: vendedorDetalle || null,
+      detalle,
       totales: {
         ventas: filas.reduce((s, f) => s + f.ventas, 0),
         ingresos: filas.reduce((s, f) => s + f.ingresos, 0),
