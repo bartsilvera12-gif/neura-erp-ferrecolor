@@ -157,7 +157,10 @@ const MENU_STRUCTURE: MenuItem[] = [
   // Entidades bancarias: cajas, bancos, tarjetas, billeteras usadas para
   // conciliacion de transferencias y tarjetas en cobros/ventas. Era submenu
   // de Configuracion; ahora modulo standalone para mejor accesibilidad.
-  { key: "entidades_bancarias", slug: "ventas", label: "Entidades bancarias", href: "/configuracion/entidades-bancarias", icon: Building2 },
+  // Gateado por 'configuracion' (no 'ventas'): su ruta /configuracion/entidades-bancarias exige
+  // el modulo configuracion. Con 'ventas' lo veian los vendedores (Joel/Lilian) pero al abrirlo
+  // caian en el bloqueo "Modulo no habilitado"; asi solo lo ve quien realmente puede entrar.
+  { key: "entidades_bancarias", slug: "configuracion", label: "Entidades bancarias", href: "/configuracion/entidades-bancarias", icon: Building2 },
   { key: "reportes", slug: "reportes", label: "Reportes", href: "/reportes", icon: BarChart3 },
   // Pagos oculto en instancia En lo de Mari (no usa este módulo).
   // Comisiones y Notas de credito ocultos por ahora:

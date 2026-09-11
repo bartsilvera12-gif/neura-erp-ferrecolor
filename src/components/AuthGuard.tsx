@@ -134,6 +134,23 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
       !access.superAdmin &&
       !isModuleSlugGranted(slug, access.slugs, access.inactiveSlugs, { strict: access.strict })
     ) {
+      // La home ("/") exige el módulo "dashboard". Si el usuario no lo tiene (p. ej. vendedores),
+      // en lugar de mostrar el bloqueo lo enviamos a su primer módulo accesible —mismo destino que
+      // el botón "Volver al inicio"—. El login siempre deposita en "/", así que esto evita que caiga
+      // en un cartel al iniciar sesión. Las rutas restringidas profundas (p. ej. /configuracion)
+      // siguen mostrando el bloqueo normal.
+      if (pathname === "/") {
+        const homeFallback = firstAccessibleHref(access.slugs, {
+          superAdmin: access.superAdmin,
+          inactiveSlugs: access.inactiveSlugs,
+          strict: access.strict,
+        });
+        if (homeFallback && homeFallback !== "/" && homeFallback !== "/login") {
+          router.replace(homeFallback);
+          setBlockedSlug(null);
+          return;
+        }
+      }
       setBlockedSlug(slug);
       return;
     }
