@@ -148,6 +148,8 @@ export default function VentasPage() {
   const [busqueda,   setBusqueda]   = useState("");
   const [filtroTipo, setFiltroTipo] = useState<TipoVenta | "">("");
   const [filtroIva,  setFiltroIva]  = useState<TipoIvaVenta | "">("");
+  const [pagina,     setPagina]     = useState(1);
+  const POR_PAGINA = 50;
 
   useEffect(() => {
     let cancelled = false;
@@ -189,6 +191,17 @@ export default function VentasPage() {
   });
 
   const hayFiltros = busqueda || filtroTipo || filtroIva;
+
+  // Paginación en cliente (sobre el conjunto ya filtrado).
+  const totalPaginas = Math.max(1, Math.ceil(filtradas.length / POR_PAGINA));
+  const paginaActual = Math.min(pagina, totalPaginas);
+  const desde = (paginaActual - 1) * POR_PAGINA;
+  const visibles = filtradas.slice(desde, desde + POR_PAGINA);
+
+  // Al cambiar filtros/búsqueda, volver a la primera página.
+  useEffect(() => {
+    setPagina(1);
+  }, [busqueda, filtroTipo, filtroIva]);
 
   return (
     <div className="space-y-8">
@@ -332,7 +345,7 @@ export default function VentasPage() {
                   </td>
                 </tr>
               ) : (
-                filtradas.map((v) => {
+                visibles.map((v) => {
                   const cantTotal = v.items.reduce((s, i) => s + i.cantidad, 0);
                   return (
                     <tr key={v.id} className="border-b border-slate-200 last:border-0 hover:bg-[#4FAEB2]/[0.04] transition-colors">
@@ -392,6 +405,50 @@ export default function VentasPage() {
             </tbody>
           </table>
         </EdgeScrollArea>
+
+        {/* Paginación */}
+        {filtradas.length > POR_PAGINA && (
+          <div className="flex flex-wrap items-center justify-between gap-3 mt-5 pt-4 border-t border-gray-100">
+            <span className="text-xs text-gray-500 tabular-nums">
+              Mostrando {desde + 1}–{Math.min(desde + POR_PAGINA, filtradas.length)} de {filtradas.length}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setPagina(1)}
+                disabled={paginaActual === 1}
+                className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                aria-label="Primera página"
+              >
+                «
+              </button>
+              <button
+                onClick={() => setPagina((p) => Math.max(1, p - 1))}
+                disabled={paginaActual === 1}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Anterior
+              </button>
+              <span className="px-3 text-sm text-slate-600 tabular-nums">
+                Página {paginaActual} de {totalPaginas}
+              </span>
+              <button
+                onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
+                disabled={paginaActual === totalPaginas}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Siguiente
+              </button>
+              <button
+                onClick={() => setPagina(totalPaginas)}
+                disabled={paginaActual === totalPaginas}
+                className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                aria-label="Última página"
+              >
+                »
+              </button>
+            </div>
+          </div>
+        )}
 
       </div>
 

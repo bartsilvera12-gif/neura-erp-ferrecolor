@@ -36,6 +36,29 @@ function num(v: number | string): number {
   return typeof v === "number" ? v : Number(v);
 }
 
+/**
+ * PostgREST devuelve como máximo ~1000 filas por request. Para traer TODAS las ventas
+ * (sin el viejo tope de 500) recorremos en páginas con `.range()` hasta agotar.
+ * El `orderBy` incluye un desempate estable (`id`) para no saltar ni duplicar filas entre páginas.
+ */
+const PAGE_SIZE = 1000;
+
+async function fetchAllRows<T>(
+  build: () => {
+    range: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>;
+  }
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await build().range(from, from + PAGE_SIZE - 1);
+    if (error) throw new Error(error.message);
+    const batch = (data ?? []) as T[];
+    out.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+  }
+  return out;
+}
+
 function mapItems(rows: VentaItemRow[]): LineaVenta[] {
   return rows.map((r) => ({
     producto_id: r.producto_id,
@@ -58,26 +81,28 @@ export async function GET(request: NextRequest) {
     if (!ctx) return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
     const empresaId = ctx.auth.empresa_id;
 
-    const ventasQ = await ctx.supabase
-      .from("ventas")
-      .select(
-        "id, empresa_id, numero_control, moneda, tipo_cambio, subtotal, monto_iva, total, tipo_venta, plazo_dias, metodo_pago, fecha"
-      )
-      .eq("empresa_id", empresaId)
-      .order("fecha", { ascending: false })
-      .limit(500);
-    if (ventasQ.error) throw new Error(ventasQ.error.message);
+    // Todas las ventas (sin tope): se pagina con `.range()`. Desempate por `id` para paginación estable.
+    const ventasRows = await fetchAllRows<VentaRow>(() =>
+      ctx.supabase
+        .from("ventas")
+        .select(
+          "id, empresa_id, numero_control, moneda, tipo_cambio, subtotal, monto_iva, total, tipo_venta, plazo_dias, metodo_pago, fecha"
+        )
+        .eq("empresa_id", empresaId)
+        .order("fecha", { ascending: false })
+        .order("id", { ascending: true })
+    );
 
-    const itemsQ = await ctx.supabase
-      .from("ventas_items")
-      .select(
-        "venta_id, producto_id, producto_nombre, sku, cantidad, precio_venta_original, precio_venta, tipo_iva, subtotal, monto_iva, total_linea"
-      )
-      .eq("empresa_id", empresaId);
-    if (itemsQ.error) throw new Error(itemsQ.error.message);
-
-    const ventasRows = (ventasQ.data ?? []) as VentaRow[];
-    const itemsRows = (itemsQ.data ?? []) as VentaItemRow[];
+    // Todos los ítems (también sin tope): antes se truncaban en ~1000 por el límite de PostgREST.
+    const itemsRows = await fetchAllRows<VentaItemRow>(() =>
+      ctx.supabase
+        .from("ventas_items")
+        .select(
+          "venta_id, producto_id, producto_nombre, sku, cantidad, precio_venta_original, precio_venta, tipo_iva, subtotal, monto_iva, total_linea"
+        )
+        .eq("empresa_id", empresaId)
+        .order("id", { ascending: true })
+    );
 
     const byVenta = new Map<string, VentaItemRow[]>();
     for (const row of itemsRows) {
