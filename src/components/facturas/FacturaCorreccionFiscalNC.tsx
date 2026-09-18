@@ -652,10 +652,15 @@ export function FacturaCorreccionFiscalNC({
                 </dd>
               </div>
               <div>
-                <dt className="text-slate-400">Saldo pendiente (= NC)</dt>
+                <dt className="text-slate-400">Monto de la nota de crédito</dt>
                 <dd className="tabular-nums font-bold text-amber-900">
-                  {monedaLabel} {formatGs(saldo, moneda)}
+                  {monedaLabel} {formatGs(saldo > 0.02 ? saldo : monto, moneda)}
                 </dd>
+                {saldo <= 0.02 ? (
+                  <dd className="text-[11px] text-slate-500 mt-0.5">
+                    Factura pagada: la NC anula el total de la factura (corrección fiscal).
+                  </dd>
+                ) : null}
               </div>
               <div className="col-span-2 text-[11px] text-slate-500">
                 Luego usá en el historial <span className="font-semibold">Procesar envío SIFEN</span> (flujo real según

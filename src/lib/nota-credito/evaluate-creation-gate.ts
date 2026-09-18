@@ -34,8 +34,11 @@ export async function evaluateNotaCreditoCreationGate(
 
   const saldo = num((factura as { saldo?: unknown }).saldo);
   const monto = num((factura as { monto?: unknown }).monto);
-  if (saldo <= 0) {
-    return { puede_crear: false, motivo_bloqueo: "No hay saldo pendiente en la factura." };
+  // Antes se bloqueaba con saldo<=0. Una factura pagada igual admite nota de crédito de
+  // corrección fiscal (p. ej. anulación por datos del receptor): en ese caso la NC es por el
+  // total de la factura, no por el saldo. Solo exigimos que la factura tenga monto.
+  if (monto <= 0) {
+    return { puede_crear: false, motivo_bloqueo: "La factura no tiene monto; no corresponde nota de crédito." };
   }
 
   const { data: feRow, error: errFe } = await supabase
@@ -146,8 +149,10 @@ export async function evaluateNotaCreditoCreationGate(
     };
   }
 
+  // Solo validamos coherencia de saldo cuando hay saldo pendiente. Una venta contado queda
+  // Pagada con saldo 0 y sin fila en `pagos`, y aun así es válida para NC de corrección.
   const esperadoSaldo = Math.max(0, monto - sumaPagos);
-  if (Math.abs(saldo - esperadoSaldo) > 0.02) {
+  if (saldo > 0.02 && Math.abs(saldo - esperadoSaldo) > 0.02) {
     return {
       puede_crear: false,
       motivo_bloqueo: "El saldo no coincide con monto − pagos; corregí la factura antes de continuar.",
