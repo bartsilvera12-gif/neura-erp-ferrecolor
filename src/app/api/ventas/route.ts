@@ -63,22 +63,32 @@ export async function GET(request: NextRequest) {
     if (!ctx) return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
     const empresaId = ctx.auth.empresa_id;
 
-    const ventasQ = await ctx.supabase
-      .from("ventas")
-      .select(
-        "id, empresa_id, numero_control, moneda, tipo_cambio, subtotal, monto_iva, total, tipo_venta, plazo_dias, metodo_pago, fecha, genera_nota_remision, nota_remision_numero, usuario_nombre, estado, anulada_at, anulada_motivo, factura_id, cliente_id"
-      )
-      .eq("empresa_id", empresaId)
-      .order("fecha", { ascending: false })
-      .limit(500);
-    if (ventasQ.error) throw new Error(ventasQ.error.message);
+    // Todas las ventas (sin tope): antes cortaba en 500. Se pagina con `.range()` en bucle,
+    // con desempate estable por `id` para no saltar ni duplicar filas entre páginas.
+    const VENTAS_PAGE = 1000; // tope de PostgREST por request
+    const ventasRows: VentaRow[] = [];
+    for (let desde = 0; ; desde += VENTAS_PAGE) {
+      const q = await ctx.supabase
+        .from("ventas")
+        .select(
+          "id, empresa_id, numero_control, moneda, tipo_cambio, subtotal, monto_iva, total, tipo_venta, plazo_dias, metodo_pago, fecha, genera_nota_remision, nota_remision_numero, usuario_nombre, estado, anulada_at, anulada_motivo, factura_id, cliente_id"
+        )
+        .eq("empresa_id", empresaId)
+        .order("fecha", { ascending: false })
+        .order("id", { ascending: true })
+        .range(desde, desde + VENTAS_PAGE - 1);
+      if (q.error) throw new Error(q.error.message);
+      const lote = (q.data ?? []) as VentaRow[];
+      ventasRows.push(...lote);
+      if (lote.length < VENTAS_PAGE) break;
+    }
 
     // Puente venta→factura: para las ventas que ya tienen factura ERP, cargar en
     // batch el numero_factura (tabla facturas) y el estado SIFEN (factura_electronica).
     // Best-effort: si estas consultas fallan, el listado sigue sirviendo sin esos datos.
     const facturaIds = [
       ...new Set(
-        ((ventasQ.data ?? []) as VentaRow[])
+        ventasRows
           .map((v) => v.factura_id)
           .filter((x): x is string => !!x)
       ),
@@ -107,8 +117,6 @@ export async function GET(request: NextRequest) {
         }
       }
     }
-
-    const ventasRows = (ventasQ.data ?? []) as VentaRow[];
 
     // Ítems de las ventas listadas. Se piden por lotes chicos y paginando, porque
     // pedir TODOS los ventas_items de la empresa de una vez chocaba con el tope de
