@@ -85,8 +85,9 @@ export async function createNotaCreditoBorrador(p: CreateNotaCreditoParams): Pro
 
   const saldo = num((factura as { saldo?: unknown }).saldo);
   const montoFactura = num((factura as { monto?: unknown }).monto);
-  if (saldo <= 0) {
-    return { ok: false, status: 409, error: "La factura no tiene saldo pendiente; no corresponde nota de crédito." };
+  // Factura pagada (saldo 0) igual admite NC de corrección fiscal: la NC va por el total.
+  if (montoFactura <= 0) {
+    return { ok: false, status: 409, error: "La factura no tiene monto; no corresponde nota de crédito." };
   }
 
   const monedaRaw = String((factura as { moneda?: string }).moneda ?? "GS").toUpperCase();
@@ -164,9 +165,11 @@ export async function createNotaCreditoBorrador(p: CreateNotaCreditoParams): Pro
     };
   }
 
-  const montoNc = saldo;
+  // Saldo pendiente → NC por el saldo (crédito de deuda). Factura pagada (saldo 0) → NC por el
+  // total de la factura (anulación / corrección fiscal completa).
+  const montoNc = saldo > 0.02 ? saldo : montoFactura;
   const esperadoSaldo = Math.max(0, montoFactura - sumaPagos);
-  if (Math.abs(saldo - esperadoSaldo) > 0.02) {
+  if (saldo > 0.02 && Math.abs(saldo - esperadoSaldo) > 0.02) {
     return {
       ok: false,
       status: 409,
