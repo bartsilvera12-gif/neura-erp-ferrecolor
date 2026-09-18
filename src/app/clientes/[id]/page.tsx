@@ -34,6 +34,7 @@ import { useFacturaSifenEstados } from "@/hooks/useFacturaSifenEstados";
 import MontoInput from "@/components/ui/MontoInput";
 import { getPlanes } from "@/lib/planes/storage";
 import type { Cliente, NotaCliente } from "@/lib/clientes/types";
+import { clasificarCedulaRuc, pareceRuc } from "@/lib/clientes/cedula-ruc";
 import {
   etiquetaVisibleTipoServicio,
   type ClienteTipoServicioRow,
@@ -342,7 +343,11 @@ export default function ClienteDetailPage() {
         empresa:             c.empresa             ?? "",
         nombre_contacto:     c.nombre_contacto,
         ruc:                 c.ruc                 ?? "",
-        documento:           c.documento           ?? "",
+        // Persona: el campo único "Cédula / RUC" muestra el RUC si ya existe; si no, la cédula.
+        documento:
+          c.tipo_cliente === "persona" && c.ruc?.trim()
+            ? c.ruc.trim()
+            : c.documento ?? "",
         telefono:            c.telefono            ?? "",
         telefono_secundario: c.telefono_secundario ?? "",
         email:               c.email               ?? "",
@@ -622,8 +627,15 @@ export default function ClienteDetailPage() {
         tipo_cliente:        form.tipo_cliente,
         empresa:             form.tipo_cliente === "empresa" ? form.empresa.trim().toUpperCase() : undefined,
         nombre_contacto:     form.nombre_contacto.trim().toUpperCase(),
-        ruc:                 form.ruc.trim()                 || undefined,
-        documento:           form.documento.trim()           || undefined,
+        // Empresa: RUC directo. Persona: el campo "Cédula / RUC" se enruta según tenga DV.
+        ruc:
+          form.tipo_cliente === "empresa"
+            ? form.ruc.trim() || undefined
+            : clasificarCedulaRuc(form.documento).ruc ?? undefined,
+        documento:
+          form.tipo_cliente === "empresa"
+            ? form.documento.trim() || undefined
+            : clasificarCedulaRuc(form.documento).documento ?? undefined,
         telefono:            form.telefono.trim()            || undefined,
         telefono_secundario: form.telefono_secundario.trim() || undefined,
         email:               form.email.trim()               || undefined,
@@ -1502,11 +1514,24 @@ export default function ClienteDetailPage() {
                     <input type="text" name="nombre_contacto" value={form.nombre_contacto} onChange={handleChange} className={`${inputClass} uppercase`} required />
                   </div>
                   <div>
-                    <label className={labelClass}>{form.tipo_cliente === "empresa" ? "RUC" : "CI / Documento"}</label>
+                    <label className={labelClass}>{form.tipo_cliente === "empresa" ? "RUC" : "Cédula / RUC"}</label>
                     {form.tipo_cliente === "empresa" ? (
                       <input type="text" name="ruc" value={form.ruc} onChange={handleChange} className={inputClass} />
                     ) : (
-                      <input type="text" name="documento" value={form.documento} onChange={handleChange} className={inputClass} />
+                      <>
+                        <input type="text" name="documento" value={form.documento} onChange={handleChange} placeholder="CI (5893126) o RUC con DV (1390182-6)" className={inputClass} />
+                        {form.documento.trim() ? (
+                          pareceRuc(form.documento) ? (
+                            <p className="mt-1 text-xs font-medium text-emerald-600">
+                              Se facturará como <strong>contribuyente</strong> (RUC) — le aparecerá en Marangatú.
+                            </p>
+                          ) : (
+                            <p className="mt-1 text-xs text-slate-500">
+                              Se facturará como <strong>consumidor final</strong>. Si es contribuyente, agregá el DV (ej. 1390182-<strong>6</strong>).
+                            </p>
+                          )
+                        ) : null}
+                      </>
                     )}
                   </div>
                 </div>

@@ -22,6 +22,7 @@ import { getUsuariosActivosEmpresa, type UsuarioEmpresa } from "@/lib/usuarios/e
 import MontoInput from "@/components/ui/MontoInput";
 import { getPlanes } from "@/lib/planes/storage";
 import type { Cliente, TipoCliente, OrigenCliente } from "@/lib/clientes/types";
+import { clasificarCedulaRuc, pareceRuc } from "@/lib/clientes/cedula-ruc";
 import { ClienteDatosSifenReceptorForm } from "@/components/clientes/ClienteDatosSifenReceptorForm";
 import type { ClienteTipoServicioRow } from "@/lib/clientes/tipo-servicio-catalogo";
 import { filasTiposDesdeSistemaEstatico, fetchTiposFormCliente } from "@/lib/clientes/fetch-tipos-servicio-form";
@@ -309,8 +310,15 @@ function NuevoClienteForm() {
       tipo_servicio_cliente: form.tipo_servicio_cliente || undefined,
       empresa: form.tipo_cliente === "empresa" ? form.empresa.trim().toUpperCase() : undefined,
       nombre_contacto: form.nombre_contacto.trim().toUpperCase(),
-      ruc: form.ruc.trim() || undefined,
-      documento: form.documento.trim() || undefined,
+      // Empresa: campo RUC directo. Persona: el campo "Cédula / RUC" se enruta según tenga DV.
+      ruc:
+        form.tipo_cliente === "empresa"
+          ? form.ruc.trim() || undefined
+          : clasificarCedulaRuc(form.documento).ruc ?? undefined,
+      documento:
+        form.tipo_cliente === "empresa"
+          ? form.documento.trim() || undefined
+          : clasificarCedulaRuc(form.documento).documento ?? undefined,
       telefono: form.telefono.trim() || undefined,
       email: form.email.trim() || undefined,
       direccion: form.direccion.trim() || undefined,
@@ -486,7 +494,7 @@ function NuevoClienteForm() {
               </div>
               <div>
                 <label className={labelClass}>
-                  {form.tipo_cliente === "empresa" ? "RUC" : "CI / Documento"}
+                  {form.tipo_cliente === "empresa" ? "RUC" : "Cédula / RUC"}
                 </label>
                 {form.tipo_cliente === "empresa" ? (
                   <input
@@ -498,14 +506,28 @@ function NuevoClienteForm() {
                     className={inputClass}
                   />
                 ) : (
-                  <input
-                    type="text"
-                    name="documento"
-                    value={form.documento}
-                    onChange={handleChange}
-                    placeholder="CI sin puntos"
-                    className={inputClass}
-                  />
+                  <>
+                    <input
+                      type="text"
+                      name="documento"
+                      value={form.documento}
+                      onChange={handleChange}
+                      placeholder="CI (5893126) o RUC con DV (1390182-6)"
+                      className={inputClass}
+                    />
+                    {form.documento.trim() ? (
+                      pareceRuc(form.documento) ? (
+                        <p className="mt-1 text-xs font-medium text-emerald-600">
+                          Se facturará como <strong>contribuyente</strong> (RUC) — le aparecerá en Marangatú.
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-xs text-slate-500">
+                          Se facturará como <strong>consumidor final</strong>. Si es contribuyente, agregá el
+                          dígito verificador (ej. 1390182-<strong>6</strong>).
+                        </p>
+                      )
+                    ) : null}
+                  </>
                 )}
               </div>
             </div>
