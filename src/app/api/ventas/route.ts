@@ -158,13 +158,22 @@ export async function GET(request: NextRequest) {
     ];
     const clienteNombreById = new Map<string, string>();
     if (clienteIds.length > 0) {
-      const cliQ = await ctx.supabase
-        .from("clientes")
-        .select("id, empresa, nombre_contacto, nombre")
-        .eq("empresa_id", empresaId)
-        .in("id", clienteIds);
-      if (!cliQ.error) {
-        const s = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : "");
+      const s = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : "");
+      // Se pide en lotes de 25 ids (misma razón que los ítems: `.in(...)` con muchos uuid
+      // arma una URL demasiado larga y la request falla). Sin chunk, con muchos clientes el
+      // nombre no cargaba y el buscador por cliente no encontraba nada.
+      const CHUNK_CLIENTES = 25;
+      for (let i = 0; i < clienteIds.length; i += CHUNK_CLIENTES) {
+        const ids = clienteIds.slice(i, i + CHUNK_CLIENTES);
+        const cliQ = await ctx.supabase
+          .from("clientes")
+          .select("id, empresa, nombre_contacto, nombre")
+          .eq("empresa_id", empresaId)
+          .in("id", ids);
+        if (cliQ.error) {
+          console.error("[/api/ventas GET] clientes:", cliQ.error.message);
+          continue;
+        }
         for (const row of (cliQ.data ?? []) as Array<Record<string, unknown>>) {
           const nombre = s(row.empresa) || s(row.nombre_contacto) || s(row.nombre);
           if (nombre) clienteNombreById.set(String(row.id), nombre);
