@@ -56,5 +56,18 @@ export function decryptSecret(stored: string): string {
   const key = requireSifenSecretsKeyBytes();
   const decipher = createDecipheriv(ALGO, key, iv);
   decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
+  try {
+    return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
+  } catch {
+    // GCM falla la autenticacion cuando la clave NO es la misma con la que se
+    // cifro. El formato ya se valido arriba, asi que el dato guardado esta
+    // intacto: lo que cambio es SIFEN_SECRETS_KEY. Node lo reporta como
+    // "Unsupported state or unable to authenticate data", que llegaba tal cual
+    // a la pantalla y no le decia a nadie que hacer.
+    throw new Error(
+      "No se pudo descifrar la contraseña del certificado: la clave SIFEN_SECRETS_KEY del servidor " +
+        "no es la misma con la que se guardó. Restaurá la clave anterior en el servidor, o volvé a " +
+        "cargar la contraseña del certificado en Configuración → Facturación electrónica."
+    );
+  }
 }
