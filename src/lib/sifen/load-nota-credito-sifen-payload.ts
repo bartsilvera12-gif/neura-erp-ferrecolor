@@ -246,6 +246,9 @@ export async function loadValidatedNotaCreditoSifenPayload(
       fecha: String((factura as { fecha: string }).fecha),
       moneda,
     },
+    // Receptor: se replica el `gDatRec` del DE origen aprobado. Los datos actuales del cliente
+    // (`payload.receptor`) quedan solo como respaldo si el XML origen no los trajera.
+    receptorOrigenXml: vOrigen.fiscal.origenFiscal.receptor,
     documentoElectronicoOrigen: { cdc: cdcOrigen },
     sifen: {
       nota_credito_electronica_id: String((ne as { id: string }).id),

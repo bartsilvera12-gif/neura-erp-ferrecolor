@@ -10,6 +10,7 @@ import {
 } from "./sifen-ambiente-test";
 import { SIFEN_EKUATIA_TARGET_NS, SIFEN_SIRECEP_DE_V150_XSD_FILE } from "./sifen-xsi-schema-location";
 import { escapeXml } from "./xml";
+import { GDATREC_TAGS_EN_ORDEN_XSD } from "./parse-kude-from-signed-xml";
 import {
   fechaEmisionCdc,
   generarCdcFacturaElectronica,
@@ -252,7 +253,17 @@ export function buildOfficialRdeNotaCreditoElectronicaXml(
   gEmisParts.push("</gEmis>");
 
   const recParts: string[] = ["<gDatRec>"];
-  if (receptor.ruc?.trim()) {
+  const recOrigen = base.receptorOrigenXml;
+  const recOrigenTieneDatos =
+    recOrigen != null && GDATREC_TAGS_EN_ORDEN_XSD.some((t) => String(recOrigen[t] ?? "").trim() !== "");
+  if (recOrigen != null && recOrigenTieneDatos) {
+    // Receptor idéntico al del DE referenciado (ver `receptorOrigenXml`): se replica el
+    // `gDatRec` aprobado por SET en vez de rearmarlo con los datos actuales del cliente.
+    for (const tag of GDATREC_TAGS_EN_ORDEN_XSD) {
+      const v = String(recOrigen[tag] ?? "").trim();
+      if (v !== "") recParts.push(textEl(tag, v));
+    }
+  } else if (receptor.ruc?.trim()) {
     const { cuerpo: dRucRec, dDV: dDVRec } = splitRucParaXml(receptor.ruc.trim());
     const iTiContRec = sifenEmisorITipContCodigo(receptor.nombre);
     recParts.push(textEl("iNatRec", "1"));

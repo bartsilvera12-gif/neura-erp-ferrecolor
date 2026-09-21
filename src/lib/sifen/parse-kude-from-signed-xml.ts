@@ -173,9 +173,53 @@ export type OrigenFiscalDesdeRdeXml = {
     dRucEm: string;
     dDVEmi: string;
   };
+  /**
+   * `gDatGralOpe.gDatRec` tal cual fue aprobado por SET, campo por campo.
+   * La NC debe declarar el MISMO receptor que el DE al que hace referencia; si no, SET rechaza
+   * con «El CDC asociado no corresponde al receptor del documento electrónico». Los datos
+   * actuales del cliente en el ERP pueden haber cambiado después de emitida la factura
+   * (p. ej. se le cargó el RUC), así que no sirven para armar la NC.
+   */
+  receptor: OrigenReceptorDesdeRdeXml;
   /** `gDatGralOpe.dFeEmiDE` (ISO / SET) — coherencia con fecha en CDC. */
   fecha_emision_de: string;
 };
+
+/** Campos de `gDatRec` en el orden que exige el XSD (vacío = nodo ausente en el DE origen). */
+export type OrigenReceptorDesdeRdeXml = Record<(typeof GDATREC_TAGS_EN_ORDEN_XSD)[number], string>;
+
+/**
+ * Orden de los hijos de `gDatRec` según el XSD de SIFEN (grupo E200). Mantener el orden:
+ * SET valida la secuencia y rechaza el DE si los nodos vienen desordenados.
+ */
+export const GDATREC_TAGS_EN_ORDEN_XSD = [
+  "iNatRec",
+  "iTiOpe",
+  "cPaisRec",
+  "dDesPaisRe",
+  "iTiContRec",
+  "dRucRec",
+  "dDVRec",
+  "iTipIDRec",
+  "dDTipIDRec",
+  "dNumIDRec",
+  "dNomRec",
+  "dNomFanRec",
+  "dDirRec",
+  "dNumCasRec",
+  "dCompDir1",
+  "dCompDir2",
+  "cDepRec",
+  "dDesDepRec",
+  "cDisRec",
+  "dDesDisRec",
+  "cCiuRec",
+  "dDesCiuRec",
+  "dTelRec",
+  "dCelRec",
+  "dEmailRec",
+  "dCodCliente",
+] as const;
 
 /**
  * Lee `gTimb`, `gActEco` y RUC emisor del rDE (firmado o no), sin validar firma.
@@ -215,6 +259,13 @@ export function extractOrigenFiscalDesdeRdeXml(xmlUtf8: string): OrigenFiscalDes
     dFeIniT: textOf(firstNs(gTimb, "dFeIniT")),
   };
 
+  const gDatRecOrigen = firstNs(gDatGralOpe, "gDatRec");
+  if (!gDatRecOrigen) throw new Error("gDatRec no encontrado");
+  const receptor = {} as Record<string, string>;
+  for (const tag of GDATREC_TAGS_EN_ORDEN_XSD) {
+    receptor[tag] = textOf(firstNs(gDatRecOrigen, tag));
+  }
+
   return {
     cdcId,
     iTiDE,
@@ -224,6 +275,7 @@ export function extractOrigenFiscalDesdeRdeXml(xmlUtf8: string): OrigenFiscalDes
       dRucEm: textOf(firstNs(gEmis, "dRucEm")),
       dDVEmi: textOf(firstNs(gEmis, "dDVEmi")),
     },
+    receptor: receptor as OrigenReceptorDesdeRdeXml,
     fecha_emision_de,
   };
 }

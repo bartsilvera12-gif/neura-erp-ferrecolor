@@ -1,3 +1,4 @@
+import type { OrigenReceptorDesdeRdeXml } from "./parse-kude-from-signed-xml";
 /**
  * Tipos para el módulo SIFEN (configuración y documentos electrónicos).
  */
@@ -303,6 +304,13 @@ export interface SifenNotaCreditoPayloadMeta {
 export interface SifenNotaCreditoPayload {
   emisor: SifenPayloadEmisor;
   receptor: SifenPayloadReceptor;
+  /**
+   * `gDatRec` del DE origen (tal como lo aprobó SET). Cuando está, el rDE de la NC lo replica
+   * nodo por nodo en lugar de rearmarlo desde el cliente del ERP: SET exige que el receptor de
+   * la NC sea el mismo que el del CDC referenciado («El CDC asociado no corresponde al receptor
+   * del documento electrónico») y los datos del cliente pueden haber cambiado desde entonces.
+   */
+  receptorOrigenXml?: OrigenReceptorDesdeRdeXml | null;
   notaCredito: {
     id: string;
     monto: number;
