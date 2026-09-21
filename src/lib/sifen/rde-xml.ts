@@ -760,6 +760,16 @@ export function buildOfficialRdeFacturaElectronicaXml(
   return xml;
 }
 
+/**
+ * Fecha calendario (YYYY-MM-DD) **hoy** en hora civil de Paraguay.
+ * Para DE que se emiten en el momento de generarse (p. ej. nota de crédito), la fecha de
+ * emisión es la del día de la transmisión: SET rechaza con «fecha y hora de emisión del DE
+ * informada es inválida por retraso» si el DE llega mucho después de su `dFeEmiDE`.
+ */
+export function sifenFechaHoyIso(ahora: Date = new Date()): string {
+  return wallYmdAndHmsInSifenTz(ahora).ymd;
+}
+
 /** Re-exportados para generadores de otros tipos de DE (p. ej. nota de crédito). */
 export {
   dFeEmiDeYFecFirma as sifenDFeEmiDeYFecFirma,

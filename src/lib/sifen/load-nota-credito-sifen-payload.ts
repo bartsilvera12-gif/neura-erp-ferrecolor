@@ -3,6 +3,7 @@ import type { SifenNotaCreditoPayload } from "./types";
 import type { AmbienteSifen } from "./types";
 import { MSG_CONFIG_TIMBRADO_INVALIDA } from "./validar-timbrado-origen-nc";
 import { validarXmlFirmadoFacturaOrigenParaNc } from "./validar-factura-origen-xml-para-nc";
+import { sifenFechaHoyIso } from "./rde-xml";
 
 export type LoadNotaCreditoSifenPayloadOpts = {
   /** Si se define, el XML rDE usa este ambiente (p. ej. test con ALLOW_TEST_MODE + pipeline *-test). */
@@ -136,7 +137,22 @@ export async function loadValidatedNotaCreditoSifenPayload(
     return { ok: false, error: { status: vOrigen.status, message: vOrigen.message } };
   }
 
-  const fechaNc = String((factura as { fecha: string }).fecha).trim().slice(0, 10);
+  // Fecha de emisión de la NC = día en que se emite el DE (hora civil de Paraguay), NO la
+  // fecha de la factura origen. Usar la fecha de la factura hacía que una NC emitida semanas
+  // después llevara `dFeEmiDE` (y CDC) con esa fecha vieja y SET la rechazara con
+  // «La fecha y hora de emisión del DE informada es inválida por retraso».
+  const fechaNc = sifenFechaHoyIso();
+  const fechaFacturaOrigen = String((factura as { fecha: string }).fecha).trim().slice(0, 10);
+  if (fechaFacturaOrigen !== "" && fechaNc < fechaFacturaOrigen) {
+    return {
+      ok: false,
+      error: {
+        status: 400,
+        message:
+          "La fecha de emisión de la nota de crédito no puede ser anterior a la de la factura origen.",
+      },
+    };
+  }
   if (fechaNc < vOrigen.fiscal.timbrado_fecha_inicio_vigencia_iso) {
     return {
       ok: false,
@@ -223,7 +239,7 @@ export async function loadValidatedNotaCreditoSifenPayload(
       id: String((nc as { id: string }).id),
       monto: Number((nc as { monto: unknown }).monto),
       motivo: String((nc as { motivo: string }).motivo ?? "").trim(),
-      fecha_emision: String((factura as { fecha: string }).fecha).trim(),
+      fecha_emision: fechaNc,
     },
     facturaOrigen: {
       numero_factura: String((factura as { numero_factura: string }).numero_factura),
