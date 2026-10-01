@@ -7,6 +7,7 @@ import { fechaMasDiasCalendario, fechaVencimientoSuscripcion, toCalendarDateStr 
 import { montosFacturaItemParaInsert, tasaIvaDesdeIvaTipo } from "@/lib/facturacion/factura-item-montos";
 import { descripcionLineaFacturaPorDefecto, parseFacturaPostTipo } from "@/lib/facturacion/factura-post-tipo";
 import { obtenerSiguienteNumeroFacturaEmpresa } from "@/lib/facturacion/factura-suscripcion-servidor";
+import { inPorTandas } from "@/lib/supabase/in-por-tandas";
 
 
 export async function GET(request: NextRequest) {
@@ -47,11 +48,13 @@ export async function GET(request: NextRequest) {
 
     const lastPagoByFactura = new Map<string, string>();
     if (ids.length > 0) {
-      const { data: pagosRows, error: pagosErr } = await supabase
-        .from("pagos")
-        .select("factura_id, fecha_pago")
-        .eq("empresa_id", auth.empresa_id)
-        .in("factura_id", ids);
+      const { data: pagosRows, error: pagosErr } = await inPorTandas(ids, (tanda) =>
+        supabase
+          .from("pagos")
+          .select("factura_id, fecha_pago")
+          .eq("empresa_id", auth.empresa_id)
+          .in("factura_id", tanda)
+      );
 
       if (!pagosErr && Array.isArray(pagosRows)) {
         for (const p of pagosRows as { factura_id?: string; fecha_pago?: string }[]) {

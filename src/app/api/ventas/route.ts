@@ -3,6 +3,7 @@ import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import type { Venta, LineaVenta, TipoIvaVenta, TipoPrecioVenta } from "@/lib/ventas/types";
+import { inPorTandas } from "@/lib/supabase/in-por-tandas";
 
 interface VentaRow {
   id: string;
@@ -96,21 +97,25 @@ export async function GET(request: NextRequest) {
     const numeroFacturaByIdMap = new Map<string, string>();
     const estadoSifenByFacturaMap = new Map<string, string>();
     if (facturaIds.length > 0) {
-      const facQ = await ctx.supabase
-        .from("facturas")
-        .select("id, numero_factura")
-        .eq("empresa_id", empresaId)
-        .in("id", facturaIds);
+      const facQ = await inPorTandas(facturaIds, (tanda) =>
+        ctx.supabase
+          .from("facturas")
+          .select("id, numero_factura")
+          .eq("empresa_id", empresaId)
+          .in("id", tanda)
+      );
       if (!facQ.error) {
         for (const row of (facQ.data ?? []) as Array<{ id: string; numero_factura?: string | null }>) {
           if (row.numero_factura) numeroFacturaByIdMap.set(row.id, row.numero_factura);
         }
       }
-      const feQ = await ctx.supabase
-        .from("factura_electronica")
-        .select("factura_id, estado_sifen")
-        .eq("empresa_id", empresaId)
-        .in("factura_id", facturaIds);
+      const feQ = await inPorTandas(facturaIds, (tanda) =>
+        ctx.supabase
+          .from("factura_electronica")
+          .select("factura_id, estado_sifen")
+          .eq("empresa_id", empresaId)
+          .in("factura_id", tanda)
+      );
       if (!feQ.error) {
         for (const row of (feQ.data ?? []) as Array<{ factura_id: string; estado_sifen?: string | null }>) {
           if (row.estado_sifen) estadoSifenByFacturaMap.set(row.factura_id, row.estado_sifen);
