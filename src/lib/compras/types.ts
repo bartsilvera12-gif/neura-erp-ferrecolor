@@ -55,3 +55,69 @@ export interface Compra {
   pagada_at?: string | null;
   pago_caja_movimiento_id?: string | null;
 }
+
+// ── Nota de crédito de COMPRA (recibida de proveedor) ────────────────────────
+
+export type EstadoNotaCreditoCompra = "borrador" | "confirmada" | "anulada";
+
+/** Fila de compra elegible para acreditar, con cantidad ya disponible. */
+export interface CompraElegible {
+  compra_id: string;
+  numero_control: string;        // COMP-000001
+  producto_id: string;
+  producto_nombre: string;
+  producto_sku: string;
+  iva_tipo: TipoIva;
+  moneda: Moneda;
+  costo_unitario: number;        // PYG
+  cantidad_comprada: number;
+  cantidad_ya_acreditada: number;
+  cantidad_disponible: number;   // comprada - ya_acreditada (en NC no anuladas)
+  fecha: string;
+}
+
+export interface NotaCreditoCompraItem {
+  id: string;
+  compra_id: string;
+  producto_id: string;
+  producto_nombre: string;
+  producto_sku: string;
+  cantidad: number;
+  costo_unitario: number;        // PYG
+  iva_tipo: TipoIva;
+  subtotal: number;
+  monto_iva: number;
+  total: number;
+  movimiento_id?: string | null;
+}
+
+export interface NotaCreditoCompra {
+  id: string;
+  numero_control: string;        // NCC-000001
+  proveedor_id: string;
+  proveedor_nombre: string;
+  nro_comprobante?: string | null;  // N° de la NC del proveedor
+  nro_timbrado?: string | null;
+  motivo?: string | null;
+  moneda: Moneda;
+  tipo_cambio: number;
+  subtotal: number;
+  monto_iva: number;
+  total: number;
+  estado: EstadoNotaCreditoCompra;
+  fecha: string;
+  confirmada_at?: string | null;
+  items: NotaCreditoCompraItem[];
+}
+
+/** Payload de creación (borrador) desde el cliente. */
+export interface NuevaNotaCreditoCompraInput {
+  proveedor_id: string;
+  nro_comprobante?: string;
+  nro_timbrado?: string;
+  motivo?: string;
+  items: {
+    compra_id: string;
+    cantidad: number;
+  }[];
+}

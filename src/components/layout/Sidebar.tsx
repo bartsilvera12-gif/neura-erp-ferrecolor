@@ -145,6 +145,7 @@ const MENU_STRUCTURE: MenuItem[] = [
     icon: Package,
     children: [
       { label: "Órdenes", href: "/compras" },
+      { label: "Notas de crédito", href: "/compras/notas-credito" },
       { label: "Proveedores", href: "/proveedores" },
     ],
   },
