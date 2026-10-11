@@ -64,6 +64,14 @@ export interface Rg90Totales {
   total: number;
 }
 
+/** Totales netos (Facturas − Notas de crédito) por bucket de IVA. */
+export interface Rg90Neto {
+  gravado10: number;
+  gravado5: number;
+  exento: number;
+  total: number;
+}
+
 export interface Rg90Reporte {
   mes: string; // YYYY-MM
   /** RUC del emisor (con DV, tal como está en la config). */
@@ -71,7 +79,14 @@ export interface Rg90Reporte {
   /** Modo de facturación de la empresa: sifen | autoimpresor | sin_factura_fiscal. */
   modoFacturacion: string;
   rows: Rg90VentaRow[];
+  /** Totales brutos sumando todos los comprobantes (NC como positivas). */
   totales: Rg90Totales;
+  /** Totales solo de facturas (tipo 109). */
+  totalesFacturas: Rg90Totales;
+  /** Totales solo de notas de crédito (tipo 110). */
+  totalesNotasCredito: Rg90Totales;
+  /** Totales NETOS del período: Facturas − Notas de crédito (para resumen/Excel). */
+  neto: Rg90Neto;
   /** Totales solo de comprobantes impresos (lo que iría al TXT Marangatu por defecto). */
   totalesImpresos: Rg90Totales;
   /** Comprobantes en moneda extranjera (excluidos del TXT), para avisar en UI. */

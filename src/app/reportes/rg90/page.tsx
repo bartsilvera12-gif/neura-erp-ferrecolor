@@ -60,12 +60,16 @@ export default function Rg90ReportePage() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-            <StatCard compact label="Total del período" value={formatGs(data.totales.total)} accent />
-            <StatCard compact label="Comprobantes" value={String(data.totales.comprobantes)} hint={`${data.totales.facturas} fact. / ${data.totales.notasCredito} NC`} />
-            <StatCard compact label="Gravado 10%" value={formatGs(data.totales.gravado10)} hint="IVA incluido" />
-            <StatCard compact label="Gravado 5%" value={formatGs(data.totales.gravado5)} hint="IVA incluido" />
-            <StatCard compact label="Exentas" value={formatGs(data.totales.exento)} />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <StatCard compact label="Total facturas" value={formatGs(data.totalesFacturas.total)} hint={`${data.totalesFacturas.comprobantes} comprobante(s)`} />
+            <StatCard compact label="Notas de crédito (−)" value={formatGs(data.totalesNotasCredito.total)} hint={`${data.totalesNotasCredito.comprobantes} comprobante(s)`} />
+            <StatCard compact label="Total neto (Fact. − NC)" value={formatGs(data.neto.total)} accent />
+          </div>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <StatCard compact label="Comprobantes" value={String(data.totales.comprobantes)} hint={`${data.totalesFacturas.comprobantes} fact. / ${data.totalesNotasCredito.comprobantes} NC`} />
+            <StatCard compact label="Gravado 10% neto" value={formatGs(data.neto.gravado10)} hint="IVA incluido" />
+            <StatCard compact label="Gravado 5% neto" value={formatGs(data.neto.gravado5)} hint="IVA incluido" />
+            <StatCard compact label="Exentas neto" value={formatGs(data.neto.exento)} />
           </div>
 
           {/* Aviso: el TXT de Marangatu excluye electrónicos */}
@@ -143,12 +147,30 @@ export default function Rg90ReportePage() {
                     ))}
                   </tbody>
                   <tfoot>
-                    <tr className="border-t-2 border-slate-200 font-semibold text-slate-800">
-                      <td className="py-3 pr-4" colSpan={5}>Totales</td>
-                      <td className="py-3 pr-4 text-right tabular-nums">{formatGs(data.totales.gravado10)}</td>
-                      <td className="py-3 pr-4 text-right tabular-nums">{formatGs(data.totales.gravado5)}</td>
-                      <td className="py-3 pr-4 text-right tabular-nums">{formatGs(data.totales.exento)}</td>
-                      <td className="py-3 pr-4 text-right tabular-nums">{formatGs(data.totales.total)}</td>
+                    <tr className="border-t-2 border-slate-200 text-slate-600">
+                      <td className="py-2 pr-4" colSpan={5}>Subtotal facturas ({data.totalesFacturas.comprobantes})</td>
+                      <td className="py-2 pr-4 text-right tabular-nums">{formatGs(data.totalesFacturas.gravado10)}</td>
+                      <td className="py-2 pr-4 text-right tabular-nums">{formatGs(data.totalesFacturas.gravado5)}</td>
+                      <td className="py-2 pr-4 text-right tabular-nums">{formatGs(data.totalesFacturas.exento)}</td>
+                      <td className="py-2 pr-4 text-right tabular-nums">{formatGs(data.totalesFacturas.total)}</td>
+                      <td />
+                    </tr>
+                    {data.totalesNotasCredito.comprobantes > 0 && (
+                      <tr className="text-amber-700">
+                        <td className="py-2 pr-4" colSpan={5}>Notas de crédito ({data.totalesNotasCredito.comprobantes}) (−)</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{data.totalesNotasCredito.gravado10 ? `− ${formatGs(data.totalesNotasCredito.gravado10)}` : "—"}</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{data.totalesNotasCredito.gravado5 ? `− ${formatGs(data.totalesNotasCredito.gravado5)}` : "—"}</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{data.totalesNotasCredito.exento ? `− ${formatGs(data.totalesNotasCredito.exento)}` : "—"}</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">{`− ${formatGs(data.totalesNotasCredito.total)}`}</td>
+                        <td />
+                      </tr>
+                    )}
+                    <tr className="border-t border-slate-200 font-semibold text-slate-800">
+                      <td className="py-3 pr-4" colSpan={5}>Total neto (Facturas − NC)</td>
+                      <td className="py-3 pr-4 text-right tabular-nums">{formatGs(data.neto.gravado10)}</td>
+                      <td className="py-3 pr-4 text-right tabular-nums">{formatGs(data.neto.gravado5)}</td>
+                      <td className="py-3 pr-4 text-right tabular-nums">{formatGs(data.neto.exento)}</td>
+                      <td className="py-3 pr-4 text-right tabular-nums">{formatGs(data.neto.total)}</td>
                       <td />
                     </tr>
                   </tfoot>

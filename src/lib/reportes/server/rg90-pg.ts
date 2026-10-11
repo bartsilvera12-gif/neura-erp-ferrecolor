@@ -305,6 +305,15 @@ export async function getReporteRG90(
   const vacio = (): Rg90Totales => ({ comprobantes: 0, facturas: 0, notasCredito: 0, gravado10: 0, gravado5: 0, exento: 0, total: 0 });
 
   const totales = rows.reduce(acumular, vacio());
+  const totalesFacturas = rows.filter((r) => r.tipo === "factura").reduce(acumular, vacio());
+  const totalesNotasCredito = rows.filter((r) => r.tipo === "nota_credito").reduce(acumular, vacio());
+  // Neto del período: Facturas − Notas de crédito (las NC restan).
+  const neto = {
+    gravado10: totalesFacturas.gravado10 - totalesNotasCredito.gravado10,
+    gravado5: totalesFacturas.gravado5 - totalesNotasCredito.gravado5,
+    exento: totalesFacturas.exento - totalesNotasCredito.exento,
+    total: totalesFacturas.total - totalesNotasCredito.total,
+  };
   const impresos = rows.filter((r) => !r.electronico && r.moneda === "GS");
   const totalesImpresos = impresos.reduce(acumular, vacio());
   const excluidosMonedaExtranjera = rows.filter((r) => r.moneda !== "GS").length;
@@ -315,6 +324,9 @@ export async function getReporteRG90(
     modoFacturacion: cfg.modo,
     rows,
     totales,
+    totalesFacturas,
+    totalesNotasCredito,
+    neto,
     totalesImpresos,
     excluidosMonedaExtranjera,
   };
