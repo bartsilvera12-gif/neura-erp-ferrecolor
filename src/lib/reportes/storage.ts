@@ -1,4 +1,5 @@
 import type { EstadoCuentaReporte, ProveedoresReporte, ComprasReporte, VentasReporte, ConciliacionReporte, ComprasPanel, CreditosReporte, ExtractoCliente } from "./types";
+import type { Rg90Reporte } from "./rg90/types";
 import type { CajasReporte, CajaDetalle } from "@/lib/caja/types";
 import type { RangoABC } from "@/lib/reportes/abc";
 import type { EstadoStock } from "@/lib/reportes/proyeccion";
@@ -88,6 +89,8 @@ export const getVentasReporte = (mes: string) =>
   getReporte<VentasReporte>(`/api/reportes/ventas?mes=${mq(mes)}`);
 export const getConciliacionReporte = (mes: string) =>
   getReporte<ConciliacionReporte>(`/api/reportes/conciliacion?mes=${mq(mes)}`);
+export const getRg90Reporte = (mes: string) =>
+  getReporte<Rg90Reporte>(`/api/reportes/rg90?mes=${mq(mes)}`);
 export const getCajasReporte = (desde: string, hasta: string) =>
   getReporte<CajasReporte>(`/api/reportes/cajas?desde=${mq(desde)}&hasta=${mq(hasta)}`);
 export const getComprasPanel = (desde: string, hasta: string) =>
