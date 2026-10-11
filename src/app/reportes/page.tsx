@@ -2,7 +2,7 @@
 
 import PageHeader from "@/components/ui/PageHeader";
 import { ReportCard } from "@/components/reportes/ReportCard";
-import { Wallet, Truck, Package, ShoppingCart, ArrowLeftRight, Lock, BarChart3, CalendarClock, CreditCard } from "lucide-react";
+import { Wallet, Truck, Package, ShoppingCart, ArrowLeftRight, Lock, BarChart3, CalendarClock, CreditCard, FileText } from "lucide-react";
 
 /** Hub de reportería operativa (Fase 1: Estado de cuenta + Proveedores). */
 export default function ReportesPage() {
@@ -58,6 +58,15 @@ export default function ReportesPage() {
             icon={Truck}
             description="Resumen de proveedores, compras por proveedor y actividad del mes."
             href="/reportes/proveedores"
+          />
+        </li>
+        <li>
+          <ReportCard
+            title="RG90 · Libro de Ventas"
+            subtitle="Registro de comprobantes para la SET"
+            icon={FileText}
+            description="Libro de Ventas del mes (facturas + notas de crédito) con desglose IVA 10%/5%/exentas. Descarga en Excel para el contador y en CSV/TXT con el formato oficial de importación al Marangatu."
+            href="/reportes/rg90"
           />
         </li>
         <li>
