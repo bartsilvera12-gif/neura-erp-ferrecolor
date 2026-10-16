@@ -50,6 +50,20 @@ export async function PATCH(
       return NextResponse.json(errorResponse("Fecha de factura inválida (YYYY-MM-DD)."), { status: 400 });
     }
 
+    // "Incluir en RG90" (Sí/No) — opcional. Flag fiscal: NO afecta stock ni costos.
+    // Solo se aplica si la columna existe (migración aplicada); si no, se ignora.
+    const quiereRg90 = typeof body.incluir_rg90 === "boolean" ? (body.incluir_rg90 as boolean) : null;
+    let colRg90 = false;
+    if (quiereRg90 !== null) {
+      const chk = await pool().query(
+        `SELECT 1 FROM information_schema.columns
+          WHERE table_schema=$1 AND table_name='compras' AND column_name='incluir_rg90' LIMIT 1`,
+        [schema]
+      ).catch(() => ({ rowCount: 0 }));
+      colRg90 = (chk.rowCount ?? 0) > 0;
+    }
+    const extraSet = colRg90 ? ", incluir_rg90 = $7" : "";
+
     const t = quoteSchemaTable(schema, "compras");
     const client = await pool().connect();
     try {
@@ -65,19 +79,21 @@ export async function PATCH(
         return NextResponse.json(errorResponse("Compra no encontrada o ya anulada."), { status: 404 });
       }
 
+      const updParams: unknown[] = [empresaId, numeroControl, patch.numero_factura, patch.fecha_factura, patch.nro_timbrado, patch.observacion];
+      if (colRg90) updParams.push(quiereRg90);
       const { rowCount } = await client.query(
         `UPDATE ${t}
             SET numero_factura = $3,
                 fecha_factura = $4::date,
                 nro_timbrado = COALESCE($5, nro_timbrado),
-                observacion = $6,
+                observacion = $6${extraSet},
                 updated_at = now()
           WHERE empresa_id = $1::uuid AND numero_control = $2 AND anulada_at IS NULL`,
-        [empresaId, numeroControl, patch.numero_factura, patch.fecha_factura, patch.nro_timbrado, patch.observacion]
+        updParams
       );
 
       await client.query("COMMIT");
-      return NextResponse.json(successResponse({ ok: true, filas_actualizadas: rowCount ?? 0 }));
+      return NextResponse.json(successResponse({ ok: true, filas_actualizadas: rowCount ?? 0, rg90_aplicado: colRg90, rg90_pendiente_migracion: quiereRg90 !== null && !colRg90 }));
     } catch (err) {
       await client.query("ROLLBACK").catch(() => null);
       throw err;

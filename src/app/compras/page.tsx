@@ -102,7 +102,7 @@ export default function ComprasPage() {
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
   const [anularTarget, setAnularTarget] = useState<{ numero_oc: string; estado: EstadoOrdenCompra } | null>(null);
   const [anularCompraTarget, setAnularCompraTarget] = useState<{ numero_control: string; total: number } | null>(null);
-  const [editarCompraTarget, setEditarCompraTarget] = useState<{ numero_control: string; numero_factura: string; fecha_factura: string; nro_timbrado: string; observacion: string } | null>(null);
+  const [editarCompraTarget, setEditarCompraTarget] = useState<{ numero_control: string; numero_factura: string; fecha_factura: string; nro_timbrado: string; observacion: string; incluir_rg90: boolean } | null>(null);
   const [pagarCompraTarget, setPagarCompraTarget] = useState<{ numero_control: string; total: number; proveedor_nombre: string } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -388,6 +388,7 @@ export default function ComprasPage() {
                                     fecha_factura: primera?.fecha_factura ?? "",
                                     nro_timbrado: primera?.nro_timbrado ?? "",
                                     observacion: primera?.observacion ?? "",
+                                    incluir_rg90: (primera as { incluir_rg90?: boolean } | undefined)?.incluir_rg90 ?? true,
                                   });
                                 }}
                                 className="text-xs font-semibold text-slate-600 hover:underline"
@@ -495,7 +496,7 @@ function EditarCompraModal({
   onClose,
   onDone,
 }: {
-  data: { numero_control: string; numero_factura: string; fecha_factura: string; nro_timbrado: string; observacion: string };
+  data: { numero_control: string; numero_factura: string; fecha_factura: string; nro_timbrado: string; observacion: string; incluir_rg90: boolean };
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -516,6 +517,7 @@ function EditarCompraModal({
           fecha_factura: form.fecha_factura || null,
           nro_timbrado: form.nro_timbrado.trim() || null,
           observacion: form.observacion.trim() || null,
+          incluir_rg90: form.incluir_rg90,
         }),
       });
       const j = await r.json().catch(() => ({}));
@@ -553,6 +555,20 @@ function EditarCompraModal({
           <div>
             <label className="mb-1 block text-xs font-semibold text-slate-600">Observación</label>
             <textarea rows={3} value={form.observacion} onChange={(e) => setForm({ ...form, observacion: e.target.value })} className={input} />
+          </div>
+          <div className="rounded-lg border border-slate-200 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold text-slate-700">Incluir en RG90 (Libro de Compras)</p>
+                <p className="text-[11px] text-slate-400">No afecta stock ni costos. Marcá &quot;No&quot; para dejarla fuera del registro RG90.</p>
+              </div>
+              <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs">
+                <button type="button" onClick={() => setForm({ ...form, incluir_rg90: true })}
+                  className={`rounded-md px-3 py-1.5 font-semibold transition ${form.incluir_rg90 ? "bg-[#4FAEB2] text-white" : "text-slate-500 hover:bg-slate-50"}`}>Sí</button>
+                <button type="button" onClick={() => setForm({ ...form, incluir_rg90: false })}
+                  className={`rounded-md px-3 py-1.5 font-semibold transition ${!form.incluir_rg90 ? "bg-amber-500 text-white" : "text-slate-500 hover:bg-slate-50"}`}>No</button>
+              </div>
+            </div>
           </div>
           {err && <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{err}</p>}
         </div>

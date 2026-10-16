@@ -71,6 +71,15 @@ export default function ReportesPage() {
         </li>
         <li>
           <ReportCard
+            title="RG90 · Libro de Compras"
+            subtitle="Registro de compras para la SET"
+            icon={FileText}
+            description="Libro de Compras del mes (facturas de compra + notas de crédito de proveedor) con desglose IVA 10%/5%/exentas. Excluye anuladas y compras marcadas No RG90. Excel + CSV/TXT oficial para el Marangatu, y reporte aparte de compras No RG90."
+            href="/reportes/rg90-compras"
+          />
+        </li>
+        <li>
+          <ReportCard
             title="Conciliación bancaria"
             subtitle="Cobros por método y entidad"
             icon={ArrowLeftRight}
