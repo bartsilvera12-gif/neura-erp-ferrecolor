@@ -42,7 +42,6 @@ function fmtFecha(iso: unknown): string {
   }
 }
 
-const IVA_LABEL: Record<string, string> = { EXENTA: "Exenta", "5%": "5%", "10%": "10%" };
 
 export async function GET(request: NextRequest, ctxParams: { params: Promise<{ id: string }> }) {
   const { id } = await ctxParams.params;
@@ -96,7 +95,6 @@ export async function GET(request: NextRequest, ctxParams: { params: Promise<{ i
         <td class="c">${cant.toLocaleString("es-PY", { maximumFractionDigits: 3 })}${unidad}</td>
         <td>${esc(it.producto_nombre)}${it.sku ? `<span class="sku"> · ${esc(it.sku)}</span>` : ""}</td>
         <td class="r">${fmtMoneda(it.precio_unitario, moneda)}</td>
-        <td class="c">${esc(IVA_LABEL[String(it.iva_tipo)] ?? it.iva_tipo)}</td>
         <td class="r">${Number(it.descuento) > 0 ? fmtMoneda(it.descuento, moneda) : "—"}</td>
         <td class="r">${fmtMoneda(it.total, moneda)}</td>
       </tr>`;
@@ -198,19 +196,16 @@ export async function GET(request: NextRequest, ctxParams: { params: Promise<{ i
           <th class="c">Cant.</th>
           <th>Descripción</th>
           <th class="r">Precio unit.</th>
-          <th class="c">IVA</th>
           <th class="r">Desc.</th>
           <th class="r">Total</th>
         </tr>
       </thead>
       <tbody>
-        ${filas || `<tr><td colspan="6" class="c">Sin ítems</td></tr>`}
+        ${filas || `<tr><td colspan="5" class="c">Sin ítems</td></tr>`}
       </tbody>
     </table>
 
     <table class="totales">
-      <tr><td>Subtotal (sin IVA)</td><td>${fmtMoneda(p.subtotal, moneda)}</td></tr>
-      <tr><td>IVA</td><td>${fmtMoneda(p.monto_iva, moneda)}</td></tr>
       ${Number(p.descuento_total) > 0 ? `<tr><td>Descuentos</td><td>- ${fmtMoneda(p.descuento_total, moneda)}</td></tr>` : ""}
       <tr class="total-row"><td>TOTAL</td><td>${fmtMoneda(p.total, moneda)}</td></tr>
     </table>
