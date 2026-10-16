@@ -14,6 +14,9 @@
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SupabaseLike = { from: (t: string) => any };
 
+/** Canal comercial de la venta (define cómo comisiona). */
+export type CanalVentaComision = "balcon" | "pauta";
+
 export type VentaConGanancia = {
   id: string;
   numero_control: string | null;
@@ -23,6 +26,8 @@ export type VentaConGanancia = {
   ingresos: number;
   costo: number;
   ganancia: number;
+  /** 'balcon' (comisión por escalas) | 'pauta' (3% de la ganancia). Default 'balcon'. */
+  canal: CanalVentaComision;
 };
 
 export const SIN_VENDEDOR = "Sin vendedor";
@@ -37,13 +42,33 @@ export async function cargarVentasConGanancia(
   desde: string,
   hastaTs: string
 ): Promise<VentaConGanancia[]> {
-  const { data: ventasRaw, error: eV } = await sb
+  // Lectura resiliente a la migración de canal_venta: si la columna todavía no
+  // existe en este schema (migración pendiente en prod), PostgREST falla al
+  // pedirla; reintentamos sin ella y tratamos todas las ventas como 'balcon'.
+  const COLS_BASE = "id, numero_control, total, fecha, estado, usuario_nombre, caja_id";
+  let ventasRaw: unknown[] = [];
+  const conCanal = await sb
     .from("ventas")
-    .select("id, numero_control, total, fecha, estado, usuario_nombre, caja_id")
+    .select(`${COLS_BASE}, canal_venta`)
     .eq("empresa_id", empresaId)
     .gte("fecha", desde)
     .lte("fecha", hastaTs);
-  if (eV) throw new Error(eV.message);
+  if (conCanal.error) {
+    if (/canal_venta/i.test(conCanal.error.message)) {
+      const sinCanal = await sb
+        .from("ventas")
+        .select(COLS_BASE)
+        .eq("empresa_id", empresaId)
+        .gte("fecha", desde)
+        .lte("fecha", hastaTs);
+      if (sinCanal.error) throw new Error(sinCanal.error.message);
+      ventasRaw = sinCanal.data ?? [];
+    } else {
+      throw new Error(conCanal.error.message);
+    }
+  } else {
+    ventasRaw = conCanal.data ?? [];
+  }
 
   type VentaRow = {
     id: string;
@@ -53,6 +78,7 @@ export async function cargarVentasConGanancia(
     estado: string | null;
     usuario_nombre: string | null;
     caja_id: string | null;
+    canal_venta?: string | null;
   };
   const ventas = ((ventasRaw ?? []) as VentaRow[]).filter(
     (v) => v.estado !== "anulada" && v.estado !== "devuelta_total"
@@ -111,6 +137,7 @@ export async function cargarVentasConGanancia(
       ingresos,
       costo,
       ganancia: ingresos - costo,
+      canal: v.canal_venta === "pauta" ? "pauta" : "balcon",
     };
   });
 }
@@ -136,6 +163,44 @@ export function agruparPorVendedor(ventas: VentaConGanancia[]): TotalesVendedor[
     a.ingresos += v.ingresos;
     a.costo += v.costo;
     a.ganancia += v.ganancia;
+  }
+  return [...map.values()];
+}
+
+// ── Agrupación por vendedor SEPARANDO canal (balcón / pauta) ─────────────────
+// La comisión se calcula distinto por canal: balcón usa las escalas por tramo;
+// pauta paga 3% de su ganancia, aparte. Por eso el reporte necesita los
+// subtotales de cada canal además del total del vendedor.
+export type SubtotalCanal = { ventas: number; ingresos: number; costo: number; ganancia: number };
+export type TotalesVendedorCanal = {
+  vendedor: string;
+  total: SubtotalCanal;
+  balcon: SubtotalCanal;
+  pauta: SubtotalCanal;
+};
+
+function subtotalCero(): SubtotalCanal {
+  return { ventas: 0, ingresos: 0, costo: 0, ganancia: 0 };
+}
+
+function acumularEn(dst: SubtotalCanal, v: VentaConGanancia): void {
+  dst.ventas += 1;
+  dst.ingresos += v.ingresos;
+  dst.costo += v.costo;
+  dst.ganancia += v.ganancia;
+}
+
+/** Agrupa por vendedor y separa los subtotales por canal (balcón / pauta). */
+export function agruparPorVendedorConCanal(ventas: VentaConGanancia[]): TotalesVendedorCanal[] {
+  const map = new Map<string, TotalesVendedorCanal>();
+  for (const v of ventas) {
+    let a = map.get(v.vendedor);
+    if (!a) {
+      a = { vendedor: v.vendedor, total: subtotalCero(), balcon: subtotalCero(), pauta: subtotalCero() };
+      map.set(v.vendedor, a);
+    }
+    acumularEn(a.total, v);
+    acumularEn(v.canal === "pauta" ? a.pauta : a.balcon, v);
   }
   return [...map.values()];
 }

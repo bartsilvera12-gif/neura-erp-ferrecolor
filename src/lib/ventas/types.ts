@@ -2,6 +2,9 @@ export type TipoIvaVenta = "EXENTA" | "5%" | "10%";
 export type TipoVenta   = "CONTADO" | "CREDITO";
 export type MonedaVenta = "GS" | "USD";
 export type MetodoPago  = "efectivo" | "tarjeta" | "transferencia" | "mixto";
+/** Canal comercial de la venta (Ferrecolor).
+ *  'balcon' = comisión normal por escalas; 'pauta' = 3% fijo de la ganancia. */
+export type CanalVenta  = "balcon" | "pauta";
 /** Nivel de precio elegido para la línea de venta.
  *  'costo' se conserva SOLO como histórico (ventas viejas); ya no se ofrece en la UI. */
 export type TipoPrecioVenta = "minorista" | "mayorista" | "distribuidor" | "costo";
@@ -51,6 +54,9 @@ export interface Venta {
   plazo_dias?: number;       // solo si tipo_venta === "CREDITO"
 
   metodo_pago?: MetodoPago;  // En lo de Mari: efectivo/tarjeta/transferencia
+
+  /** Canal de la venta. 'balcon' = comisión por escalas; 'pauta' = 3% de la ganancia. Default 'balcon'. */
+  canal_venta?: CanalVenta;
 
   /** La venta emite nota de remisión (documento no fiscal). */
   genera_nota_remision?: boolean;

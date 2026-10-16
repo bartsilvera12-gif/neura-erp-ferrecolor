@@ -9,7 +9,7 @@ import { saveVenta, type FaltanteStock } from "@/lib/ventas/storage";
 import { getProductos } from "@/lib/inventario/storage";
 import CrearClienteModal, { type ClienteCreado } from "@/components/clientes/CrearClienteModal";
 import { generarYAbrirRecibo } from "@/lib/recibos/client";
-import type { TipoIvaVenta, TipoVenta, MonedaVenta, LineaVenta, MetodoPago, TipoPrecioVenta } from "@/lib/ventas/types";
+import type { TipoIvaVenta, TipoVenta, MonedaVenta, LineaVenta, MetodoPago, TipoPrecioVenta, CanalVenta } from "@/lib/ventas/types";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { productoMatchesQuery } from "@/lib/productos/token-search";
 import type { Producto, MetodoValuacion } from "@/lib/inventario/types";
@@ -162,6 +162,10 @@ export default function NuevaVentaPage() {
   // Contado / Crédito (campos ya existentes en `ventas`: tipo_venta + plazo_dias).
   const [tipoVenta, setTipoVenta] = useState<TipoVenta>("CONTADO");
   const [plazoDias, setPlazoDias] = useState("");
+
+  // Canal de venta (Ferrecolor): Balcón (comisión normal por escalas) vs Pauta
+  // publicitaria (3% de la ganancia). Se guarda en ventas.canal_venta.
+  const [canalVenta, setCanalVenta] = useState<CanalVenta>("balcon");
 
   // Tipo de documento a emitir. Solo relevante si la empresa está en modo 'sifen':
   //  - "factura": activa el puente venta→factura. Al confirmar, redirige a
@@ -922,6 +926,7 @@ export default function NuevaVentaPage() {
           tipo_venta:   tipoVenta,
           plazo_dias:   tipoVenta === "CREDITO" ? plazoDiasNum : undefined,
           metodo_pago:  pagoMixto ? "efectivo" : metodoPago, // el backend lo marca 'mixto' si aplica
+          canal_venta:  canalVenta,
           cliente_id:   clienteIdFinal || null,
           genera_nota_remision: !!clienteIdFinal && generaNotaRemision,
           // Puente venta→factura: solo cuando la empresa está en modo 'sifen' y el
@@ -1191,6 +1196,25 @@ export default function NuevaVentaPage() {
                   <p className="mt-1 text-[11px] text-slate-500">Al confirmar se genera una cuenta por cobrar por el total.</p>
                 </div>
               )}
+            </div>
+
+            {/* Canal de venta: define cómo comisiona esta venta.
+                Balcón = comisión normal (escalas). Pauta = 3% de la ganancia. */}
+            <div>
+              <label className={labelClass}>Canal de venta</label>
+              <SegmentedControl<CanalVenta>
+                value={canalVenta}
+                options={[
+                  { value: "balcon", label: "Balcón" },
+                  { value: "pauta", label: "Pauta publicitaria" },
+                ]}
+                onChange={(v) => setCanalVenta(v)}
+              />
+              <p className="mt-1 text-[11px] text-slate-500">
+                {canalVenta === "pauta"
+                  ? "Pauta publicitaria: la comisión es 3% de la ganancia de esta venta."
+                  : "Balcón: comisión normal según las escalas por lo vendido en el mes."}
+              </p>
             </div>
 
             {/* Documento a emitir (solo cuando la empresa está en modo SIFEN):

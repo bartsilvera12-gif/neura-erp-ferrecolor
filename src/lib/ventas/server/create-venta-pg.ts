@@ -93,6 +93,15 @@ export interface CreateVentaPgParams {
   usuarioId?: string | null;
   usuarioNombre?: string | null;
   /**
+   * Canal comercial de la venta (Ferrecolor). Define cómo comisiona:
+   *  - 'balcon' (default): comisión normal por escalas (tramo por lo vendido, % sobre la ganancia).
+   *  - 'pauta' : 3% fijo de la ganancia, al margen de las escalas.
+   * Se persiste en ventas.canal_venta. Si la columna todavía no existe en el
+   * schema (migración pendiente), el insert reintenta sin ella y la venta se
+   * registra igual (queda implícitamente como balcón).
+   */
+  canalVenta?: "balcon" | "pauta";
+  /**
    * Si true, activa el puente Venta → Factura ERP (SIFEN legal): crea una fila
    * `facturas` FAC-XXXXXX, sus `factura_items` y linkea `ventas.factura_id`.
    * El detalle /facturas/[id] usa después el panel electrónico para firmar/enviar.
@@ -543,31 +552,42 @@ export async function createVentaTransaccionalPg(
   }
 
   // 5) Insertar venta
-  const insVenta = await sb
+  const ventaPayloadBase: Record<string, unknown> = {
+    empresa_id: params.empresaId,
+    cliente_id: params.clienteId,
+    numero_control: numeroControl,
+    moneda: params.moneda,
+    tipo_cambio: params.tipoCambio,
+    subtotal: calc.subtotal,
+    monto_iva: calc.montoIva,
+    total: calc.total,
+    estado: "completada",
+    tipo_venta: params.tipoVenta,
+    plazo_dias: params.plazoDias,
+    metodo_pago: params.metodoPago,
+    genera_nota_remision: generaNota,
+    nota_remision_numero: notaRemisionNumero,
+    fecha: fechaIso,
+    observaciones: observacionesFinal,
+    caja_id: cajaIdActual,
+    created_by: params.usuarioId ?? null,
+    usuario_nombre: params.usuarioNombre ?? null,
+  };
+  const canalVenta = params.canalVenta === "pauta" ? "pauta" : "balcon";
+  // Insert con canal_venta. Si la columna aún no existe en este schema (migración
+  // pendiente en prod), PostgREST falla con "column ... canal_venta ..."; en ese
+  // caso reintentamos SIN el campo para no bloquear la venta (queda como balcón).
+  let insVenta = await sb
     .from("ventas")
-    .insert({
-      empresa_id: params.empresaId,
-      cliente_id: params.clienteId,
-      numero_control: numeroControl,
-      moneda: params.moneda,
-      tipo_cambio: params.tipoCambio,
-      subtotal: calc.subtotal,
-      monto_iva: calc.montoIva,
-      total: calc.total,
-      estado: "completada",
-      tipo_venta: params.tipoVenta,
-      plazo_dias: params.plazoDias,
-      metodo_pago: params.metodoPago,
-      genera_nota_remision: generaNota,
-      nota_remision_numero: notaRemisionNumero,
-      fecha: fechaIso,
-      observaciones: observacionesFinal,
-      caja_id: cajaIdActual,
-      created_by: params.usuarioId ?? null,
-      usuario_nombre: params.usuarioNombre ?? null,
-    })
+    .insert({ ...ventaPayloadBase, canal_venta: canalVenta })
     .select("id")
     .single();
+  if (insVenta.error && /canal_venta/i.test(insVenta.error.message)) {
+    console.warn(
+      "[create-venta-pg] columna canal_venta ausente; la venta se registra sin canal (balcón implícito). Aplicá la migración ferrecolor_ventas_canal_venta."
+    );
+    insVenta = await sb.from("ventas").insert(ventaPayloadBase).select("id").single();
+  }
   if (insVenta.error) throw new Error(insVenta.error.message);
   const ventaId = String((insVenta.data as { id: string }).id);
 

@@ -15,6 +15,8 @@ import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import EscalasComisionEditor from "@/components/comisiones/EscalasComisionEditor";
 
+type SubCanal = { ventas: number; ingresos: number; costo: number; ganancia: number };
+
 type Fila = {
   vendedor: string;
   ventas: number;
@@ -25,6 +27,10 @@ type Fila = {
   tramo_hasta: number | null;
   porcentaje: number;
   comision: number;
+  comision_balcon: number;
+  comision_pauta: number;
+  balcon: SubCanal;
+  pauta: SubCanal;
 };
 
 type Escala = { desde: number; hasta: number | null; porcentaje: number };
@@ -37,14 +43,24 @@ type DetalleVenta = {
   ingresos: number;
   costo: number;
   ganancia: number;
+  canal?: "balcon" | "pauta";
 };
 
 type Payload = {
   periodo: { desde: string; hasta: string };
   escalas: Escala[];
   escalas_origen?: "configurada" | "default";
+  pauta_porcentaje?: number;
   por_vendedor: Fila[];
-  totales: { ventas: number; ingresos: number; costo: number; ganancia: number; comision: number };
+  totales: {
+    ventas: number;
+    ingresos: number;
+    costo: number;
+    ganancia: number;
+    comision: number;
+    comision_balcon?: number;
+    comision_pauta?: number;
+  };
 };
 
 function fmtGs(v: number) {
@@ -151,6 +167,12 @@ export default function ComisionesPage() {
               {explicacion}
             </div>
           )}
+          <p className="mt-2 text-xs text-slate-500">
+            <span className="mr-1 inline-flex items-center rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-semibold text-fuchsia-700">
+              Pauta publicitaria
+            </span>
+            Las ventas por pauta comisionan {data?.pauta_porcentaje ?? 3}% de la ganancia (fijo), aparte de las escalas.
+          </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <div>
@@ -239,6 +261,7 @@ export default function ComisionesPage() {
                                   <tr className="text-left text-[10px] font-bold uppercase tracking-wide text-slate-400">
                                     <th className="py-1.5 pr-3">Venta</th>
                                     <th className="py-1.5 pr-3">Fecha</th>
+                                    <th className="py-1.5 pr-3">Canal</th>
                                     <th className="py-1.5 pr-3 text-right">Vendido</th>
                                     <th className="py-1.5 pr-3 text-right">Costo</th>
                                     <th className="py-1.5 text-right">Ganancia</th>
@@ -249,6 +272,13 @@ export default function ComisionesPage() {
                                     <tr key={d.id}>
                                       <td className="py-1.5 pr-3 font-medium text-slate-700">{d.numero_control ?? "—"}</td>
                                       <td className="py-1.5 pr-3 text-slate-500">{d.fecha.slice(0, 10)}</td>
+                                      <td className="py-1.5 pr-3">
+                                        {d.canal === "pauta" ? (
+                                          <span className="inline-flex items-center rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-semibold text-fuchsia-700">Pauta</span>
+                                        ) : (
+                                          <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Balcón</span>
+                                        )}
+                                      </td>
                                       <td className="py-1.5 pr-3 text-right tabular-nums text-slate-700">{fmtGs(d.ingresos)}</td>
                                       <td className="py-1.5 pr-3 text-right tabular-nums text-slate-500">{fmtGs(d.costo)}</td>
                                       <td className="py-1.5 text-right tabular-nums font-semibold text-emerald-700">{fmtGs(d.ganancia)}</td>
@@ -257,16 +287,26 @@ export default function ComisionesPage() {
                                 </tbody>
                                 <tfoot>
                                   <tr className="border-t border-slate-300 font-bold text-slate-800">
-                                    <td className="py-1.5 pr-3" colSpan={2}>{detalle.length} ventas</td>
+                                    <td className="py-1.5 pr-3" colSpan={3}>{detalle.length} ventas</td>
                                     <td className="py-1.5 pr-3 text-right tabular-nums">{fmtGs(detalle.reduce((s, d) => s + d.ingresos, 0))}</td>
                                     <td className="py-1.5 pr-3 text-right tabular-nums">{fmtGs(detalle.reduce((s, d) => s + d.costo, 0))}</td>
                                     <td className="py-1.5 text-right tabular-nums text-emerald-700">{fmtGs(detalle.reduce((s, d) => s + d.ganancia, 0))}</td>
                                   </tr>
                                 </tfoot>
                               </table>
-                              <p className="mt-2 text-[11px] text-slate-500">
-                                Ganancia {fmtGs(f.ganancia)} × {f.porcentaje}% = <strong>{fmtGs(f.comision)}</strong>
-                              </p>
+                              <div className="mt-2 space-y-0.5 text-[11px] text-slate-500">
+                                <p>
+                                  🏪 Balcón: ganancia {fmtGs(f.balcon.ganancia)} × {f.porcentaje}% = <strong>{fmtGs(f.comision_balcon)}</strong>
+                                </p>
+                                {f.pauta.ventas > 0 && (
+                                  <p>
+                                    📣 Pauta: ganancia {fmtGs(f.pauta.ganancia)} × {data?.pauta_porcentaje ?? 3}% = <strong>{fmtGs(f.comision_pauta)}</strong>
+                                  </p>
+                                )}
+                                <p className="text-slate-700">
+                                  Comisión total = <strong>{fmtGs(f.comision)}</strong>
+                                </p>
+                              </div>
                             </div>
                           )}
                         </td>

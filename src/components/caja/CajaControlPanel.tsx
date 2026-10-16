@@ -1109,7 +1109,12 @@ function ResumenComisionCierre({ cajaId, aRendir }: { cajaId: string; aRendir: n
   type MiCierre = {
     vendedor: string;
     turno: { ventas: number; vendido: number; ganancia: number };
-    mes: { ventas: number; vendido: number; ganancia: number; porcentaje: number; comision: number };
+    mes: {
+      ventas: number; vendido: number; ganancia: number; porcentaje: number; comision: number;
+      comision_balcon?: number;
+      comision_pauta?: number;
+      pauta?: { ventas: number; vendido: number; ganancia: number; porcentaje: number };
+    };
     proximo_tramo: { desde: number; porcentaje: number; falta: number } | null;
   };
   const [data, setData] = useState<MiCierre | null>(null);
@@ -1140,7 +1145,23 @@ function ResumenComisionCierre({ cajaId, aRendir }: { cajaId: string; aRendir: n
       <Row label={`Vendido en este turno (${data.turno.ventas})`} value={fmtGs(data.turno.vendido)} />
       <Row label={`Vendido en el mes (${data.mes.ventas})`} value={fmtGs(data.mes.vendido)} />
       <Row label="Ganancia del mes" value={fmtGs(data.mes.ganancia)} subtle />
-      <Row label={`Comisión generada (${data.mes.porcentaje}% de la ganancia)`} value={fmtGs(data.mes.comision)} bold />
+      {data.mes.pauta && data.mes.pauta.ventas > 0 ? (
+        <>
+          <Row
+            label={`Comisión balcón (${data.mes.porcentaje}% de la ganancia)`}
+            value={fmtGs(data.mes.comision_balcon ?? 0)}
+            subtle
+          />
+          <Row
+            label={`Comisión pauta (${data.mes.pauta.porcentaje}% de la ganancia)`}
+            value={fmtGs(data.mes.comision_pauta ?? 0)}
+            subtle
+          />
+          <Row label="Comisión generada (total)" value={fmtGs(data.mes.comision)} bold />
+        </>
+      ) : (
+        <Row label={`Comisión generada (${data.mes.porcentaje}% de la ganancia)`} value={fmtGs(data.mes.comision)} bold />
+      )}
       {data.proximo_tramo && (
         <p className="pt-1 text-[11px] text-slate-500">
           Te faltan {fmtGs(data.proximo_tramo.falta)} de venta para pasar al {data.proximo_tramo.porcentaje}%.

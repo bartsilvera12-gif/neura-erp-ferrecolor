@@ -118,6 +118,7 @@ export async function saveVenta(
         tipo_venta: datos.tipo_venta,
         plazo_dias: datos.plazo_dias,
         metodo_pago: datos.metodo_pago,
+        canal_venta: datos.canal_venta ?? "balcon",
         cliente_id: datos.cliente_id ?? null,
         observaciones: null,
         pedido_cocina: pedidoCocina ?? null,

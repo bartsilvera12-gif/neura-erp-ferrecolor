@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
-import { calcularComision, getEscalasComision } from "@/lib/comisiones/escalas-ferrecolor";
+import {
+  calcularComision,
+  calcularComisionPauta,
+  getEscalasComision,
+  PAUTA_PORCENTAJE_GANANCIA,
+} from "@/lib/comisiones/escalas-ferrecolor";
 import { cargarVentasConGanancia, SIN_VENDEDOR } from "@/lib/comisiones/ventas-ganancia";
 
 /**
@@ -61,11 +66,21 @@ export async function GET(request: NextRequest) {
     const mes = acumular(mias);
     const turno = acumular(cajaId ? mias.filter((v) => v.caja_id === cajaId) : []);
 
-    const { tramo, comision } = calcularComision(escalas, mes.ingresos, mes.ganancia);
+    // Comisión por canal: balcón por escalas (según lo vendido en balcón), pauta
+    // 3% de su ganancia (aparte). La comisión del mes es la suma de ambas.
+    const mesBalcon = acumular(mias.filter((v) => v.canal !== "pauta"));
+    const mesPauta = acumular(mias.filter((v) => v.canal === "pauta"));
+    const { tramo, comision: comisionBalcon } = calcularComision(
+      escalas,
+      mesBalcon.ingresos,
+      mesBalcon.ganancia
+    );
+    const comisionPauta = calcularComisionPauta(mesPauta.ganancia);
+    const comision = comisionBalcon + comisionPauta;
 
-    // Cuanto le falta vender para saltar al tramo siguiente: evita el reclamo de
-    // "por que me dio 0%".
-    const siguiente = escalas.find((e) => e.desde > mes.ingresos) ?? null;
+    // Cuanto le falta vender (en balcón) para saltar al tramo siguiente: evita el
+    // reclamo de "por que me dio 0%". La pauta no cuenta para la escala.
+    const siguiente = escalas.find((e) => e.desde > mesBalcon.ingresos) ?? null;
 
     return NextResponse.json(successResponse({
       vendedor,
@@ -85,12 +100,20 @@ export async function GET(request: NextRequest) {
         tramo_desde: tramo.desde,
         tramo_hasta: tramo.hasta,
         comision,
+        comision_balcon: comisionBalcon,
+        comision_pauta: comisionPauta,
+        pauta: {
+          ventas: mesPauta.ventas,
+          vendido: Math.round(mesPauta.ingresos),
+          ganancia: Math.round(mesPauta.ganancia),
+          porcentaje: PAUTA_PORCENTAJE_GANANCIA,
+        },
       },
       proximo_tramo: siguiente
         ? {
             desde: siguiente.desde,
             porcentaje: siguiente.porcentaje,
-            falta: Math.round(siguiente.desde - mes.ingresos),
+            falta: Math.round(siguiente.desde - mesBalcon.ingresos),
           }
         : null,
       escalas,

@@ -2,8 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
-import { calcularComision, getEscalasComision } from "@/lib/comisiones/escalas-ferrecolor";
-import { agruparPorVendedor, cargarVentasConGanancia } from "@/lib/comisiones/ventas-ganancia";
+import {
+  calcularComision,
+  calcularComisionPauta,
+  getEscalasComision,
+  PAUTA_PORCENTAJE_GANANCIA,
+} from "@/lib/comisiones/escalas-ferrecolor";
+import { agruparPorVendedorConCanal, cargarVentasConGanancia } from "@/lib/comisiones/ventas-ganancia";
 
 /**
  * GET /api/comisiones/ferrecolor?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
@@ -53,22 +58,41 @@ export async function GET(request: NextRequest) {
             ingresos: Math.round(v.ingresos),
             costo: Math.round(v.costo),
             ganancia: Math.round(v.ganancia),
+            canal: v.canal,
           }))
       : null;
 
-    const filas = agruparPorVendedor(ventas)
+    // Comisión por canal: balcón usa las escalas por tramo (según lo vendido en
+    // balcón); pauta paga 3% de su ganancia, aparte. La comisión del vendedor es
+    // la suma de ambas. El tramo/porcentaje de la fila refleja el canal balcón.
+    const filas = agruparPorVendedorConCanal(ventas)
       .map((a) => {
-        const { tramo, comision } = calcularComision(escalas, a.ingresos, a.ganancia);
+        const { tramo, comision: comisionBalcon } = calcularComision(
+          escalas,
+          a.balcon.ingresos,
+          a.balcon.ganancia
+        );
+        const comisionPauta = calcularComisionPauta(a.pauta.ganancia);
+        const round = (s: typeof a.balcon) => ({
+          ventas: s.ventas,
+          ingresos: Math.round(s.ingresos),
+          costo: Math.round(s.costo),
+          ganancia: Math.round(s.ganancia),
+        });
         return {
           vendedor: a.vendedor,
-          ventas: a.ventas,
-          ingresos: Math.round(a.ingresos),
-          costo: Math.round(a.costo),
-          ganancia: Math.round(a.ganancia),
+          ventas: a.total.ventas,
+          ingresos: Math.round(a.total.ingresos),
+          costo: Math.round(a.total.costo),
+          ganancia: Math.round(a.total.ganancia),
           tramo_desde: tramo.desde,
           tramo_hasta: tramo.hasta,
           porcentaje: tramo.porcentaje,
-          comision,
+          comision: comisionBalcon + comisionPauta,
+          comision_balcon: comisionBalcon,
+          comision_pauta: comisionPauta,
+          balcon: round(a.balcon),
+          pauta: round(a.pauta),
         };
       })
       .sort((a, b) => b.ganancia - a.ganancia);
@@ -77,6 +101,7 @@ export async function GET(request: NextRequest) {
       periodo: { desde, hasta },
       escalas,
       escalas_origen: escalasOrigen,
+      pauta_porcentaje: PAUTA_PORCENTAJE_GANANCIA,
       por_vendedor: filas,
       detalle_vendedor: vendedorDetalle || null,
       detalle,
@@ -86,6 +111,8 @@ export async function GET(request: NextRequest) {
         costo: filas.reduce((s, f) => s + f.costo, 0),
         ganancia: filas.reduce((s, f) => s + f.ganancia, 0),
         comision: filas.reduce((s, f) => s + f.comision, 0),
+        comision_balcon: filas.reduce((s, f) => s + f.comision_balcon, 0),
+        comision_pauta: filas.reduce((s, f) => s + f.comision_pauta, 0),
       },
     }));
   } catch (err) {

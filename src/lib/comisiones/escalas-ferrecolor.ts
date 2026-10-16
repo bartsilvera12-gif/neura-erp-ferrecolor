@@ -104,6 +104,18 @@ export function tramoParaVentas(escalas: EscalaComision[], vendido: number): Esc
   return lista[lista.length - 1];
 }
 
+/**
+ * Canal 'pauta' (Pauta publicitaria): comisión FIJA del 3% sobre la ganancia,
+ * al margen de las escalas por tramo que usa el canal 'balcón'. Regla del cliente:
+ * una venta gestionada por pauta publicitaria comisiona menos (3% de la ganancia).
+ */
+export const PAUTA_PORCENTAJE_GANANCIA = 3;
+
+/** Comisión de las ventas por canal pauta = 3% de su ganancia. */
+export function calcularComisionPauta(ganancia: number): number {
+  return Math.max(0, Math.round((ganancia * PAUTA_PORCENTAJE_GANANCIA) / 100));
+}
+
 /** Comision = porcentaje del tramo (definido por lo vendido) sobre la ganancia. */
 export function calcularComision(
   escalas: EscalaComision[],

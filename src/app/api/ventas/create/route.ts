@@ -134,6 +134,8 @@ export async function POST(request: NextRequest) {
         : null;
     const metodoPago: "efectivo" | "tarjeta" | "transferencia" =
       o.metodo_pago === "tarjeta" || o.metodo_pago === "transferencia" ? o.metodo_pago : "efectivo";
+    // Canal comercial: balcón (comisión por escalas) | pauta (3% de la ganancia). Default balcón.
+    const canalVenta: "balcon" | "pauta" = o.canal_venta === "pauta" ? "pauta" : "balcon";
     const clienteRaw = o.cliente_id;
     const clienteId =
       clienteRaw === null || clienteRaw === undefined || clienteRaw === ""
@@ -270,6 +272,7 @@ export async function POST(request: NextRequest) {
         cajaId: o.caja_id != null && String(o.caja_id).trim() !== "" ? String(o.caja_id) : null,
         usuarioId: auth.usuarioCatalogId ?? null,
         usuarioNombre: auth.nombre ?? auth.user?.email ?? null,
+        canalVenta,
         emitirFactura,
       });
 
