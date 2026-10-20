@@ -76,6 +76,8 @@ export async function POST(request: NextRequest) {
       usuario_nombre: ctx.auth.user?.email ?? null,
       descuenta_caja: body.descuenta_caja === true,
       fecha: typeof body.fecha === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.fecha) ? body.fecha : null,
+      // RG90 (Libro de Compras): default true; solo false si la UI lo manda explícito.
+      incluir_rg90: body.incluir_rg90 !== false,
     };
 
     const items: CompraItemInput[] = [];

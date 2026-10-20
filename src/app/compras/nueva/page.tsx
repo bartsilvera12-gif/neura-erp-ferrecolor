@@ -103,6 +103,8 @@ export default function NuevaCompraPage() {
     moneda: "PYG" as Moneda,
     tipo_cambio: "",
     descuenta_caja: false,
+    // RG90 (Libro de Compras): por defecto Sí. No afecta stock ni costos.
+    incluir_rg90: true,
   });
 
   // Líneas de la compra (editables inline)
@@ -281,6 +283,7 @@ export default function NuevaCompraPage() {
           numero_factura: cab.numero_factura,
           fecha_factura: cab.fecha_factura || null,
           fecha: cab.fecha || null,
+          incluir_rg90: cab.incluir_rg90,
           comprobante_storage_path: comprobante?.comprobante_storage_path ?? null,
           comprobante_nombre: comprobante?.comprobante_nombre ?? null,
           comprobante_mime_type: comprobante?.comprobante_mime_type ?? null,
@@ -450,6 +453,16 @@ export default function NuevaCompraPage() {
                 )}
                 {comprobanteError && <p className="mt-1.5 text-xs text-red-600">{comprobanteError}</p>}
                 <p className="mt-1 text-xs text-gray-400">JPG, PNG, WebP o PDF — máx. 10 MB. Se asocia a toda la compra.</p>
+              </div>
+              <div className="sm:col-span-2">
+                <label className={labelClass}>Incluir en RG90 (Libro de Compras)</label>
+                <div className="inline-flex overflow-hidden rounded-lg border border-slate-200 text-sm">
+                  <button type="button" onClick={() => setCab((p) => ({ ...p, incluir_rg90: true }))}
+                    className={`px-4 py-1.5 font-semibold transition ${cab.incluir_rg90 ? "bg-[#4FAEB2] text-white" : "text-slate-500 hover:bg-slate-50"}`}>Sí</button>
+                  <button type="button" onClick={() => setCab((p) => ({ ...p, incluir_rg90: false }))}
+                    className={`px-4 py-1.5 font-semibold transition ${!cab.incluir_rg90 ? "bg-amber-500 text-white" : "text-slate-500 hover:bg-slate-50"}`}>No</button>
+                </div>
+                <p className="mt-1 text-[11px] text-gray-500">No afecta stock ni costos. Marcá &quot;No&quot; para dejar la compra fuera del registro RG90.</p>
               </div>
             </div>
 

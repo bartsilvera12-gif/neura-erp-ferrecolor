@@ -120,6 +120,8 @@ export interface CompraHeaderPayload {
   comprobante_nombre?: string | null;
   comprobante_mime_type?: string | null;
   descuenta_caja?: boolean;
+  /** Incluir la compra en el registro RG90 (Libro de Compras). Default true. */
+  incluir_rg90?: boolean;
 }
 
 export interface UploadComprobanteResult {

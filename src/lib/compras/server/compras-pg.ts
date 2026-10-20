@@ -199,6 +199,8 @@ export interface CompraHeaderInput {
   descuenta_caja?: boolean;
   /** Fecha de la compra (YYYY-MM-DD). Si null/undefined, usa now(). Permite backdate. */
   fecha?: string | null;
+  /** Incluir la compra en el registro RG90 (Libro de Compras). Default true. */
+  incluir_rg90?: boolean;
 }
 
 /** Una línea (producto) de la compra. */
@@ -259,7 +261,7 @@ export async function insertComprasConImpactoTx(
          orden_compra_numero, orden_compra_item_id,
          numero_control, estado, fecha,
          comprobante_url, comprobante_storage_path, comprobante_nombre, comprobante_mime_type,
-         created_by, usuario_nombre
+         created_by, usuario_nombre, incluir_rg90
        ) VALUES (
          $1::uuid, $2::uuid, $3, $4::uuid, $5,
          $6::numeric, $7, $8::numeric, $9::numeric, $10::numeric,
@@ -268,7 +270,7 @@ export async function insertComprasConImpactoTx(
          $23, $24::uuid,
          $25, 'registrada', COALESCE($32::timestamptz, now()),
          $26, $27, $28, $29,
-         $30::uuid, $31
+         $30::uuid, $31, $33::boolean
        )
        RETURNING ${COLS}`,
       [
@@ -285,6 +287,7 @@ export async function insertComprasConImpactoTx(
         header.comprobante_nombre, header.comprobante_mime_type,
         header.created_by, header.usuario_nombre,
         header.fecha ?? null,
+        header.incluir_rg90 !== false,
       ]
     );
     insertedRows.push(compraRows[0]);

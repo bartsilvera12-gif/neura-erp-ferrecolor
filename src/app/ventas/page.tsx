@@ -10,8 +10,8 @@ import PedidosPendientesCaja from "./PedidosPendientesCaja";
 import PedidosConsultaPendientes from "./PedidosConsultaPendientes";
 import CajaControlPanel from "@/components/caja/CajaControlPanel";
 import DevolucionWizard from "@/components/devoluciones/DevolucionWizard";
+import EmitirFacturaModal from "@/components/ventas/EmitirFacturaModal";
 import { productoMatchesQuery } from "@/lib/productos/token-search";
-import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import type { Venta, TipoVenta, TipoIvaVenta } from "@/lib/ventas/types";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -100,7 +100,8 @@ export default function VentasPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [devolucionesOn, setDevolucionesOn] = useState(false);
   const [devolverVentaId, setDevolverVentaId] = useState<string | null>(null);
-  const [emitiendoId, setEmitiendoId] = useState<string | null>(null);
+  // Venta para la que se abre el modal "Emitir factura" (elegir/crear cliente receptor).
+  const [emitirFacturaVenta, setEmitirFacturaVenta] = useState<Venta | null>(null);
   const [pagina, setPagina] = useState(1);
   const POR_PAGINA = 50;
 
@@ -128,38 +129,6 @@ export default function VentasPage() {
       cancelled = true;
     };
   }, [reloadKey]);
-
-  /**
-   * Emisión RETROACTIVA de factura para una venta cerrada como ticket.
-   * Crea el puente venta→factura (idempotente, sin duplicar venta/cobro/stock) y
-   * redirige al panel electrónico /facturas/[id] para firmar/enviar a la SET.
-   */
-  async function handleEmitirFactura(ventaId: string) {
-    if (emitiendoId) return;
-    setEmitiendoId(ventaId);
-    try {
-      const res = await fetchWithSupabaseSession(`/api/ventas/${ventaId}/emitir-factura`, {
-        method: "POST",
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        facturaId?: string; error?: string; sinRuc?: boolean;
-      };
-      if (!res.ok || !data.facturaId) {
-        alert(data.error || "No se pudo generar la factura.");
-        return;
-      }
-      if (data.sinRuc) {
-        alert(
-          "Atención: el cliente no tiene RUC/CI cargado. Cargá los datos fiscales del cliente antes de enviar la factura a la SET."
-        );
-      }
-      window.location.href = `/facturas/${data.facturaId}`;
-    } catch {
-      alert("Error al generar la factura. Reintentá.");
-    } finally {
-      setEmitiendoId(null);
-    }
-  }
 
   const filtradas = todas.filter((v) => {
     // Anuladas ocultas por defecto (toggle "Ver anuladas" las muestra).
@@ -472,12 +441,11 @@ export default function VentasPage() {
                           {!v.factura_id && !isAnulada && (
                             <button
                               type="button"
-                              onClick={() => handleEmitirFactura(v.id)}
-                              disabled={emitiendoId === v.id}
-                              className="inline-flex items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 transition-colors disabled:opacity-60"
-                              title="Emitir factura electrónica de esta venta (ticket → factura, sin duplicar la venta ni el cobro)"
+                              onClick={() => setEmitirFacturaVenta(v)}
+                              className="inline-flex items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 transition-colors"
+                              title="Emitir factura electrónica de esta venta (elegís el cliente; no se modifica la venta ni el cobro)"
                             >
-                              {emitiendoId === v.id ? "Emitiendo…" : "Emitir factura"}
+                              Emitir factura
                             </button>
                           )}
                           {v.tipo_venta === "CREDITO" && !isAnulada && (
@@ -595,6 +563,21 @@ export default function VentasPage() {
           onDone={() => {
             setAnularTarget(null);
             setReloadKey((k) => k + 1);
+          }}
+        />
+      )}
+      {emitirFacturaVenta && (
+        <EmitirFacturaModal
+          venta={{
+            id: emitirFacturaVenta.id,
+            numero_control: emitirFacturaVenta.numero_control,
+            cliente_id: emitirFacturaVenta.cliente_id ?? null,
+            cliente_nombre: emitirFacturaVenta.cliente_nombre ?? null,
+          }}
+          onClose={() => setEmitirFacturaVenta(null)}
+          onEmitida={(facturaId) => {
+            setEmitirFacturaVenta(null);
+            window.location.href = `/facturas/${facturaId}`;
           }}
         />
       )}

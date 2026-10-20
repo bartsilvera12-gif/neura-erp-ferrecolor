@@ -17,10 +17,27 @@ import { obtenerSiguienteNumeroFacturaEmpresa } from "@/lib/facturacion/factura-
  *  - Sólo crea la factura ERP (FAC-XXXXXX) + sus líneas. La emisión SIFEN real
  *    (firma/envío a la SET/KUDE) se hace después desde /facturas/[id].
  *
- * Requiere: empresa en modo 'sifen', venta no anulada, y cliente con razón social.
+ * Receptor de la factura:
+ *  - Body opcional { cliente_id }. Si viene, ESE cliente se usa como receptor de
+ *    la factura (típico: ticket cerrado sin datos fiscales y el comprador vuelve
+ *    después con su RUC). NO se modifica la venta: `ventas.cliente_id` queda igual;
+ *    el cliente elegido se guarda solo en la factura (cliente_id + snapshot).
+ *  - Si no viene, se usa el cliente de la venta (comportamiento anterior).
+ *
+ * Requiere: empresa en modo 'sifen', venta no anulada, y un cliente con razón social.
  */
 export async function POST(request: NextRequest, ctxParams: { params: Promise<{ id: string }> }) {
   const { id } = await ctxParams.params;
+
+  // Cliente receptor elegido al emitir (opcional). No toca la venta.
+  let receptorIdBody: string | null = null;
+  try {
+    const body = (await request.json()) as { cliente_id?: unknown } | null;
+    const raw = body?.cliente_id;
+    receptorIdBody = raw != null && String(raw).trim() !== "" ? String(raw).trim() : null;
+  } catch {
+    receptorIdBody = null;
+  }
 
   const ctx = await getTenantSupabaseFromAuth(request);
   if (!ctx) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
@@ -72,10 +89,12 @@ export async function POST(request: NextRequest, ctxParams: { params: Promise<{ 
     });
   }
 
-  // Receptor: la factura ERP exige cliente con razón social (SIFEN necesita receptor).
-  if (!venta.cliente_id) {
+  // Receptor: el cliente elegido al emitir (body) o, si no vino, el de la venta.
+  // La factura ERP exige cliente con razón social (SIFEN necesita receptor).
+  const receptorId = receptorIdBody ?? venta.cliente_id;
+  if (!receptorId) {
     return NextResponse.json(
-      { error: "La venta no tiene cliente. Asigná un cliente con RUC/CI para poder facturar." },
+      { error: "Elegí un cliente con RUC/CI para la factura (la venta no tiene cliente asignado)." },
       { status: 422 }
     );
   }
@@ -83,7 +102,7 @@ export async function POST(request: NextRequest, ctxParams: { params: Promise<{ 
   const cliQ = await sb
     .from("clientes")
     .select("empresa, nombre, nombre_contacto, nombre_facturacion, ruc")
-    .eq("id", venta.cliente_id)
+    .eq("id", receptorId)
     .eq("empresa_id", empresaId)
     .maybeSingle();
   const c = cliQ.data as Record<string, string | null> | null;
@@ -93,7 +112,7 @@ export async function POST(request: NextRequest, ctxParams: { params: Promise<{ 
   const rucSnap = c ? s(c.ruc) : null;
   if (!razonSocial) {
     return NextResponse.json(
-      { error: "El cliente de la venta no tiene nombre/razón social para facturar." },
+      { error: "El cliente elegido no tiene nombre/razón social para facturar." },
       { status: 422 }
     );
   }
@@ -127,7 +146,7 @@ export async function POST(request: NextRequest, ctxParams: { params: Promise<{ 
 
   const facPayload: Record<string, unknown> = {
     empresa_id: empresaId,
-    cliente_id: venta.cliente_id,
+    cliente_id: receptorId,
     numero_factura: numeroFactura,
     fecha: fechaYmd,
     fecha_vencimiento: fechaYmd,
