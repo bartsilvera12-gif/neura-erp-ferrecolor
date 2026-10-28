@@ -249,6 +249,29 @@ export async function GET(request: NextRequest) {
     };
 
     /**
+     * Trae TODAS las filas paginando con .range(), para no chocar con el tope de
+     * ~1000 filas por respuesta de PostgREST. Sin esto, en empresas con mucho
+     * historial el dashboard recibía las ventas/compras CORTADAS y subcontaba
+     * (p. ej. "Ventas del mes" mostraba ~1/3 de lo real). `buildQ` debe devolver
+     * una query NUEVA en cada llamada (las build* de arriba cumplen).
+     */
+    const fetchAllRows = async (
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      buildQ: () => any
+    ): Promise<{ data: unknown[]; error: { message: string } | null }> => {
+      const PAGE = 1000;
+      const all: unknown[] = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await buildQ().order("id", { ascending: true }).range(from, from + PAGE - 1);
+        if (error) return { data: all, error: error as { message: string } };
+        const rows = (data ?? []) as unknown[];
+        all.push(...rows);
+        if (rows.length < PAGE) break;
+      }
+      return { data: all, error: null };
+    };
+
+    /**
      * ventas_items no tiene columna fecha directa; se filtra por `venta_id` de ventas en rango.
      * Si hay rango: se ejecuta secuencial después de ventas para conocer los IDs válidos.
      * Si no hay rango: se ejecuta en paralelo con el resto (comportamiento previo).
@@ -277,10 +300,10 @@ export async function GET(request: NextRequest) {
       buildFacturasQ(),
       buildPagosQ(),
       buildTipificacionesQ(),
-      supabase.from("productos").select("*").eq("empresa_id", empresaId).eq("activo", true),
-      buildVentasQ(),
+      fetchAllRows(() => supabase.from("productos").select("*").eq("empresa_id", empresaId).eq("activo", true)),
+      fetchAllRows(buildVentasQ),
       ventasItemsParalelo,
-      buildComprasQ(),
+      fetchAllRows(buildComprasQ),
       buildGastosQ(),
       supabase
         .from("suscripciones")
