@@ -62,6 +62,15 @@ export default function ReportesPage() {
         </li>
         <li>
           <ReportCard
+            title="Pagos a proveedores"
+            subtitle="Cuánto salió y por qué facturas"
+            icon={Truck}
+            description="Total pagado a proveedores en el período, con el detalle de cada factura. Incluye pagos parciales y pagos de facturas de meses anteriores, agrupados por fecha de pago."
+            href="/reportes/pagos-proveedores"
+          />
+        </li>
+        <li>
+          <ReportCard
             title="RG90 · Libro de Ventas"
             subtitle="Registro de comprobantes para la SET"
             icon={FileText}

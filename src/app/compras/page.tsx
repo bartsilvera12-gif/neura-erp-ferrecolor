@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getCompras } from "@/lib/compras/storage";
 import { getOrdenesCompra } from "@/lib/ordenes-compra/storage";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
+import MontoInput from "@/components/ui/MontoInput";
 import EdgeScrollArea from "@/components/ui/EdgeScrollArea";
 import { FancySelect } from "@/components/ui/FancySelect";
 import MobileFab from "@/components/ui/MobileFab";
@@ -699,24 +700,48 @@ function MarcarPagadaModal({
   const [descontarCaja, setDescontarCaja] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // El saldo se pide al servidor: la compra puede tener pagos parciales previos,
+  // asi que el `total` que llega por props no es lo que falta pagar.
+  const [saldo, setSaldo] = useState<{ total: number; pagado: number; saldo: number } | null>(null);
+  const [monto, setMonto] = useState(0);
+  const [medio, setMedio] = useState("efectivo");
+
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/compras/${encodeURIComponent(numero_control)}/pagos`, { cache: "no-store" });
+        const j = await r.json();
+        if (cancel || !r.ok || j?.success === false) return;
+        const d = j.data as { total: number; pagado: number; saldo: number };
+        setSaldo(d);
+        setMonto(d.saldo);
+      } catch {
+        // Si no se pudo leer el saldo, se usa el total de la compra como tope.
+        if (!cancel) { setSaldo({ total, pagado: 0, saldo: total }); setMonto(total); }
+      }
+    })();
+    return () => { cancel = true; };
+  }, [numero_control, total]);
 
   async function submit() {
+    if (!(monto > 0)) { setError("Ingresá un monto mayor a cero."); return; }
     setLoading(true);
     setError(null);
     try {
       const res = await fetch(
-        `/api/compras/${encodeURIComponent(numero_control)}/pagar`,
+        `/api/compras/${encodeURIComponent(numero_control)}/pagos`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ descontar_caja: descontarCaja }),
+          body: JSON.stringify({ monto, metodo_pago: medio, descontar_caja: descontarCaja }),
         }
       );
       const json = await res.json();
       if (!res.ok || json.error) throw new Error(json.error ?? `Error ${res.status}`);
       onDone();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo marcar la compra como pagada.");
+      setError(e instanceof Error ? e.message : "No se pudo registrar el pago.");
     } finally {
       setLoading(false);
     }
@@ -732,13 +757,44 @@ function MarcarPagadaModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="border-b border-green-100 bg-green-50/60 px-5 py-4">
-          <h3 className="text-base font-bold text-green-800">Marcar pagada — compra {numero_control}</h3>
+          <h3 className="text-base font-bold text-green-800">Registrar pago — compra {numero_control}</h3>
           <p className="mt-1 text-xs text-green-700">
-            {proveedor_nombre ? `${proveedor_nombre} · ` : ""}Total Gs. {Math.round(total).toLocaleString("es-PY")}.
-            La compra a crédito quedará marcada como PAGADA y dejará de figurar como deuda con proveedores.
+            {proveedor_nombre ? `${proveedor_nombre} · ` : ""}Total Gs. {Math.round(saldo?.total ?? total).toLocaleString("es-PY")}
+            {saldo && saldo.pagado > 0
+              ? ` · ya pagado Gs. ${Math.round(saldo.pagado).toLocaleString("es-PY")} · falta Gs. ${Math.round(saldo.saldo).toLocaleString("es-PY")}`
+              : ""}.
+            Podés pagar todo o una parte: si pagás menos, la compra queda como PARCIAL con su saldo.
           </p>
         </div>
         <div className="p-5 space-y-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold text-slate-500">Monto a pagar</label>
+              <MontoInput
+                value={monto}
+                onChange={setMonto}
+                decimals={false}
+                className="w-40 rounded-lg border border-slate-200 px-3 py-2 text-right text-sm tabular-nums outline-none focus:ring-2 focus:ring-green-500/30"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold text-slate-500">Medio</label>
+              <select value={medio} onChange={(e) => setMedio(e.target.value)}
+                className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-500/30">
+                <option value="efectivo">Efectivo</option>
+                <option value="transferencia">Transferencia</option>
+                <option value="cheque">Cheque</option>
+                <option value="tarjeta">Tarjeta</option>
+                <option value="otro">Otro</option>
+              </select>
+            </div>
+            {saldo && saldo.saldo > 0 && (
+              <button type="button" onClick={() => setMonto(Math.round(saldo.saldo))}
+                className="pb-2 text-xs text-green-700 hover:underline">
+                Pagar todo el saldo
+              </button>
+            )}
+          </div>
           <label className="flex items-start gap-3 rounded-lg border border-slate-200 px-3 py-3 cursor-pointer hover:bg-slate-50">
             <input
               type="checkbox"
@@ -750,7 +806,7 @@ function MarcarPagadaModal({
             <span className="text-sm">
               <span className="font-medium text-slate-800">Descontar de caja</span>
               <span className="mt-0.5 block text-xs text-slate-500">
-                Si está activo, se genera un egreso de Gs. {Math.round(total).toLocaleString("es-PY")} en la caja
+                Si está activo, se genera un egreso de Gs. {Math.round(monto).toLocaleString("es-PY")} en la caja
                 abierta. Requiere una caja abierta; si no hay, el pago no se registra.
               </span>
             </span>
