@@ -278,10 +278,14 @@ export async function getReportePagosProveedores(
           GROUP BY numero_control
        )
        SELECT p.id::text,
-              p.fecha_pago,
+              -- A texto ISO en SQL: el driver devuelve Date y String(Date) da
+              -- "Wed Oct 07 2026...", sobre el que slice() corta cualquier cosa.
+              -- Ademas to_char usa la zona de la sesion, no UTC, asi que el dia
+              -- no se corre para pagos de la noche.
+              to_char(p.fecha_pago, 'YYYY-MM-DD') AS fecha_pago,
               p.numero_control,
               p.proveedor_nombre,
-              c.fecha_compra,
+              to_char(c.fecha_compra, 'YYYY-MM-DD') AS fecha_compra,
               COALESCE(c.total_compra, 0)::float8 AS total_compra,
               p.monto::float8 AS monto,
               p.metodo_pago,
@@ -326,8 +330,13 @@ export async function getReportePagosProveedores(
         referencia: (x.referencia as string) ?? null,
         salio_de_caja: x.salio_de_caja === true,
         usuario_nombre: (x.usuario_nombre as string) ?? null,
-        // Comparacion por año-mes: la clienta pregunta justamente por esto.
-        de_mes_anterior: fechaCompra != null && fechaCompra.slice(0, 7) < fechaPago.slice(0, 7),
+        // Comparacion por año-mes sobre 'YYYY-MM-DD': la clienta pregunta
+        // justamente por esto (factura de agosto pagada en septiembre).
+        de_mes_anterior:
+          fechaCompra != null &&
+          /^\d{4}-\d{2}/.test(fechaCompra) &&
+          /^\d{4}-\d{2}/.test(fechaPago) &&
+          fechaCompra.slice(0, 7) < fechaPago.slice(0, 7),
         saldo_restante: Math.max(0, totalCompra - acumulado),
       };
     });
