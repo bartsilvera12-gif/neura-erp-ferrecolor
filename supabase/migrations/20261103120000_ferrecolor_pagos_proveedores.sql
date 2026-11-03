@@ -69,13 +69,16 @@ INSERT INTO ferrecolor.pagos_proveedores
    metodo_pago, observaciones, caja_movimiento_id)
 SELECT c.empresa_id,
        c.numero_control,
-       MIN(c.proveedor_id),
+       -- Postgres no tiene min()/max() para uuid: se toma el primer no nulo
+       -- del grupo. Todas las filas de una compra comparten proveedor y
+       -- movimiento de caja, asi que cualquiera sirve.
+       (array_agg(c.proveedor_id) FILTER (WHERE c.proveedor_id IS NOT NULL))[1],
        MIN(c.proveedor_nombre),
        COALESCE(MAX(c.pagada_at), MAX(c.fecha)),
        SUM(c.total),
        'efectivo',
        'Pago registrado antes de habilitarse los pagos parciales',
-       MAX(c.pago_caja_movimiento_id)
+       (array_agg(c.pago_caja_movimiento_id) FILTER (WHERE c.pago_caja_movimiento_id IS NOT NULL))[1]
   FROM ferrecolor.compras c
  WHERE c.estado_pago = 'pagada'
    AND c.anulada_at IS NULL
