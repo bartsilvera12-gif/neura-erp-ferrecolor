@@ -20,12 +20,15 @@ export function numeroRecibo(g: Pick<GastoReporteRow, "id" | "fecha">): string {
   return `${g.fecha.slice(0, 4)}-${g.id.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
 }
 
-function copia(g: GastoReporteRow, etiqueta: string, origin: string): string {
+function copia(g: GastoReporteRow, etiqueta: string): string {
   const salario = esGastoSalario(g);
   const titulo = salario ? "RECIBO DE PAGO DE SALARIO" : "RECIBO DE PAGO";
   const periodo = g.periodo ?? g.fecha.slice(0, 7);
   const concepto = [g.categoria, g.descripcion].filter(Boolean).join(" — ") || (salario ? "SALARIO" : "PAGO");
-  const logo = `${origin}${EMPRESA_DOC.logoUrl}`;
+  // Ruta relativa, igual que membreteA4(): el HTML se sirve desde el mismo dominio.
+  // Con request.nextUrl.origin el logo no cargaba: detras del proxy de Coolify ese
+  // origin es el host interno del contenedor, que el navegador no alcanza.
+  const logo = EMPRESA_DOC.logoUrl;
   const funcionario = g.funcionario
     ? `<strong>${esc(g.funcionario)}</strong>${g.funcionario_ci ? ` &nbsp;·&nbsp; C.I. N° <strong>${esc(g.funcionario_ci)}</strong>` : ""}`
     : `<span class="blank"></span> &nbsp;C.I. N° <span class="blank short"></span>`;
@@ -69,13 +72,13 @@ function copia(g: GastoReporteRow, etiqueta: string, origin: string): string {
   </section>`;
 }
 
-export function renderRecibosSalarioHtml(gastos: GastoReporteRow[], opts: { origin: string; auto: boolean }): string {
+export function renderRecibosSalarioHtml(gastos: GastoReporteRow[], opts: { auto: boolean }): string {
   const paginas = gastos
     .map(
       (g) => `<div class="page">
-  ${copia(g, "ORIGINAL — EMPRESA", opts.origin)}
+  ${copia(g, "ORIGINAL — EMPRESA")}
   <div class="corte"><span>✂ cortar aquí</span></div>
-  ${copia(g, "DUPLICADO — FUNCIONARIO", opts.origin)}
+  ${copia(g, "DUPLICADO — FUNCIONARIO")}
 </div>`
     )
     .join("\n");

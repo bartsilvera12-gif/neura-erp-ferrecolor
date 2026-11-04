@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
     }
     if (ids.length > 0 && gastos.length === 0) return new NextResponse("Gasto no encontrado", { status: 404 });
 
-    const html = renderRecibosSalarioHtml(gastos, { origin: request.nextUrl.origin, auto });
+    const html = renderRecibosSalarioHtml(gastos, { auto });
     return new NextResponse(html, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } });
   } catch (err) {
     const d = err instanceof Error ? err.message : String(err);
