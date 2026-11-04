@@ -2,7 +2,7 @@
 
 import PageHeader from "@/components/ui/PageHeader";
 import { ReportCard } from "@/components/reportes/ReportCard";
-import { Wallet, Truck, Package, ShoppingCart, ArrowLeftRight, Lock, BarChart3, CalendarClock, CreditCard, FileText } from "lucide-react";
+import { Wallet, Truck, Package, ShoppingCart, ArrowLeftRight, Lock, BarChart3, CalendarClock, CreditCard, FileText, Receipt, Users } from "lucide-react";
 
 /** Hub de reportería operativa (Fase 1: Estado de cuenta + Proveedores). */
 export default function ReportesPage() {
@@ -67,6 +67,24 @@ export default function ReportesPage() {
             icon={Truck}
             description="Total pagado a proveedores en el período, con el detalle de cada factura. Incluye pagos parciales y pagos de facturas de meses anteriores, agrupados por fecha de pago."
             href="/reportes/pagos-proveedores"
+          />
+        </li>
+        <li>
+          <ReportCard
+            title="Gastos fijos y variables"
+            subtitle="A dónde va la plata"
+            icon={Receipt}
+            description="Total de gastos del período separado en fijos y variables, cuánto se destina a cada categoría y su porcentaje. Exporta a Excel."
+            href="/reportes/gastos"
+          />
+        </li>
+        <li>
+          <ReportCard
+            title="Salarios pagados"
+            subtitle="Por funcionario y período"
+            icon={Users}
+            description="Salarios registrados en Gastos, con detalle por funcionario y por mes. Impresión de recibos individuales o de todo el período, y export a Excel."
+            href="/reportes/salarios"
           />
         </li>
         <li>

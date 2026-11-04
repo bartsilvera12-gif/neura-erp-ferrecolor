@@ -33,7 +33,8 @@ export async function GET(request: NextRequest) {
 /**
  * POST /api/gastos — crea un gasto operativo.
  * Body: { categoria, descripcion, monto, tipo: 'fijo'|'variable', recurrente,
- *         frecuencia?, fecha (YYYY-MM-DD) }
+ *         frecuencia?, fecha (YYYY-MM-DD), descuenta_caja?,
+ *         funcionario?, funcionario_ci?, periodo? ('YYYY-MM', salarios) }
  */
 export async function POST(request: NextRequest) {
   try {
@@ -59,6 +60,9 @@ export async function POST(request: NextRequest) {
     const recurrente = body.recurrente === true;
     const frecuencia = body.frecuencia != null ? String(body.frecuencia).trim() : "";
     const descuentaCaja = body.descuenta_caja === true;
+    const funcionario = body.funcionario != null ? String(body.funcionario).trim() : "";
+    const funcionarioCi = body.funcionario_ci != null ? String(body.funcionario_ci).trim() : "";
+    const periodo = typeof body.periodo === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(body.periodo) ? body.periodo : "";
 
     // Si el gasto descuenta de caja, buscamos una caja abierta AHORA
     // (no permite descontar de cajas cerradas — mantiene arqueos historicos limpios).
@@ -111,6 +115,10 @@ export async function POST(request: NextRequest) {
         fecha,
         descuenta_caja: descuentaCaja,
         caja_movimiento_id: cajaMovimientoId,
+        // Solo se mandan si vienen: un gasto comun no necesita estas columnas.
+        ...(funcionario ? { funcionario } : {}),
+        ...(funcionarioCi ? { funcionario_ci: funcionarioCi } : {}),
+        ...(periodo ? { periodo } : {}),
       })
       .select()
       .single();

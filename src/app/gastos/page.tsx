@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getGastos, deleteGasto } from "@/lib/gastos/actions";
 import type { Gasto } from "@/lib/gastos/actions";
+import { esGastoSalario, periodoLabel } from "@/lib/gastos/salarios";
 
 function formatGs(valor: number) {
   // Espacio duro (nbsp) entre el número y el símbolo ₲ para que no se separe/baje
@@ -78,6 +79,19 @@ export default function GastosPage() {
           <h1 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Gastos operativos</h1>
           <p className="mt-0.5 text-xs text-slate-500">Registro de gastos de la empresa</p>
         </div>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+        <Link
+          href="/reportes/gastos"
+          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+        >
+          Reporte fijos / variables
+        </Link>
+        <Link
+          href="/reportes/salarios"
+          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+        >
+          Salarios y recibos
+        </Link>
         <Link
           href="/gastos/nuevo"
           className="flex shrink-0 items-center gap-1.5 rounded-lg bg-[#4FAEB2] px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-[#4FAEB2]/25 transition-colors hover:bg-[#3F8E91] active:scale-95"
@@ -85,6 +99,7 @@ export default function GastosPage() {
           <span>+</span>
           Nuevo gasto
         </Link>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm ring-1 ring-[#4FAEB2]/15">
@@ -123,6 +138,11 @@ export default function GastosPage() {
                   <td className="px-5 py-3.5 text-sm font-medium text-gray-800 hidden md:table-cell">{g.categoria || "—"}</td>
                   <td className="px-5 py-3.5 text-sm text-gray-600 max-w-[200px] truncate">
                     {g.descripcion || "—"}
+                    {g.funcionario && (
+                      <div className="truncate text-[11px] text-[#3F8E91]">
+                        {g.funcionario}{g.periodo ? ` · ${periodoLabel(g.periodo)}` : ""}
+                      </div>
+                    )}
                   </td>
                   <td className="px-5 py-3.5 text-sm font-semibold text-gray-800 tabular-nums">
                     {formatGs(g.monto)}
@@ -142,6 +162,16 @@ export default function GastosPage() {
                       >
                         Editar
                       </Link>
+                      {esGastoSalario(g) && (
+                        <a
+                          href={`/api/gastos/recibos?ids=${g.id}`}
+                          target="_blank"
+                          rel="noopener"
+                          className="inline-flex items-center min-h-[40px] text-xs text-[#3F8E91] hover:text-[#2c6b6e] underline"
+                        >
+                          Recibo
+                        </a>
+                      )}
                       <button
                         type="button"
                         onClick={() => { setConfirmarEliminar(g); setErrorEliminar(null); }}

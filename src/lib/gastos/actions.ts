@@ -15,6 +15,10 @@ export type Gasto = {
   fecha: string;
   descuenta_caja: boolean;
   caja_movimiento_id: string | null;
+  /** Salarios: quien cobra, su C.I. y el mes que se paga ('YYYY-MM'). */
+  funcionario: string | null;
+  funcionario_ci: string | null;
+  periodo: string | null;
   created_at: string;
 };
 
@@ -27,6 +31,9 @@ export type GastoInput = {
   frecuencia?: string;
   fecha: string;
   descuenta_caja?: boolean;
+  funcionario?: string;
+  funcionario_ci?: string;
+  periodo?: string;
 };
 
 function mapRow(r: Record<string, unknown>): Gasto {
@@ -42,6 +49,9 @@ function mapRow(r: Record<string, unknown>): Gasto {
     fecha: (r.fecha as string) ?? "",
     descuenta_caja: Boolean(r.descuenta_caja),
     caja_movimiento_id: (r.caja_movimiento_id as string | null) ?? null,
+    funcionario: (r.funcionario as string | null) ?? null,
+    funcionario_ci: (r.funcionario_ci as string | null) ?? null,
+    periodo: (r.periodo as string | null) ?? null,
     created_at: (r.created_at as string) ?? "",
   };
 }
@@ -141,6 +151,9 @@ export async function updateGasto(id: string, input: Partial<GastoInput>): Promi
   if (input.recurrente !== undefined) update.recurrente = input.recurrente;
   if (input.frecuencia !== undefined) update.frecuencia = input.frecuencia?.trim() || null;
   if (input.fecha !== undefined) update.fecha = input.fecha;
+  if (input.funcionario !== undefined) update.funcionario = input.funcionario.trim() || null;
+  if (input.funcionario_ci !== undefined) update.funcionario_ci = input.funcionario_ci.trim() || null;
+  if (input.periodo !== undefined) update.periodo = /^\d{4}-\d{2}$/.test(input.periodo) ? input.periodo : null;
 
   const { data, error } = await supabase
     .from("gastos")

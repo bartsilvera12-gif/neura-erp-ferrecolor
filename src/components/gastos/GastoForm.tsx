@@ -6,7 +6,8 @@ import { createGasto, updateGasto, getGastos } from "@/lib/gastos/actions";
 import MontoInput from "@/components/ui/MontoInput";
 import type { Gasto, GastoInput } from "@/lib/gastos/actions";
 import { hoyAsuncionYmd } from "@/lib/fecha/asuncion";
-import { Repeat, Search } from "lucide-react";
+import { Repeat, Search, UserRound } from "lucide-react";
+import { esCategoriaSalario, periodoLabel } from "@/lib/gastos/salarios";
 
 const fLabel = "block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1";
 const fInput =
@@ -31,16 +32,33 @@ export default function GastoForm({ gasto, onSuccess }: Props) {
     frecuencia: gasto?.frecuencia ?? "",
     fecha: gasto?.fecha ?? hoyAsuncionYmd(),
     descuenta_caja: gasto?.descuenta_caja ?? false,
+    funcionario: gasto?.funcionario ?? "",
+    funcionario_ci: gasto?.funcionario_ci ?? "",
+    periodo: gasto?.periodo ?? "",
   });
+  // La seccion de funcionario se muestra sola si la categoria es de salarios;
+  // para otra categoria se puede abrir a mano.
+  const [verFuncionario, setVerFuncionario] = useState(Boolean(gasto?.funcionario));
+  const esSalario = verFuncionario || esCategoriaSalario(form.categoria) || Boolean(form.funcionario?.trim());
 
   // Historico de gastos: para permitir reutilizar (recurrentes y frecuentes)
   const [historial, setHistorial] = useState<Gasto[]>([]);
   const [buscaHist, setBuscaHist] = useState("");
 
   useEffect(() => {
-    if (gasto) return; // en modo edicion, no cargamos historial
+    // En edicion tambien se carga: alimenta el autocompletado de funcionarios.
     getGastos().then((list) => setHistorial(list)).catch(() => setHistorial([]));
-  }, [gasto]);
+  }, []);
+
+  // Funcionarios ya cargados (nombre -> ultima C.I.) para autocompletar.
+  const funcionarios = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const g of historial) {
+      const n = (g.funcionario ?? "").trim();
+      if (n && !m.has(n)) m.set(n, g.funcionario_ci ?? "");
+    }
+    return m;
+  }, [historial]);
 
   // Dedup: agrupar por (categoria + descripcion + monto) — quedarse con la mas reciente.
   // Priorizar recurrentes primero.
@@ -80,7 +98,11 @@ export default function GastoForm({ gasto, onSuccess }: Props) {
       frecuencia: g.frecuencia ?? "",
       fecha: hoyAsuncionYmd(), // siempre hoy al reutilizar
       descuenta_caja: g.descuenta_caja ?? false,
+      funcionario: g.funcionario ?? "",
+      funcionario_ci: g.funcionario_ci ?? "",
+      periodo: "", // el periodo es de cada pago, no se copia
     });
+    setVerFuncionario(Boolean(g.funcionario));
     try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch {}
   }
 
@@ -89,8 +111,16 @@ export default function GastoForm({ gasto, onSuccess }: Props) {
     if (type === "checkbox") {
       setForm((prev) => ({ ...prev, recurrente: (e.target as HTMLInputElement).checked }));
     } else if (name !== "monto") {
-      const normalized = ["categoria", "descripcion", "frecuencia"].includes(name) ? value.toUpperCase() : value;
-      setForm((prev) => ({ ...prev, [name]: normalized }));
+      const normalized = ["categoria", "descripcion", "frecuencia", "funcionario"].includes(name) ? value.toUpperCase() : value;
+      setForm((prev) => {
+        const next = { ...prev, [name]: normalized };
+        // Al elegir un funcionario conocido, completar su C.I. si esta vacia.
+        if (name === "funcionario" && !prev.funcionario_ci) {
+          const ci = funcionarios.get(normalized.trim());
+          if (ci) next.funcionario_ci = ci;
+        }
+        return next;
+      });
     }
   }
 
@@ -104,11 +134,22 @@ export default function GastoForm({ gasto, onSuccess }: Props) {
 
     setGuardando(true);
 
+    // Si no es un pago a funcionario, no se mandan esos campos (y si se cerro la
+    // seccion en un gasto que los tenia, se limpian).
+    const payload: GastoInput = { ...form };
+    if (!esSalario) {
+      if (gasto?.funcionario || gasto?.funcionario_ci || gasto?.periodo) {
+        payload.funcionario = ""; payload.funcionario_ci = ""; payload.periodo = "";
+      } else {
+        delete payload.funcionario; delete payload.funcionario_ci; delete payload.periodo;
+      }
+    }
+
     try {
       if (gasto) {
-        await updateGasto(gasto.id, form);
+        await updateGasto(gasto.id, payload);
       } else {
-        await createGasto(form);
+        await createGasto(payload);
       }
       onSuccess?.();
       router.push("/gastos");
@@ -260,6 +301,79 @@ export default function GastoForm({ gasto, onSuccess }: Props) {
                 className={fInput}
               />
             </div>
+          )}
+          {esSalario ? (
+            <div className="rounded-lg border border-[#4FAEB2]/30 bg-[#4FAEB2]/[0.05] p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <UserRound className="h-4 w-4 text-[#3F8E91]" />
+                  <span className="text-sm font-semibold text-slate-700">Pago a funcionario</span>
+                </div>
+                {!esCategoriaSalario(form.categoria) && (
+                  <button
+                    type="button"
+                    onClick={() => { setVerFuncionario(false); setForm((p) => ({ ...p, funcionario: "", funcionario_ci: "", periodo: "" })); }}
+                    className="text-xs text-slate-500 underline hover:text-slate-800"
+                  >
+                    Quitar
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-slate-500">
+                Completá estos datos para que el pago salga en el reporte de salarios por funcionario y en el recibo.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
+                <div>
+                  <label className={fLabel}>Funcionario</label>
+                  <input
+                    type="text"
+                    name="funcionario"
+                    list="gasto-funcionarios"
+                    value={form.funcionario ?? ""}
+                    onChange={handleChange}
+                    placeholder="Nombre y apellido"
+                    className={fInput}
+                  />
+                  <datalist id="gasto-funcionarios">
+                    {[...funcionarios.keys()].map((n) => <option key={n} value={n} />)}
+                  </datalist>
+                </div>
+                <div>
+                  <label className={fLabel}>C.I.</label>
+                  <input
+                    type="text"
+                    name="funcionario_ci"
+                    value={form.funcionario_ci ?? ""}
+                    onChange={handleChange}
+                    placeholder="Opcional"
+                    className={fInput}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className={fLabel}>Período que se paga</label>
+                <input
+                  type="month"
+                  name="periodo"
+                  value={form.periodo ?? ""}
+                  onChange={handleChange}
+                  className={fInput}
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {form.periodo
+                    ? `Salario de ${periodoLabel(form.periodo)}.`
+                    : `Si lo dejás vacío se toma el mes de la fecha${form.fecha ? ` (${periodoLabel(form.fecha.slice(0, 7))})` : ""}. Ej.: el sueldo de octubre pagado el 5 de noviembre → elegí octubre.`}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setVerFuncionario(true)}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-[#3F8E91] hover:underline"
+            >
+              <UserRound className="h-3.5 w-3.5" /> Es un pago a un funcionario
+            </button>
           )}
           <div>
             <label className={fLabel}>Fecha *</label>
