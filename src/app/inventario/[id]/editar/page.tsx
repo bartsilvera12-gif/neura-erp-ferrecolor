@@ -6,6 +6,7 @@ import { useRouter, useParams } from "next/navigation";
 import MontoInput from "@/components/ui/MontoInput";
 import PresentacionesEditor from "@/components/inventario/PresentacionesEditor";
 import { getProducto, productoExiste, updateProducto } from "@/lib/inventario/storage";
+import { useIsAdmin } from "@/lib/auth/use-is-admin";
 import ProyeccionProductoCard from "@/components/inventario/ProyeccionProductoCard";
 import type { MetodoValuacion } from "@/lib/inventario/types";
 import ProductImageUploader from "@/components/inventario/ProductImageUploader";
@@ -32,6 +33,9 @@ export default function EditarProductoPage() {
   const router = useRouter();
   const params = useParams();
   const id = (params?.id as string) ?? "";
+
+  // Costo bloqueado: el costo del producto en la ficha solo lo edita un admin.
+  const { isAdmin } = useIsAdmin();
 
   const [cargando, setCargando] = useState(true);
   const [errorDuplicado, setErrorDuplicado] = useState<string | null>(null);
@@ -968,11 +972,17 @@ export default function EditarProductoPage() {
                 <MontoInput
                   value={form.costo_promedio}
                   onChange={handleCostoChange}
-                  className={inputClass}
+                  className={`${inputClass} ${!isAdmin ? "cursor-not-allowed bg-slate-100 text-slate-500" : ""}`}
                   decimals={false}
                   required
+                  disabled={!isAdmin}
+                  title={!isAdmin ? "El costo solo lo puede modificar un administrador" : undefined}
                 />
-                {(() => {
+                {!isAdmin ? (
+                  <p className="mt-1.5 text-[11px] text-slate-500">
+                    🔒 El costo del producto solo lo puede cambiar un administrador. Al cargar una compra el costo se actualiza solo.
+                  </p>
+                ) : (() => {
                   const c = parseFloat(form.costo_promedio);
                   if (!isNaN(c) && c > 0 && c <= 1) {
                     return (

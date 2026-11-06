@@ -142,6 +142,17 @@ export default function TransferenciaDetallePage() {
 
   const puedeRecibir = trf.rol === "destino" && trf.estado === "pendiente";
   const puedeCancelar = trf.estado === "pendiente";
+
+  // Cada ítem tiene que quedar asignado (a un producto existente o a uno a crear
+  // con código y nombre) antes de poder confirmar la recepción.
+  const itemAsignado = (it: Trf["items"][number]): boolean => {
+    const a = asig[it.id];
+    if (!a) return false;
+    if (a.modo === "existente") return !!a.producto_id;
+    return a.sku.trim() !== "" && a.nombre.trim() !== "";
+  };
+  const pendientes = (trf.items ?? []).filter((it) => !itemAsignado(it)).length;
+  const todasAsignadas = pendientes === 0;
   const inputC = "rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[#4FAEB2]/30";
 
   return (
@@ -253,11 +264,19 @@ export default function TransferenciaDetallePage() {
             </button>
           )}
           {puedeRecibir && (
-            <button onClick={() => void recibir()} disabled={accion}
-              className="inline-flex items-center gap-1.5 rounded-md bg-[#4FAEB2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3F8E91] disabled:opacity-50">
-              {accion ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-              Confirmar recepción
-            </button>
+            <div className="flex flex-col items-end gap-1">
+              {!todasAsignadas && (
+                <p className="text-[11px] text-amber-700">
+                  Asigná todos los productos para habilitar la recepción ({pendientes} sin asignar).
+                </p>
+              )}
+              <button onClick={() => void recibir()} disabled={accion || !todasAsignadas}
+                title={!todasAsignadas ? "Asigná todos los productos antes de confirmar" : undefined}
+                className="inline-flex items-center gap-1.5 rounded-md bg-[#4FAEB2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3F8E91] disabled:opacity-50 disabled:cursor-not-allowed">
+                {accion ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                Confirmar recepción
+              </button>
+            </div>
           )}
         </div>
       )}

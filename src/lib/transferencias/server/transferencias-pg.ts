@@ -466,23 +466,39 @@ export async function recibirTransferencia(
       }
 
       const pQ = await client.query(
-        `SELECT id::text, nombre, sku FROM ${tProd}
+        `SELECT id::text, nombre, sku, stock_actual, costo_promedio FROM ${tProd}
           WHERE id = $1::uuid AND empresa_id = $2::uuid FOR UPDATE`,
         [productoDestinoId, input.empresaDestinoId]
       );
       if (pQ.rows.length === 0) {
         throw new TransferenciaError(`El producto asignado a "${item.nombre_origen}" no existe en esta empresa.`, 404);
       }
-      const pd = pQ.rows[0] as unknown as { nombre: string; sku: string | null };
+      const pd = pQ.rows[0] as unknown as {
+        nombre: string; sku: string | null; stock_actual: number | string | null; costo_promedio: number | string | null;
+      };
 
-      // Entra al costo del origen: la transferencia es a costo, sin margen.
+      // Costo promedio ponderado (CPP): si el producto destino ya tenía stock con
+      // costo, el costo que entra del origen se PROMEDIA con el existente (no lo
+      // pisa). Si no había stock o costo previo, queda el costo del origen.
+      const stockPrev = Number(pd.stock_actual) || 0;
+      const costoPrev = Number(pd.costo_promedio) || 0;
+      const cantEntra = Number(item.cantidad) || 0;
+      const costoOrigen = Number(item.costo_unitario) || 0;
+      const stockNuevo = stockPrev + cantEntra;
+      let costoNuevo = costoOrigen;
+      if (stockPrev > 0 && costoPrev > 0 && stockNuevo > 0) {
+        costoNuevo = (stockPrev * costoPrev + cantEntra * costoOrigen) / stockNuevo;
+      }
+      // Redondeo a 4 decimales para evitar ruido de coma flotante en numeric.
+      costoNuevo = Math.round(costoNuevo * 10000) / 10000;
+
       await client.query(
         `UPDATE ${tProd}
             SET stock_actual = stock_actual + $1::numeric,
                 costo_promedio = $2::numeric,
                 updated_at = now()
           WHERE id = $3::uuid AND empresa_id = $4::uuid`,
-        [item.cantidad, item.costo_unitario, productoDestinoId, input.empresaDestinoId]
+        [item.cantidad, costoNuevo, productoDestinoId, input.empresaDestinoId]
       );
 
       await client.query(

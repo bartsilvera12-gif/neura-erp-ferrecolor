@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
+import { getTenantSupabaseFromAuth, getTenantSupabaseFromAuthWithRol } from "@/lib/supabase/tenant-api";
+import { isAdmin } from "@/lib/middleware/auth";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import { normalizeUpperText, normalizeUpperCodigoBarras } from "@/lib/text/normalize";
@@ -80,10 +81,14 @@ export async function PATCH(
 ) {
   try {
     const { id } = await ctxParams.params;
-    const ctx = await getTenantSupabaseFromAuth(request);
+    const ctx = await getTenantSupabaseFromAuthWithRol(request);
     if (!ctx) return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
     const empresaId = ctx.auth.empresa_id;
     const sb = ctx.supabase;
+    // Costo bloqueado: solo un administrador puede cambiar el costo del producto
+    // en la ficha. El vendedor carga el costo al registrar la compra, pero una vez
+    // creado el producto el costo queda bloqueado para no-admins.
+    const esAdmin = isAdmin(ctx.auth);
 
     let body: Record<string, unknown>;
     try {
@@ -95,7 +100,8 @@ export async function PATCH(
     const patch: Record<string, unknown> = {};
     if (body.nombre !== undefined) patch.nombre = normalizeUpperText(body.nombre);
     if (body.sku !== undefined) patch.sku = normalizeUpperText(body.sku);
-    if (body.costo_promedio !== undefined) patch.costo_promedio = Number(body.costo_promedio) || 0;
+    // Solo admin puede modificar el costo. Para vendedores se ignora (queda el valor actual).
+    if (body.costo_promedio !== undefined && esAdmin) patch.costo_promedio = Number(body.costo_promedio) || 0;
     if (body.precio_venta !== undefined) patch.precio_venta = Number(body.precio_venta) || 0;
     if (body.stock_actual !== undefined) patch.stock_actual = Number(body.stock_actual) || 0;
     if (body.stock_minimo !== undefined) patch.stock_minimo = Number(body.stock_minimo) || 0;

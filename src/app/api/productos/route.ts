@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
+import { getTenantSupabaseFromAuth, getTenantSupabaseFromAuthWithRol } from "@/lib/supabase/tenant-api";
+import { isAdmin } from "@/lib/middleware/auth";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import { normalizeUpperText, normalizeUpperCodigoBarras } from "@/lib/text/normalize";
@@ -142,10 +143,13 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const ctx = await getTenantSupabaseFromAuth(request);
+    const ctx = await getTenantSupabaseFromAuthWithRol(request);
     if (!ctx) return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
     const empresaId = ctx.auth.empresa_id;
     const sb = ctx.supabase;
+    // Costo bloqueado: solo admin define el costo. Un vendedor crea el producto
+    // con costo 0 y el costo real entra al cargar la compra correspondiente.
+    const esAdmin = isAdmin(ctx.auth);
 
     let body: Record<string, unknown>;
     try {
@@ -162,7 +166,8 @@ export async function POST(request: NextRequest) {
     const codigoBarras = normalizeUpperCodigoBarras(body.codigo_barras);
     const codigoBarrasInterno = codigoBarras != null && body.codigo_barras_interno === true;
     const stockActual = Number(body.stock_actual ?? 0) || 0;
-    const costoPromedio = Number(body.costo_promedio ?? 0) || 0;
+    // Solo admin puede fijar el costo al crear; para vendedores arranca en 0.
+    const costoPromedio = esAdmin ? (Number(body.costo_promedio ?? 0) || 0) : 0;
     const stockMinimo = Number(body.stock_minimo ?? 0) || 0;
     const precioVenta = Number(body.precio_venta ?? 0) || 0;
     const unidadMedida = normalizeUpperText(body.unidad_medida) || "UNIDAD";
