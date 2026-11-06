@@ -19,6 +19,7 @@ import {
   getMovimientosPaginated,
   type MovimientosPaginadosResult,
 } from "@/lib/inventario/storage";
+import SolicitudesPendientesPanel from "./SolicitudesPendientesPanel";
 import type {
   MovimientoInventario,
   TipoMovimiento,
@@ -93,6 +94,9 @@ export default function MovimientosPage() {
   // Paginacion
   const [page, setPage] = useState(1);
 
+  // Para recargar la lista tras aprobar/rechazar una solicitud (cambia el stock).
+  const [reloadKey, setReloadKey] = useState(0);
+
   // Debounce de busqueda (350ms)
   useEffect(() => {
     const t = setTimeout(() => setBusquedaDebounced(busqueda), 350);
@@ -125,7 +129,7 @@ export default function MovimientosPage() {
     return () => {
       cancelled = true;
     };
-  }, [page, busquedaDebounced, filtroTipo, filtroOrigen, fechaDesde, fechaHasta]);
+  }, [page, busquedaDebounced, filtroTipo, filtroOrigen, fechaDesde, fechaHasta, reloadKey]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
@@ -181,6 +185,9 @@ export default function MovimientosPage() {
           </Link>
         </div>
       </header>
+
+      {/* Solicitudes de cambio de stock pendientes (solo admin, solo si hay) */}
+      <SolicitudesPendientesPanel onResuelta={() => setReloadKey((k) => k + 1)} />
 
       {/* Card principal */}
       <section className="bg-white rounded-2xl border-2 border-[#4FAEB2]/20 shadow-[0_2px_10px_-2px_rgba(79,174,178,0.12)] overflow-hidden">

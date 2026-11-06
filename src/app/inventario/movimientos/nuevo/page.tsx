@@ -71,7 +71,15 @@ export default function NuevoMovimientoPage() {
       fecha: new Date().toISOString(),
     });
 
-    if (guardado) router.push("/inventario/movimientos");
+    if (!guardado) {
+      alert("No se pudo registrar el movimiento. Reintentá.");
+      return;
+    }
+    if (guardado.estado === "pendiente") {
+      // Vendedor: el cambio de stock quedó como solicitud a aprobar por un admin.
+      alert("Tu solicitud de cambio de stock quedó PENDIENTE de aprobación por un administrador. El stock no cambia hasta que la aprueben.");
+    }
+    router.push("/inventario/movimientos");
   }
 
   const productoSeleccionado = productos.find((p) => p.id === form.producto_id);

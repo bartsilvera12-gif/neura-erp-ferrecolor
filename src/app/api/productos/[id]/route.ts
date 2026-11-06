@@ -103,7 +103,9 @@ export async function PATCH(
     // Solo admin puede modificar el costo. Para vendedores se ignora (queda el valor actual).
     if (body.costo_promedio !== undefined && esAdmin) patch.costo_promedio = Number(body.costo_promedio) || 0;
     if (body.precio_venta !== undefined) patch.precio_venta = Number(body.precio_venta) || 0;
-    if (body.stock_actual !== undefined) patch.stock_actual = Number(body.stock_actual) || 0;
+    // Solo admin cambia el stock desde la ficha. El vendedor usa Movimientos
+    // (queda como solicitud a aprobar); acá se ignora para no saltar esa autorización.
+    if (body.stock_actual !== undefined && esAdmin) patch.stock_actual = Number(body.stock_actual) || 0;
     if (body.stock_minimo !== undefined) patch.stock_minimo = Number(body.stock_minimo) || 0;
     if (body.unidad_medida !== undefined) patch.unidad_medida = normalizeUpperText(body.unidad_medida) || "UNIDAD";
     if (body.metodo_valuacion !== undefined) {

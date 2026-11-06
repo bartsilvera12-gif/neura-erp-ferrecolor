@@ -59,6 +59,9 @@ export interface Producto {
   modo_receta?: string;
 }
 
+/** Estado de autorización del movimiento. Default 'aprobado' (afecta stock). */
+export type EstadoMovimiento = "aprobado" | "pendiente" | "rechazado";
+
 export interface MovimientoInventario {
   id: string;
   producto_id: string;
@@ -72,4 +75,8 @@ export interface MovimientoInventario {
   referencia?: string; // ej: "COMP-000001"
   created_by?: string | null;
   usuario_nombre?: string | null;
+  /** Autorización de stock: pendiente = solicitud de vendedor sin aplicar aún. */
+  estado?: EstadoMovimiento;
+  solicitado_por_nombre?: string | null;
+  rechazo_motivo?: string | null;
 }

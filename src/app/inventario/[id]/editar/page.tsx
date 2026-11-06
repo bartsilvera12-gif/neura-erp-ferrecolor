@@ -1091,13 +1091,21 @@ export default function EditarProductoPage() {
                 name="stock_actual"
                 value={form.stock_actual}
                 onChange={handleChange}
-                className={inputClass}
+                className={`${inputClass} ${!isAdmin ? "cursor-not-allowed bg-slate-100 text-slate-500" : ""}`}
                 min={0}
-                required={showStock}
+                required={showStock && isAdmin}
+                disabled={!isAdmin}
+                title={!isAdmin ? "El stock se cambia desde Movimientos (queda como solicitud a aprobar)" : undefined}
               />
-              <p className="mt-1 text-xs text-gray-400">
-                Para ajustes de stock, preferí registrar un <Link href="/inventario/movimientos/nuevo" className="underline">movimiento</Link>.
-              </p>
+              {!isAdmin ? (
+                <p className="mt-1 text-xs text-slate-500">
+                  🔒 Para cambiar el stock, registrá un <Link href="/inventario/movimientos/nuevo" className="underline">movimiento</Link>: queda como solicitud y la aprueba un administrador.
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-gray-400">
+                  Para ajustes de stock, preferí registrar un <Link href="/inventario/movimientos/nuevo" className="underline">movimiento</Link>.
+                </p>
+              )}
             </div>
             <div>
               <label className={labelClass}>Stock mínimo</label>

@@ -1,5 +1,3 @@
-import { getCurrentUser } from "@/lib/auth";
-import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
 import type {
   Producto,
   MovimientoInventario,
@@ -67,6 +65,9 @@ interface MovimientoRow {
   updated_at: string;
   created_by?: string | null;
   usuario_nombre?: string | null;
+  estado?: string | null;
+  solicitado_por_nombre?: string | null;
+  rechazo_motivo?: string | null;
 }
 
 // ─── Mapeo fila → tipo ────────────────────────────────────────────────────────
@@ -128,6 +129,9 @@ function rowToMovimiento(row: MovimientoRow): MovimientoInventario {
     fecha: row.fecha,
     created_by: row.created_by ?? null,
     usuario_nombre: row.usuario_nombre ?? null,
+    estado: (row.estado as MovimientoInventario["estado"]) ?? "aprobado",
+    solicitado_por_nombre: row.solicitado_por_nombre ?? null,
+    rechazo_motivo: row.rechazo_motivo ?? null,
   };
 }
 
@@ -467,72 +471,92 @@ export async function getMovimientosPaginated(
   }
 }
 
-function calcularDelta(tipo: TipoMovimiento, cantidad: number): number {
-  if (tipo === "ENTRADA") return Math.abs(cantidad);
-  if (tipo === "SALIDA") return -Math.abs(cantidad);
-  return cantidad; // AJUSTE: la cantidad ya lleva el signo
-}
-
 export type NuevoMovimientoData = Omit<MovimientoInventario, "id">;
 
+export type MovimientoGuardado = {
+  movimiento: MovimientoInventario;
+  /** 'aprobado' (se aplicó al stock) | 'pendiente' (solicitud de vendedor a aprobar). */
+  estado: "aprobado" | "pendiente";
+};
+
 /**
- * Registra un movimiento y actualiza stock_actual del producto.
- * empresa_id se obtiene del usuario; RLS valida acceso.
+ * Registra un movimiento vía el endpoint server-side (con control de rol).
+ *  - Admin: queda 'aprobado' y se aplica al stock.
+ *  - Vendedor: queda 'pendiente' (solicitud) y NO toca el stock hasta que un
+ *    administrador la apruebe.
+ * Antes escribía directo browser→DB (sin control de rol); ahora pasa por
+ * POST /api/inventario/movimientos.
  */
 export async function saveMovimiento(
   mov: NuevoMovimientoData
-): Promise<MovimientoInventario | null> {
-  const supabase = await getBrowserSupabaseForEmpresaData();
-  const usuario = await getCurrentUser();
-  if (!usuario?.empresa_id) throw new Error("Usuario no autenticado o sin empresa");
-
-  // 1. Obtener producto actual
-  const producto = await getProducto(mov.producto_id);
-  if (!producto) {
-    console.error("[inventario] saveMovimiento: producto no encontrado");
-    return null;
-  }
-
-  const delta = calcularDelta(mov.tipo, mov.cantidad);
-  const nuevoStock = Math.max(0, producto.stock_actual + delta);
-  const debeActualizarStock = mov.origen !== "inventario_inicial"; // inventario_inicial ya viene del insert
-
-  // 2. Insertar movimiento
-  const insert = {
-    empresa_id: usuario.empresa_id,
-    producto_id: mov.producto_id,
-    producto_nombre: mov.producto_nombre,
-    producto_sku: mov.producto_sku,
-    tipo: mov.tipo,
-    cantidad: mov.cantidad,
-    costo_unitario: mov.costo_unitario,
-    origen: mov.origen,
-    referencia: mov.referencia ?? null,
-    fecha: mov.fecha,
-  };
-
-  const { data: movData, error: movError } = await supabase
-    .from("movimientos_inventario")
-    .insert([insert])
-    .select()
-    .single();
-
-  if (movError) {
-    console.error("[inventario] saveMovimiento:", movError.message);
-    return null;
-  }
-
-  // 3. Actualizar stock del producto (salvo inventario_inicial, que ya está en el insert)
-  if (debeActualizarStock) {
-    const { error: updError } = await supabase
-      .from("productos")
-      .update({ stock_actual: nuevoStock })
-      .eq("id", mov.producto_id);
-
-    if (updError) {
-      console.error("[inventario] saveMovimiento (update stock):", updError.message);
+): Promise<MovimientoGuardado | null> {
+  try {
+    const r = await fetch("/api/inventario/movimientos", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        producto_id: mov.producto_id,
+        producto_nombre: mov.producto_nombre,
+        producto_sku: mov.producto_sku,
+        tipo: mov.tipo,
+        cantidad: mov.cantidad,
+        costo_unitario: mov.costo_unitario,
+        origen: mov.origen,
+        referencia: mov.referencia ?? null,
+        fecha: mov.fecha,
+      }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j?.success) {
+      console.error("[inventario] saveMovimiento:", (j as { error?: string })?.error ?? r.status);
+      return null;
     }
+    const data = j.data as { movimiento?: MovimientoRow; estado?: string };
+    if (!data.movimiento) return null;
+    return {
+      movimiento: rowToMovimiento(data.movimiento),
+      estado: data.estado === "pendiente" ? "pendiente" : "aprobado",
+    };
+  } catch (err) {
+    console.error("[inventario] saveMovimiento:", err instanceof Error ? err.message : err);
+    return null;
   }
+}
 
-  return rowToMovimiento(movData as MovimientoRow);
+/** Solicitudes de movimiento pendientes de aprobación (para el panel del admin). */
+export async function getSolicitudesPendientes(): Promise<MovimientoInventario[]> {
+  try {
+    const r = await fetch("/api/inventario/movimientos?estado=pendiente&limit=200", {
+      credentials: "include",
+      cache: "no-store",
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j?.success) return [];
+    const list = (j.data?.movimientos ?? []) as MovimientoRow[];
+    return list.map(rowToMovimiento);
+  } catch {
+    return [];
+  }
+}
+
+/** Aprueba o rechaza una solicitud de movimiento (solo admin, validado en el server). */
+export async function decidirMovimiento(
+  id: string,
+  accion: "aprobar" | "rechazar",
+  motivo?: string
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const r = await fetch(`/api/inventario/movimientos/${id}/decidir`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accion, motivo: motivo ?? null }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j?.success) return { ok: false, error: (j as { error?: string })?.error ?? `Error ${r.status}` };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Error de red" };
+  }
 }
