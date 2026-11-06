@@ -63,10 +63,20 @@ export async function POST(request: NextRequest) {
         reintegra_stock: it.reintegra_stock !== false,
       })),
       cambios: Array.isArray(body.cambios)
-        ? body.cambios.map((c) => ({ producto_id: String(c.producto_id), cantidad: Number(c.cantidad) || 0 }))
+        ? body.cambios.map((c) => ({
+            producto_id: String(c.producto_id),
+            cantidad: Number(c.cantidad) || 0,
+            tipo_iva: typeof c.tipo_iva === "string" ? c.tipo_iva : undefined,
+          }))
         : [],
       metodo:
-        body.metodo === "tarjeta" ? "tarjeta" : body.metodo === "transferencia" ? "transferencia" : "efectivo",
+        body.metodo === "tarjeta"
+          ? "tarjeta"
+          : body.metodo === "transferencia"
+            ? "transferencia"
+            : body.metodo === "credito"
+              ? "credito"
+              : "efectivo",
       idempotency_key: body.idempotency_key,
     };
 
