@@ -5,6 +5,8 @@ import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import { devolucionesEnabled } from "@/lib/devoluciones/feature-flag";
 import { crearDevolucion, listarDevoluciones } from "@/lib/devoluciones/server/devoluciones-pg";
+import { crearFacturaCambioDevolucion, type FacturaCambioResultado } from "@/lib/devoluciones/server/factura-cambio";
+import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
 import { DevolucionBloqueadaError, type CrearDevolucionInput } from "@/lib/devoluciones/types";
 
 /** Motivos de bloqueo que son culpa del pedido (400) vs conflicto de estado (409). */
@@ -87,7 +89,24 @@ export async function POST(request: NextRequest) {
       { id: auth.usuarioCatalogId ?? null, nombre: auth.nombre ?? auth.user?.email ?? null },
       input
     );
-    return NextResponse.json(successResponse({ devolucion }));
+
+    // Cambio: crear la factura ERP del producto entregado (best-effort, modo SIFEN).
+    // La devolución YA está confirmada; un fallo acá solo omite la factura y se
+    // informa. El DE electrónico lo emite el cliente después (pipeline SIFEN).
+    let cambioFactura: FacturaCambioResultado | null = null;
+    if (devolucion.resolucion === "cambio" && (devolucion.cambios?.length ?? 0) > 0) {
+      try {
+        const ctx = await getTenantSupabaseFromAuth(request);
+        if (ctx) {
+          cambioFactura = await crearFacturaCambioDevolucion(ctx.supabase, schema, auth.empresa_id, devolucion);
+        }
+      } catch (e) {
+        cambioFactura = { emitida: false, motivo: e instanceof Error ? e.message : "No se pudo crear la factura del cambio." };
+        console.error("[/api/devoluciones POST] factura cambio:", cambioFactura.motivo);
+      }
+    }
+
+    return NextResponse.json(successResponse({ devolucion, cambio_factura: cambioFactura }));
   } catch (err) {
     if (err instanceof DevolucionBloqueadaError) {
       return NextResponse.json(

@@ -40,6 +40,10 @@ export default function DevolucionWizard({ ventaId, onClose, onDone }: Props) {
   const [paso, setPaso] = useState<1 | 2 | 3>(1);
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
+  // Emisión de la factura electrónica del producto del cambio (#5).
+  const [emitirFacturaCambio, setEmitirFacturaCambio] = useState(true);
+  const [emision, setEmision] = useState<{ estado: "idle" | "emitiendo" | "ok" | "error"; texto: string }>({ estado: "idle", texto: "" });
+  const [cerrarId, setCerrarId] = useState<string | null>(null);
 
   // Paso 1
   const [cant, setCant] = useState<Record<string, number>>({});
@@ -145,6 +149,27 @@ export default function DevolucionWizard({ ventaId, onClose, onDone }: Props) {
     if (!metodosDisponibles.includes(metodo)) setMetodo("efectivo");
   }, [metodosDisponibles, metodo]);
 
+  // Dispara el pipeline SIFEN existente (borrador→xml→firmar→enviar) para la
+  // factura del producto entregado. La aprobación queda para «Consultar lote».
+  async function emitirDE(facturaId: string, numero: string) {
+    setEmision({ estado: "emitiendo", texto: `Emitiendo factura ${numero} a la SET…` });
+    for (const paso of ["borrador", "xml", "firmar", "enviar"] as const) {
+      try {
+        const res = await fetchWithSupabaseSession(`/api/facturas/${facturaId}/sifen/${paso}`, { method: "POST" });
+        if (!res.ok) {
+          let msg = `Falló el paso "${paso}".`;
+          try { const jj = await res.json(); if (jj?.error) msg = String(jj.error); } catch { /* sin cuerpo */ }
+          setEmision({ estado: "error", texto: `Factura ${numero} creada, pero no se completó el envío a la SET (${paso}): ${msg}` });
+          return;
+        }
+      } catch {
+        setEmision({ estado: "error", texto: `Error de red emitiendo la factura ${numero} (paso "${paso}").` });
+        return;
+      }
+    }
+    setEmision({ estado: "ok", texto: `Factura ${numero} enviada a la SET. Consultá el lote para confirmar la aprobación.` });
+  }
+
   async function confirmar() {
     if (guardando) return; // guard anti doble clic (además de la idempotency_key)
     setGuardando(true);
@@ -170,7 +195,20 @@ export default function DevolucionWizard({ ventaId, onClose, onDone }: Props) {
       });
       const j = await r.json();
       if (!r.ok || j?.success === false) { setError(j?.error ?? "No se pudo confirmar la devolución."); return; }
-      onDone(String(j.data.devolucion.id));
+      const devId = String(j.data.devolucion.id);
+      const cambioFac = j?.data?.cambio_factura as { emitida?: boolean; factura_id?: string; numero_factura?: string; motivo?: string } | null;
+
+      // Si es un cambio y el cajero pidió emitir, disparar la factura electrónica.
+      if (resolucion === "cambio" && emitirFacturaCambio && cambioFac) {
+        setCerrarId(devId);
+        if (cambioFac.emitida && cambioFac.factura_id) {
+          await emitirDE(cambioFac.factura_id, cambioFac.numero_factura ?? "");
+        } else {
+          setEmision({ estado: "error", texto: `Devolución registrada. No se pudo crear la factura del cambio: ${cambioFac.motivo ?? "sin detalle"}.` });
+        }
+        return; // el usuario cierra desde la pantalla de resultado
+      }
+      onDone(devId);
     } catch { setError("Error de red al confirmar."); }
     finally { setGuardando(false); }
   }
@@ -209,6 +247,26 @@ export default function DevolucionWizard({ ventaId, onClose, onDone }: Props) {
         </div>
 
         <div className="px-6 py-5">
+          {cerrarId ? (
+            <div className="space-y-3 py-4 text-sm">
+              <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-emerald-800">
+                <Check className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>Devolución registrada correctamente.</span>
+              </div>
+              <div className={`flex items-start gap-2 rounded-lg border p-3 ${
+                emision.estado === "ok" ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                  : emision.estado === "error" ? "border-amber-200 bg-amber-50 text-amber-800"
+                  : "border-slate-200 bg-slate-50 text-slate-700"}`}>
+                {emision.estado === "emitiendo" ? <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
+                  : emision.estado === "ok" ? <Check className="mt-0.5 h-4 w-4 shrink-0" />
+                  : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
+                <span>{emision.texto || "Procesando…"}</span>
+              </div>
+              {emision.estado === "error" && (
+                <p className="text-xs text-slate-400">Podés revisar o reintentar la emisión de la factura del cambio desde Facturas.</p>
+              )}
+            </div>
+          ) : (<>
           {venta && venta.aviso_fiscal !== "ninguno" && venta.aviso_fiscal_texto && (
             <div className={`mb-4 flex items-start gap-2 rounded-lg border p-3 text-sm ${
               venta.aviso_fiscal === "anular_no_enviada"
@@ -395,6 +453,16 @@ export default function DevolucionWizard({ ventaId, onClose, onDone }: Props) {
                 </div>
               )}
 
+              {resolucion === "cambio" && cambios.length > 0 && (
+                <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm">
+                  <input type="checkbox" checked={emitirFacturaCambio} onChange={(e) => setEmitirFacturaCambio(e.target.checked)} className="mt-0.5 h-4 w-4" />
+                  <span className="text-slate-700">
+                    Emitir la factura electrónica del producto entregado y enviarla a la SET al confirmar.
+                    {!venta?.cliente_id && <span className="font-semibold text-amber-700"> La venta no tiene cliente asignado: no se podrá facturar.</span>}
+                  </span>
+                </label>
+              )}
+
               <div>
                 <label className="text-xs font-semibold text-slate-600">Motivo</label>
                 <textarea value={motivo} onChange={(e) => setMotivo(e.target.value)} rows={2}
@@ -448,10 +516,17 @@ export default function DevolucionWizard({ ventaId, onClose, onDone }: Props) {
               <p className="text-xs text-slate-400">Al confirmar se registra el movimiento de inventario y, si corresponde, el de caja. La venta original no se modifica ni se elimina.</p>
             </div>
           )}
+          </>)}
         </div>
 
         {/* Footer */}
         <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-6 py-4">
+          {cerrarId ? (
+            <button onClick={() => onDone(cerrarId)} disabled={emision.estado === "emitiendo"}
+              className="ml-auto inline-flex items-center gap-2 rounded-lg bg-[#4FAEB2] px-5 py-2 text-sm font-bold text-white hover:bg-[#3F8E91] disabled:opacity-50">
+              {emision.estado === "emitiendo" ? <><Loader2 className="h-4 w-4 animate-spin" /> Emitiendo…</> : "Listo"}
+            </button>
+          ) : (<>
           <button onClick={paso === 1 ? onClose : () => setPaso((p) => (p === 3 ? 2 : 1))}
             className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">
             {paso === 1 ? "Cancelar" : "Atrás"}
@@ -467,6 +542,7 @@ export default function DevolucionWizard({ ventaId, onClose, onDone }: Props) {
               {guardando ? <><Loader2 className="h-4 w-4 animate-spin" /> Confirmando…</> : <><Check className="h-4 w-4" /> Confirmar devolución</>}
             </button>
           )}
+          </>)}
         </div>
       </div>
     </div>
