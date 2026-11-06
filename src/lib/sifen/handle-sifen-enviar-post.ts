@@ -83,6 +83,24 @@ export async function handleSifenEnviarPost(
     });
   }
 
+  // No enviar a la SET una factura anulada (p. ej. tras una devolución total o la
+  // anulación de la venta): evita que se envíe después por el monto original.
+  const { data: facRow, error: errFac } = await supabase
+    .from("facturas")
+    .select("estado")
+    .eq("id", fid)
+    .eq("empresa_id", auth.empresa_id)
+    .maybeSingle();
+  if (errFac) {
+    return NextResponse.json(errorResponse(errFac.message), { status: 400 });
+  }
+  if ((facRow as { estado?: string } | null)?.estado === "Anulado") {
+    return NextResponse.json(
+      errorResponse("La factura está anulada; no se puede enviar a la SET."),
+      { status: 409 }
+    );
+  }
+
   // Se permite enviar con XML firmado ("firmado") y reintentar tras un envío
   // fallido ("error_envio"). El reintento reenvía el MISMO XML firmado, con el
   // mismo CDC: la SET es idempotente por CDC (si ya lo tuviera, responde "CDC

@@ -209,10 +209,13 @@ export default function DevolucionWizard({ ventaId, onClose, onDone }: Props) {
         </div>
 
         <div className="px-6 py-5">
-          {venta?.tiene_factura_fiscal && (
-            <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          {venta && venta.aviso_fiscal !== "ninguno" && venta.aviso_fiscal_texto && (
+            <div className={`mb-4 flex items-start gap-2 rounded-lg border p-3 text-sm ${
+              venta.aviso_fiscal === "anular_no_enviada"
+                ? "border-sky-200 bg-sky-50 text-sky-800"
+                : "border-amber-200 bg-amber-50 text-amber-800"}`}>
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>Esta devolución puede requerir una Nota de Crédito fiscal. Este módulo no la emite automáticamente.</span>
+              <span>{venta.aviso_fiscal_texto}</span>
             </div>
           )}
           {error && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}

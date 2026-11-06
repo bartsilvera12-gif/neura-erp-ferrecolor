@@ -183,6 +183,38 @@ export async function POST(
       .neq("estado", "anulado");
     if (eCxc) throw new Error(eCxc.message);
 
+    // 5c) Anular la factura ERP vinculada SOLO si NO es un documento aprobado por
+    // la SET. Si la factura electronica esta aprobada, no se toca aca: corresponde
+    // cancelar el DE / emitir nota de credito por el flujo fiscal. Una factura no
+    // enviada queda 'Anulado' para que no se envie despues por el monto original.
+    const { data: ventaFact, error: eVf } = await sb
+      .from("ventas")
+      .select("factura_id")
+      .eq("id", ventaId)
+      .eq("empresa_id", empresaId)
+      .maybeSingle();
+    if (eVf) throw new Error(eVf.message);
+    const facturaId = (ventaFact as { factura_id?: string | null } | null)?.factura_id ?? null;
+    if (facturaId) {
+      const { data: feRow, error: eFe } = await sb
+        .from("factura_electronica")
+        .select("estado_sifen")
+        .eq("factura_id", facturaId)
+        .eq("empresa_id", empresaId)
+        .maybeSingle();
+      if (eFe) throw new Error(eFe.message);
+      const aprobadaPorSet = (feRow as { estado_sifen?: string } | null)?.estado_sifen === "aprobado";
+      if (!aprobadaPorSet) {
+        const { error: eFac } = await sb
+          .from("facturas")
+          .update({ estado: "Anulado", saldo: 0 })
+          .eq("id", facturaId)
+          .eq("empresa_id", empresaId)
+          .neq("estado", "Anulado");
+        if (eFac) throw new Error(eFac.message);
+      }
+    }
+
     // 6) Marcar la venta como ANULADA
     const { error: eV2 } = await sb
       .from("ventas")

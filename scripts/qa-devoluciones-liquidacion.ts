@@ -4,6 +4,7 @@
  * Sale con código 1 si algún caso falla. Cubre los escenarios del reporte Ferrecolor.
  */
 import { computeLiquidacion, type LiquidacionInput } from "../src/lib/devoluciones/liquidacion";
+import { clasificarContextoFiscal, type ContextoFiscalInput } from "../src/lib/devoluciones/contexto-fiscal";
 
 let fallos = 0;
 let ok = 0;
@@ -88,6 +89,57 @@ check("Cambio crédito pago parcial, nuevo menor (D=100k, E=63k, pagó 30k, S=70
   totalDevuelto: 100000, totalEntregado: 63000, saldoPendiente: 70000,
   resolucion: "cambio", metodo: "efectivo", esCredito: true,
 }, { diferencia: -37000, reduccionDeuda: 7000, aumentoDeuda: 0, caja: { tipo: "egreso", monto: 30000 } });
+
+// ── Clasificación del contexto fiscal (Fase B) ──────────────────────────────
+console.log("\nQA contexto fiscal\n");
+
+function checkFiscal(nombre: string, input: ContextoFiscalInput, esperado: {
+  aviso: string; requiere_nota_credito: boolean; factura_editable: boolean; tiene_factura_fiscal: boolean;
+}) {
+  const r = clasificarContextoFiscal(input);
+  const pasa =
+    r.aviso === esperado.aviso &&
+    r.requiere_nota_credito === esperado.requiere_nota_credito &&
+    r.factura_editable === esperado.factura_editable &&
+    r.tiene_factura_fiscal === esperado.tiene_factura_fiscal;
+  if (pasa) {
+    ok++;
+    console.log(`  ✓ ${nombre}`);
+  } else {
+    fallos++;
+    console.log(`  ✗ ${nombre}`);
+    console.log(`      esperado: ${JSON.stringify(esperado)}`);
+    console.log(`      obtenido: ${JSON.stringify({ aviso: r.aviso, requiere_nota_credito: r.requiere_nota_credito, factura_editable: r.factura_editable, tiene_factura_fiscal: r.tiene_factura_fiscal })}`);
+  }
+}
+
+checkFiscal("Sin factura", {
+  tieneFactura: false, facturaEstado: null, tieneAutoimpresor: false, sifenEstado: null, puedeCancelarDE: false,
+}, { aviso: "ninguno", requiere_nota_credito: false, factura_editable: false, tiene_factura_fiscal: false });
+
+checkFiscal("SIFEN aprobado, dentro de ventana -> cancelar DE", {
+  tieneFactura: true, facturaEstado: "Pendiente", tieneAutoimpresor: false, sifenEstado: "aprobado", puedeCancelarDE: true,
+}, { aviso: "cancelar_de", requiere_nota_credito: true, factura_editable: false, tiene_factura_fiscal: true });
+
+checkFiscal("SIFEN aprobado, fuera de ventana -> nota de crédito", {
+  tieneFactura: true, facturaEstado: "Pagado", tieneAutoimpresor: false, sifenEstado: "aprobado", puedeCancelarDE: false,
+}, { aviso: "nota_credito", requiere_nota_credito: true, factura_editable: false, tiene_factura_fiscal: true });
+
+checkFiscal("SIFEN firmado (no aprobado) -> anular no enviada", {
+  tieneFactura: true, facturaEstado: "Pendiente", tieneAutoimpresor: false, sifenEstado: "firmado", puedeCancelarDE: false,
+}, { aviso: "anular_no_enviada", requiere_nota_credito: false, factura_editable: true, tiene_factura_fiscal: false });
+
+checkFiscal("Autoimpresor (sin DE)", {
+  tieneFactura: true, facturaEstado: "Pendiente", tieneAutoimpresor: true, sifenEstado: null, puedeCancelarDE: false,
+}, { aviso: "autoimpresor", requiere_nota_credito: true, factura_editable: false, tiene_factura_fiscal: true });
+
+checkFiscal("Factura interna no fiscal", {
+  tieneFactura: true, facturaEstado: "Pendiente", tieneAutoimpresor: false, sifenEstado: null, puedeCancelarDE: false,
+}, { aviso: "anular_no_enviada", requiere_nota_credito: false, factura_editable: true, tiene_factura_fiscal: false });
+
+checkFiscal("Factura ya anulada", {
+  tieneFactura: true, facturaEstado: "Anulado", tieneAutoimpresor: false, sifenEstado: "aprobado", puedeCancelarDE: false,
+}, { aviso: "ninguno", requiere_nota_credito: false, factura_editable: false, tiene_factura_fiscal: false });
 
 console.log(`\nResultado: ${ok} OK, ${fallos} fallidos de ${ok + fallos}.`);
 process.exit(fallos > 0 ? 1 : 0);

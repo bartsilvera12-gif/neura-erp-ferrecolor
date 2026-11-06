@@ -29,8 +29,14 @@ export interface VentaDevolvible {
   total: number;
   cliente_id: string | null;
   cliente_nombre: string | null;
-  /** La venta tiene factura autoimpresor emitida -> avisar sobre Nota de Credito. */
+  /** La venta tiene un documento fiscal relevante (electronico aprobado o autoimpresor). */
   tiene_factura_fiscal: boolean;
+  /** La devolucion deberia avisar/emitir una nota de credito. */
+  requiere_nota_credito: boolean;
+  /** Tipo de aviso fiscal para la UI. */
+  aviso_fiscal: "ninguno" | "autoimpresor" | "cancelar_de" | "nota_credito" | "anular_no_enviada";
+  /** Texto del aviso fiscal para mostrar en el wizard. */
+  aviso_fiscal_texto: string;
   /** La venta fue a credito y tiene cuenta por cobrar (habilita metodo "credito"). */
   es_credito: boolean;
   /** Saldo pendiente de la cuenta por cobrar de la venta (0 si contado/pagada/sin CxC). */
