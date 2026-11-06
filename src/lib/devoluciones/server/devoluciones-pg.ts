@@ -29,6 +29,14 @@ import {
   type VentaDevolvible,
 } from "@/lib/devoluciones/types";
 import { computeLiquidacion } from "@/lib/devoluciones/liquidacion";
+import {
+  clasificarContextoFiscal,
+  type ContextoFiscal,
+} from "@/lib/devoluciones/contexto-fiscal";
+import {
+  buildSifenCancelacionPreview,
+  normalizePlazoCancelacionHoras,
+} from "@/lib/sifen/sifen-cancelacion-rules";
 
 interface PgClientLike {
   query: (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
@@ -115,6 +123,9 @@ export async function getVentaDevolvible(
   const esCredito = !!cxc;
   const saldoPendiente = cxc ? round2(Math.max(0, num(cxc.saldo))) : 0;
 
+  // Contexto fiscal real: factura ERP + documento electrónico SIFEN + autoimpresor.
+  const fiscal = await fetchContextoFiscal(pool(), schema, empresaId, ventaId);
+
   const lQ = await pool().query(
     `SELECT vi.id::text AS venta_item_id, vi.producto_id::text AS producto_id,
             vi.producto_nombre, vi.sku, vi.tipo_iva, vi.precio_venta, vi.cantidad,
@@ -139,7 +150,10 @@ export async function getVentaDevolvible(
     total: num(v.total),
     cliente_id: str(v.cliente_id),
     cliente_nombre: str(v.cliente_nombre),
-    tiene_factura_fiscal: v.tiene_factura === true,
+    tiene_factura_fiscal: fiscal.tiene_factura_fiscal,
+    requiere_nota_credito: fiscal.requiere_nota_credito,
+    aviso_fiscal: fiscal.aviso,
+    aviso_fiscal_texto: fiscal.aviso_texto,
     es_credito: esCredito,
     saldo_pendiente: saldoPendiente,
     lineas: lQ.rows.map((r) => {
@@ -207,6 +221,84 @@ async function siguienteNumero(client: PgClientLike, schema: string, empresaId: 
   return `DEV-${String(next).padStart(6, "0")}`;
 }
 
+// ── Contexto fiscal (factura ERP + SIFEN + autoimpresor) ───────────────────
+
+export interface ContextoFiscalVenta extends ContextoFiscal {
+  factura_id: string | null;
+  factura_estado: string | null;
+  factura_saldo: number;
+  factura_monto: number;
+}
+
+/**
+ * Determina el estado fiscal de la venta para decidir el aviso de nota de crédito
+ * y si la factura ERP puede anularse/ajustarse al devolver. Funciona tanto con el
+ * pool como con el client de una transacción (ambos exponen .query).
+ */
+async function fetchContextoFiscal(
+  run: PgClientLike,
+  schema: string,
+  empresaId: string,
+  ventaId: string
+): Promise<ContextoFiscalVenta> {
+  const tV = quoteSchemaTable(schema, "ventas");
+  const tF = quoteSchemaTable(schema, "facturas");
+  const tFE = quoteSchemaTable(schema, "factura_electronica");
+  const tFA = quoteSchemaTable(schema, "factura_autoimpresor");
+  const tPg = quoteSchemaTable(schema, "pagos");
+  const tCfg = quoteSchemaTable(schema, "empresa_sifen_config");
+
+  const q = await run.query(
+    `SELECT
+        v.factura_id::text AS factura_id,
+        f.estado  AS factura_estado,
+        f.saldo   AS factura_saldo,
+        f.monto   AS factura_monto,
+        fe.estado_sifen,
+        fe.sifen_aprobado_at,
+        fe.sifen_cancelado_at,
+        EXISTS (SELECT 1 FROM ${tFA} fa WHERE fa.venta_id = v.id AND fa.empresa_id = v.empresa_id) AS tiene_autoimpresor,
+        COALESCE((SELECT COUNT(*) FROM ${tPg} p WHERE p.factura_id = f.id AND p.empresa_id = v.empresa_id), 0) AS pagos_count,
+        (SELECT c.sifen_plazo_cancelacion_horas FROM ${tCfg} c WHERE c.empresa_id = v.empresa_id LIMIT 1) AS plazo_horas
+       FROM ${tV} v
+       LEFT JOIN ${tF} f  ON f.id = v.factura_id AND f.empresa_id = v.empresa_id
+       LEFT JOIN ${tFE} fe ON fe.factura_id = f.id AND fe.empresa_id = v.empresa_id
+      WHERE v.id = $1::uuid AND v.empresa_id = $2::uuid
+      LIMIT 1`,
+    [ventaId, empresaId]
+  );
+  const r = q.rows[0] ?? {};
+  const facturaId = str(r.factura_id);
+  const facturaEstado = str(r.factura_estado);
+  const tieneFactura = facturaId != null && facturaEstado != null;
+  const sifenEstado = str(r.estado_sifen);
+
+  const preview = buildSifenCancelacionPreview({
+    estadoSifen: sifenEstado,
+    sifenAprobadoAtIso: iso(r.sifen_aprobado_at),
+    sifenCanceladoAtIso: iso(r.sifen_cancelado_at),
+    plazoHoras: normalizePlazoCancelacionHoras(r.plazo_horas ?? 48),
+    pagosCount: num(r.pagos_count),
+    nowMs: Date.now(),
+  });
+
+  const ctx = clasificarContextoFiscal({
+    tieneFactura,
+    facturaEstado,
+    tieneAutoimpresor: r.tiene_autoimpresor === true,
+    sifenEstado,
+    puedeCancelarDE: preview.puede_cancelar,
+  });
+
+  return {
+    ...ctx,
+    factura_id: facturaId,
+    factura_estado: facturaEstado,
+    factura_saldo: num(r.factura_saldo),
+    factura_monto: num(r.factura_monto),
+  };
+}
+
 // ── Motor: crear devolucion ────────────────────────────────────────────────
 
 /**
@@ -229,7 +321,6 @@ export async function crearDevolucion(
   const tP = quoteSchemaTable(schema, "productos");
   const tMI = quoteSchemaTable(schema, "movimientos_inventario");
   const tCM = quoteSchemaTable(schema, "caja_movimientos");
-  const tFA = quoteSchemaTable(schema, "factura_autoimpresor");
 
   if (!input.items || input.items.length === 0) {
     throw new DevolucionBloqueadaError("sin_items", "Seleccioná al menos un producto a devolver.");
@@ -428,12 +519,13 @@ export async function crearDevolucion(
     await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`devolucion:${empresaId}`]);
     const numero = await siguienteNumero(client, schema, empresaId);
 
-    // ── 9) La venta tiene factura fiscal? (solo para advertir sobre NC).
-    const faQ = await client.query(
-      `SELECT 1 FROM ${tFA} WHERE venta_id = $1::uuid AND empresa_id = $2::uuid LIMIT 1`,
-      [input.venta_id, empresaId]
-    );
-    const requiereNC = faQ.rows.length > 0;
+    // ── 9) Contexto fiscal: aviso de NC y si la factura ERP se puede anular/ajustar.
+    const fiscal = await fetchContextoFiscal(client, schema, empresaId, input.venta_id);
+    const requiereNC = fiscal.requiere_nota_credito;
+    // Solo tocamos la factura ERP si NO es un documento aprobado por SET
+    // (factura_editable) y hay algo que ajustar: devolución total o baja de saldo.
+    const tocaFactura =
+      fiscal.factura_editable && !!fiscal.factura_id && (!quedaPendiente || liq.reduccionDeuda > 0);
 
     // ── 10) Cabecera.
     const insD = await client.query(
@@ -442,13 +534,13 @@ export async function crearDevolucion(
          cliente_id, tipo, resolucion, estado, motivo,
          total_devuelto, total_entregado, diferencia, metodo_reembolso,
          caja_id, requiere_nota_credito, idempotency_key, created_by, usuario_nombre,
-         cxc_reduccion, cxc_aumento
+         cxc_reduccion, cxc_aumento, factura_estado_previo, factura_saldo_previo
        ) VALUES (
          $1::uuid, $2, $3::uuid, $4, $5::timestamptz,
          $6::uuid, $7, $8, 'confirmada', $9,
          $10, $11, $12, $13,
          $14::uuid, $15::boolean, $16, $17::uuid, $18,
-         $19, $20
+         $19, $20, $21, $22
        ) RETURNING id::text`,
       [
         empresaId, numero, input.venta_id, str(venta.numero_control), iso(venta.fecha),
@@ -456,6 +548,8 @@ export async function crearDevolucion(
         totalDevuelto, totalEntregado, diferencia, diferencia !== 0 ? metodo : null,
         cajaId, requiereNC, input.idempotency_key || null, usuario.id, usuario.nombre,
         liq.reduccionDeuda, liq.aumentoDeuda,
+        tocaFactura ? fiscal.factura_estado : null,
+        tocaFactura ? fiscal.factura_saldo : null,
       ]
     );
     const devolucionId = String(insD.rows[0].id);
@@ -588,6 +682,28 @@ export async function crearDevolucion(
       );
     }
 
+    // ── 14c) Factura ERP (solo si NO es documento aprobado por SET).
+    //  - Devolución total  -> anular la factura (no fiscal / no enviada a SET),
+    //    así no queda "Pendiente" con la deuda ya en 0 ni se puede enviar luego.
+    //  - Devolución parcial -> bajar el saldo por la parte impaga devuelta.
+    // El estado/saldo previo se guardó en la cabecera para poder revertir.
+    if (tocaFactura) {
+      const tF = quoteSchemaTable(schema, "facturas");
+      if (!quedaPendiente) {
+        await client.query(
+          `UPDATE ${tF} SET estado = 'Anulado', saldo = 0, updated_at = now()
+            WHERE id = $1::uuid AND empresa_id = $2::uuid AND estado <> 'Anulado'`,
+          [fiscal.factura_id, empresaId]
+        );
+      } else if (liq.reduccionDeuda > 0) {
+        await client.query(
+          `UPDATE ${tF} SET saldo = GREATEST(0, COALESCE(saldo, 0) - $3::numeric), updated_at = now()
+            WHERE id = $1::uuid AND empresa_id = $2::uuid AND estado <> 'Anulado'`,
+          [fiscal.factura_id, empresaId, liq.reduccionDeuda]
+        );
+      }
+    }
+
     await client.query("COMMIT");
 
     const dev = await getDevolucion(schema, empresaId, devolucionId);
@@ -628,7 +744,8 @@ export async function anularDevolucion(
       `SELECT id::text, numero_devolucion, venta_id::text AS venta_id, estado, diferencia,
               metodo_reembolso, caja_id::text AS caja_id,
               caja_movimiento_id::text AS caja_movimiento_id,
-              total_devuelto, cxc_reduccion, cxc_aumento
+              total_devuelto, cxc_reduccion, cxc_aumento,
+              factura_estado_previo, factura_saldo_previo
          FROM ${tD} WHERE id = $1::uuid AND empresa_id = $2::uuid FOR UPDATE`,
       [devolucionId, empresaId]
     );
@@ -790,6 +907,24 @@ export async function anularDevolucion(
           WHERE empresa_id = $2::uuid AND venta_id = $1::uuid`,
         [String(d.venta_id), empresaId, reduccionAplicada, aumentoAplicado]
       );
+    }
+
+    // Restaurar la factura ERP al estado/saldo previo si la devolución la había
+    // anulado o ajustado (solo aplica a facturas no aprobadas por SET).
+    if (d.factura_estado_previo != null) {
+      const tF = quoteSchemaTable(schema, "facturas");
+      const fQ = await client.query(
+        `SELECT factura_id::text AS factura_id FROM ${tV} WHERE id = $1::uuid AND empresa_id = $2::uuid LIMIT 1`,
+        [String(d.venta_id), empresaId]
+      );
+      const facturaId = str(fQ.rows[0]?.factura_id);
+      if (facturaId) {
+        await client.query(
+          `UPDATE ${tF} SET estado = $3, saldo = $4::numeric, updated_at = now()
+            WHERE id = $1::uuid AND empresa_id = $2::uuid`,
+          [facturaId, empresaId, String(d.factura_estado_previo), num(d.factura_saldo_previo)]
+        );
+      }
     }
 
     await client.query("COMMIT");
