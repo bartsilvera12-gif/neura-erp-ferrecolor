@@ -4,7 +4,7 @@ export type TipoDevolucion = "total" | "parcial";
 export type ResolucionDevolucion = "reembolso" | "cambio";
 export type EstadoDevolucion = "confirmada" | "anulada";
 export type CondicionProducto = "buen_estado" | "danado";
-export type MetodoReembolso = "efectivo" | "tarjeta" | "transferencia";
+export type MetodoReembolso = "efectivo" | "tarjeta" | "transferencia" | "credito";
 
 /** Linea de la venta con lo ya devuelto (para armar el paso 1 del wizard). */
 export interface LineaDevolvible {
@@ -31,6 +31,10 @@ export interface VentaDevolvible {
   cliente_nombre: string | null;
   /** La venta tiene factura autoimpresor emitida -> avisar sobre Nota de Credito. */
   tiene_factura_fiscal: boolean;
+  /** La venta fue a credito y tiene cuenta por cobrar (habilita metodo "credito"). */
+  es_credito: boolean;
+  /** Saldo pendiente de la cuenta por cobrar de la venta (0 si contado/pagada/sin CxC). */
+  saldo_pendiente: number;
   lineas: LineaDevolvible[];
 }
 
@@ -47,6 +51,8 @@ export interface DevolucionItemInput {
 export interface DevolucionCambioInput {
   producto_id: string;
   cantidad: number;
+  /** IVA real del producto entregado ('EXENTA' | '5%' | '10%'). Default '10%'. */
+  tipo_iva?: string;
 }
 
 export interface CrearDevolucionInput {
@@ -127,6 +133,7 @@ export type BloqueoDevolucion =
   | "venta_anulada"
   | "sin_items"
   | "stock_insuficiente_cambio"
+  | "credito_no_disponible"
   | "devolucion_no_encontrada"
   | "devolucion_ya_anulada";
 

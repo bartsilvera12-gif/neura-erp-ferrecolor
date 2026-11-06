@@ -15,12 +15,14 @@ import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session"
 import type {
   CondicionProducto, MetodoReembolso, ResolucionDevolucion, VentaDevolvible,
 } from "@/lib/devoluciones/types";
+import { computeLiquidacion } from "@/lib/devoluciones/liquidacion";
 
 type ComboHit = {
   id: string; nombre: string; sku: string; precio_venta: number;
   stock_actual: number; controla_stock: boolean;
 };
-type CambioSel = { producto_id: string; nombre: string; sku: string; precio: number; cantidad: number };
+type TipoIva = "EXENTA" | "5%" | "10%";
+type CambioSel = { producto_id: string; nombre: string; sku: string; precio: number; cantidad: number; tipo_iva: TipoIva };
 
 function gs(v: number) {
   return `Gs. ${Math.round(v || 0).toLocaleString("es-PY")}`;
@@ -107,6 +109,19 @@ export default function DevolucionWizard({ ventaId, onClose, onDone }: Props) {
   );
   const diferencia = resolucion === "cambio" ? totalEntregado - totalDevuelto : -totalDevuelto;
 
+  const esCredito = venta?.es_credito ?? false;
+  const saldoPendiente = venta?.saldo_pendiente ?? 0;
+  // Misma liquidación que el servidor: cuánto va a caja y cuánto a la deuda.
+  const liq = useMemo(
+    () => computeLiquidacion({ totalDevuelto, totalEntregado, saldoPendiente, resolucion, metodo, esCredito }),
+    [totalDevuelto, totalEntregado, saldoPendiente, resolucion, metodo, esCredito]
+  );
+  // "A cuenta (crédito)" solo tiene sentido en ventas a crédito.
+  const metodosDisponibles = useMemo<MetodoReembolso[]>(
+    () => (esCredito ? ["efectivo", "transferencia", "tarjeta", "credito"] : ["efectivo", "transferencia", "tarjeta"]),
+    [esCredito]
+  );
+
   function setCantidad(id: string, v: number, max: number) {
     const n = Math.max(0, Math.min(max, Number.isFinite(v) ? v : 0));
     setCant((p) => ({ ...p, [id]: n }));
@@ -120,10 +135,15 @@ export default function DevolucionWizard({ ventaId, onClose, onDone }: Props) {
     setCambios((prev) => {
       const i = prev.findIndex((c) => c.producto_id === h.id);
       if (i >= 0) return prev.map((c, k) => (k === i ? { ...c, cantidad: c.cantidad + 1 } : c));
-      return [...prev, { producto_id: h.id, nombre: h.nombre, sku: h.sku, precio: h.precio_venta, cantidad: 1 }];
+      return [...prev, { producto_id: h.id, nombre: h.nombre, sku: h.sku, precio: h.precio_venta, cantidad: 1, tipo_iva: "10%" }];
     });
     setQ(""); setHits([]);
   }
+
+  // Si el método elegido deja de estar disponible (p.ej. no es venta a crédito), volver a efectivo.
+  useEffect(() => {
+    if (!metodosDisponibles.includes(metodo)) setMetodo("efectivo");
+  }, [metodosDisponibles, metodo]);
 
   async function confirmar() {
     if (guardando) return; // guard anti doble clic (además de la idempotency_key)
@@ -145,7 +165,7 @@ export default function DevolucionWizard({ ventaId, onClose, onDone }: Props) {
             condicion: cond[l.venta_item_id] ?? "buen_estado",
             reintegra_stock: (cond[l.venta_item_id] ?? "buen_estado") === "buen_estado",
           })),
-          cambios: resolucion === "cambio" ? cambios.map((c) => ({ producto_id: c.producto_id, cantidad: c.cantidad })) : [],
+          cambios: resolucion === "cambio" ? cambios.map((c) => ({ producto_id: c.producto_id, cantidad: c.cantidad, tipo_iva: c.tipo_iva })) : [],
         }),
       });
       const j = await r.json();
@@ -305,6 +325,13 @@ export default function DevolucionWizard({ ventaId, onClose, onDone }: Props) {
                       <input type="number" min={1} step="any" value={c.cantidad}
                         onChange={(e) => setCambios((p) => p.map((x, k) => (k === i ? { ...x, cantidad: Math.max(1, Number(e.target.value) || 1) } : x)))}
                         className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-[#4FAEB2]/30" />
+                      <select value={c.tipo_iva} aria-label="IVA"
+                        onChange={(e) => setCambios((p) => p.map((x, k) => (k === i ? { ...x, tipo_iva: e.target.value as TipoIva } : x)))}
+                        className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-[#4FAEB2]/30">
+                        <option value="10%">IVA 10%</option>
+                        <option value="5%">IVA 5%</option>
+                        <option value="EXENTA">Exenta</option>
+                      </select>
                       <span className="w-28 text-right text-sm font-bold text-slate-800">{gs(c.precio * c.cantidad)}</span>
                       <button onClick={() => setCambios((p) => p.filter((_, k) => k !== i))} className="text-red-600 hover:text-red-700" aria-label="Quitar">
                         <Trash2 className="h-4 w-4" />
@@ -320,27 +347,47 @@ export default function DevolucionWizard({ ventaId, onClose, onDone }: Props) {
                 {resolucion === "cambio" && (
                   <div className="flex justify-between"><span className="text-slate-500">Valor del nuevo producto</span><span className="tabular-nums font-medium">{gs(totalEntregado)}</span></div>
                 )}
-                <div className={`flex justify-between border-t border-slate-200 pt-1.5 font-bold ${
-                  diferencia > 0 ? "text-amber-700" : diferencia < 0 ? "text-[#3F8E91]" : "text-slate-600"}`}>
-                  <span>{diferencia > 0 ? "Diferencia a cobrar al cliente" : diferencia < 0 ? "Diferencia a devolver al cliente" : "Sin diferencia"}</span>
-                  <span className="tabular-nums">{gs(Math.abs(diferencia))}</span>
+                {esCredito && (
+                  <div className="flex justify-between text-xs"><span className="text-slate-400">Deuda pendiente de la venta</span><span className="tabular-nums text-slate-500">{gs(saldoPendiente)}</span></div>
+                )}
+                <div className="mt-1 space-y-1 border-t border-slate-200 pt-1.5">
+                  {liq.caja?.tipo === "ingreso" && (
+                    <div className="flex justify-between font-bold text-amber-700"><span>A cobrar en caja</span><span className="tabular-nums">{gs(liq.caja.monto)}</span></div>
+                  )}
+                  {liq.caja?.tipo === "egreso" && (
+                    <div className="flex justify-between font-bold text-[#3F8E91]"><span>Reembolso en caja</span><span className="tabular-nums">{gs(liq.caja.monto)}</span></div>
+                  )}
+                  {liq.reduccionDeuda > 0 && (
+                    <div className="flex justify-between font-semibold text-slate-700"><span>Baja de la deuda del cliente</span><span className="tabular-nums">{gs(liq.reduccionDeuda)}</span></div>
+                  )}
+                  {liq.aumentoDeuda > 0 && (
+                    <div className="flex justify-between font-semibold text-slate-700"><span>Se suma a la deuda del cliente</span><span className="tabular-nums">{gs(liq.aumentoDeuda)}</span></div>
+                  )}
+                  {!liq.caja && liq.reduccionDeuda === 0 && liq.aumentoDeuda === 0 && (
+                    <div className="flex justify-between font-bold text-slate-600"><span>Sin movimiento de dinero ni deuda</span><span className="tabular-nums">{gs(0)}</span></div>
+                  )}
                 </div>
               </div>
 
-              {diferencia !== 0 && (
+              {(liq.caja !== null || (esCredito && diferencia !== 0)) && (
                 <div>
                   <label className="text-xs font-semibold text-slate-600">Método {diferencia > 0 ? "de cobro" : "del reembolso"}</label>
                   <div className="mt-1 flex gap-2">
-                    {(["efectivo", "transferencia", "tarjeta"] as const).map((m) => (
+                    {metodosDisponibles.map((m) => (
                       <button key={m} type="button" onClick={() => setMetodo(m)}
                         className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold capitalize transition-colors ${
                           metodo === m ? "border-[#4FAEB2] bg-[#4FAEB2]/[0.10] text-[#3F8E91]" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
-                        {m}
+                        {m === "credito" ? "A cuenta" : m}
                       </button>
                     ))}
                   </div>
-                  {metodo === "efectivo" && (
+                  {metodo === "efectivo" && liq.caja !== null && (
                     <p className="mt-1 text-[11px] text-slate-400">En efectivo se registra el movimiento en la caja abierta. Sin caja abierta no se puede confirmar.</p>
+                  )}
+                  {metodo === "credito" && (
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      {diferencia > 0 ? "La diferencia se suma a la cuenta por cobrar del cliente; no hay movimiento de caja." : "Se descuenta de la deuda del cliente; no hay movimiento de caja."}
+                    </p>
                   )}
                 </div>
               )}
@@ -384,8 +431,14 @@ export default function DevolucionWizard({ ventaId, onClose, onDone }: Props) {
                       </dd>
                     </div>
                   )}
-                  <Fila k={diferencia > 0 ? "Diferencia a cobrar" : diferencia < 0 ? "Reembolso" : "Movimiento de dinero"} v={diferencia === 0 ? "Sin movimiento" : `${gs(Math.abs(diferencia))} · ${metodo}`} />
-                  <Fila k="Caja afectada" v={diferencia === 0 ? "No aplica" : metodo === "efectivo" ? "Caja abierta (movimiento en efectivo)" : `Caja abierta (${metodo}, no afecta el efectivo)`} />
+                  <Fila
+                    k={liq.caja?.tipo === "ingreso" ? "A cobrar en caja" : liq.caja?.tipo === "egreso" ? "Reembolso en caja" : "Movimiento de caja"}
+                    v={liq.caja ? `${gs(liq.caja.monto)} · ${metodo}` : "Sin movimiento de caja"}
+                  />
+                  <Fila
+                    k="Efecto en la deuda"
+                    v={liq.reduccionDeuda > 0 ? `Baja ${gs(liq.reduccionDeuda)}` : liq.aumentoDeuda > 0 ? `Sube ${gs(liq.aumentoDeuda)}` : "Sin cambios"}
+                  />
                   <Fila k="Motivo" v={motivo.trim() || "—"} />
                 </dl>
               </div>

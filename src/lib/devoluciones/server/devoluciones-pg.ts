@@ -28,6 +28,7 @@ import {
   type TipoDevolucion,
   type VentaDevolvible,
 } from "@/lib/devoluciones/types";
+import { computeLiquidacion } from "@/lib/devoluciones/liquidacion";
 
 interface PgClientLike {
   query: (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
@@ -61,6 +62,14 @@ function pool() {
   return p;
 }
 
+/** Normaliza el tipo de IVA a los valores validos de ventas ('EXENTA'|'5%'|'10%'). */
+function normTipoIva(raw: unknown): string {
+  const t = String(raw ?? "").trim().toUpperCase();
+  if (t === "5%" || t === "5") return "5%";
+  if (t === "EXENTA" || t === "EXENTO" || t === "0%" || t === "0") return "EXENTA";
+  return "10%";
+}
+
 // ── Lectura: venta devolvible ───────────────────────────────────────────────
 
 /**
@@ -79,6 +88,7 @@ export async function getVentaDevolvible(
   const tD = quoteSchemaTable(schema, "devoluciones_venta");
   const tFA = quoteSchemaTable(schema, "factura_autoimpresor");
   const tC = quoteSchemaTable(schema, "clientes");
+  const tCxc = quoteSchemaTable(schema, "cuentas_por_cobrar");
 
   const vQ = await pool().query(
     `SELECT v.id::text, v.numero_control, v.fecha, v.estado, v.metodo_pago, v.total,
@@ -93,6 +103,17 @@ export async function getVentaDevolvible(
   );
   const v = vQ.rows[0];
   if (!v) return null;
+
+  // Cuenta por cobrar de la venta: define si es a credito y cuanto sigue pendiente.
+  const cxcQ = await pool().query(
+    `SELECT saldo FROM ${tCxc}
+      WHERE venta_id = $1::uuid AND empresa_id = $2::uuid AND estado <> 'anulado'
+      ORDER BY created_at ASC LIMIT 1`,
+    [ventaId, empresaId]
+  );
+  const cxc = cxcQ.rows[0];
+  const esCredito = !!cxc;
+  const saldoPendiente = cxc ? round2(Math.max(0, num(cxc.saldo))) : 0;
 
   const lQ = await pool().query(
     `SELECT vi.id::text AS venta_item_id, vi.producto_id::text AS producto_id,
@@ -119,6 +140,8 @@ export async function getVentaDevolvible(
     cliente_id: str(v.cliente_id),
     cliente_nombre: str(v.cliente_nombre),
     tiene_factura_fiscal: v.tiene_factura === true,
+    es_credito: esCredito,
+    saldo_pendiente: saldoPendiente,
     lineas: lQ.rows.map((r) => {
       const vendida = num(r.cantidad);
       const devuelta = num(r.devuelto);
@@ -330,7 +353,9 @@ export async function crearDevolucion(
         }
         const precio = num(p.precio_venta);
         const total = round2(precio * cant);
-        const iva = round2(calcIvaIncluido("10%", total));
+        // IVA real del producto entregado (lo elige el cajero); default 10%.
+        const tipoIvaCambio = normTipoIva(cb.tipo_iva);
+        const iva = round2(calcIvaIncluido(tipoIvaCambio, total));
         totalEntregado = round2(totalEntregado + total);
         cambiosCalc.push({
           producto_id: String(p.id),
@@ -338,7 +363,7 @@ export async function crearDevolucion(
           sku: str(p.sku),
           cantidad: cant,
           precio_unitario: precio,
-          tipo_iva: "10%",
+          tipo_iva: tipoIvaCambio,
           monto_iva: iva,
           total,
           controla_stock: controla,
@@ -348,14 +373,41 @@ export async function crearDevolucion(
       }
     }
 
-    // ── 5) Diferencia. >0 el cliente paga; <0 se le devuelve dinero.
-    const resolucion: ResolucionDevolucion = input.resolucion;
-    const diferencia = resolucion === "cambio" ? round2(totalEntregado - totalDevuelto) : round2(-totalDevuelto);
-    const metodo: MetodoReembolso = input.metodo ?? "efectivo";
-    const requiereEfectivo = diferencia !== 0 && metodo === "efectivo";
+    // ── 4b) Cuenta por cobrar de la venta (bloqueada): saldo y si es a crédito.
+    const tCxc = quoteSchemaTable(schema, "cuentas_por_cobrar");
+    const cxcQ = await client.query(
+      `SELECT id::text, saldo, total, estado FROM ${tCxc}
+        WHERE venta_id = $1::uuid AND empresa_id = $2::uuid AND estado <> 'anulado'
+        ORDER BY created_at ASC LIMIT 1
+        FOR UPDATE`,
+      [input.venta_id, empresaId]
+    );
+    const cxcRow = cxcQ.rows[0];
+    const esCredito = !!cxcRow;
+    const saldoPendiente = cxcRow ? round2(Math.max(0, num(cxcRow.saldo))) : 0;
 
-    // ── 6) Caja: obligatoria si hay movimiento en efectivo.
-    const cajaId = diferencia !== 0 ? await cajaAbierta(client, schema, empresaId, str(venta.caja_id)) : null;
+    // ── 5) Liquidación: reparto entre CAJA (dinero real) y DEUDA (CxC).
+    const resolucion: ResolucionDevolucion = input.resolucion;
+    const metodo: MetodoReembolso = input.metodo ?? "efectivo";
+    if (metodo === "credito" && !esCredito) {
+      throw new DevolucionBloqueadaError(
+        "credito_no_disponible",
+        "La diferencia solo puede ir a cuenta (crédito) si la venta original fue a crédito con cuenta del cliente."
+      );
+    }
+    const liq = computeLiquidacion({
+      totalDevuelto,
+      totalEntregado,
+      saldoPendiente,
+      resolucion,
+      metodo,
+      esCredito,
+    });
+    const diferencia = liq.diferencia;
+
+    // ── 6) Caja: necesaria solo si hay movimiento de dinero (no aplica a crédito).
+    const requiereEfectivo = liq.caja !== null && metodo === "efectivo";
+    const cajaId = liq.caja !== null ? await cajaAbierta(client, schema, empresaId, str(venta.caja_id)) : null;
     if (requiereEfectivo && !cajaId) {
       throw new DevolucionBloqueadaError(
         "sin_caja_abierta",
@@ -389,18 +441,21 @@ export async function crearDevolucion(
          empresa_id, numero_devolucion, venta_id, venta_numero_control, venta_fecha,
          cliente_id, tipo, resolucion, estado, motivo,
          total_devuelto, total_entregado, diferencia, metodo_reembolso,
-         caja_id, requiere_nota_credito, idempotency_key, created_by, usuario_nombre
+         caja_id, requiere_nota_credito, idempotency_key, created_by, usuario_nombre,
+         cxc_reduccion, cxc_aumento
        ) VALUES (
          $1::uuid, $2, $3::uuid, $4, $5::timestamptz,
          $6::uuid, $7, $8, 'confirmada', $9,
          $10, $11, $12, $13,
-         $14::uuid, $15::boolean, $16, $17::uuid, $18
+         $14::uuid, $15::boolean, $16, $17::uuid, $18,
+         $19, $20
        ) RETURNING id::text`,
       [
         empresaId, numero, input.venta_id, str(venta.numero_control), iso(venta.fecha),
         str(venta.cliente_id), tipo, resolucion, input.motivo?.trim() || null,
         totalDevuelto, totalEntregado, diferencia, diferencia !== 0 ? metodo : null,
         cajaId, requiereNC, input.idempotency_key || null, usuario.id, usuario.nombre,
+        liq.reduccionDeuda, liq.aumentoDeuda,
       ]
     );
     const devolucionId = String(insD.rows[0].id);
@@ -478,10 +533,10 @@ export async function crearDevolucion(
     //  Tarjeta/transferencia se registran con su medio_pago: el resumen de caja
     //  solo suma efectivo, asi que no afectan el efectivo fisico esperado.
     let cajaMovId: string | null = null;
-    if (diferencia !== 0 && cajaId) {
-      const tipoMov = diferencia > 0 ? "ingreso" : "egreso";
+    if (liq.caja && cajaId) {
+      const tipoMov = liq.caja.tipo;
       const concepto =
-        diferencia > 0
+        tipoMov === "ingreso"
           ? `Diferencia a cobrar por devolución ${numero}`
           : `Reembolso por devolución ${numero}`;
       const insM = await client.query(
@@ -491,7 +546,7 @@ export async function crearDevolucion(
          ) VALUES ($1::uuid,$2::uuid,$3,$4,$5,$6,$7::uuid,$8,$9::uuid,$10::uuid)
          RETURNING id::text`,
         [
-          empresaId, cajaId, tipoMov, concepto, Math.abs(diferencia), metodo, usuario.id,
+          empresaId, cajaId, tipoMov, concepto, liq.caja.monto, metodo, usuario.id,
           `Venta ${String(venta.numero_control ?? "")} · devolución ${numero}`,
           devolucionId, input.venta_id,
         ]
@@ -507,26 +562,31 @@ export async function crearDevolucion(
       [input.venta_id, empresaId, nuevoEstado]
     );
 
-    // ── 14b) Venta a CRÉDITO: bajar la deuda por lo devuelto.
+    // ── 14b) Venta a CRÉDITO: aplicar el reparto calculado a la cuenta por cobrar.
     //
-    // Antes la devolución no tocaba la cuenta por cobrar: si el cliente devolvía
-    // la mercadería y no pagaba, la deuda seguía figurando vencida para siempre.
-    // Ahora el saldo baja por el importe devuelto (nunca por debajo de 0) y, si
-    // se devolvió todo y no queda nada por cobrar, la cuenta se da por saldada.
-    const tCxc = quoteSchemaTable(schema, "cuentas_por_cobrar");
-    await client.query(
-      `UPDATE ${tCxc}
-          SET saldo = GREATEST(0, COALESCE(saldo, 0) - $3::numeric),
-              estado = CASE
-                WHEN GREATEST(0, COALESCE(saldo, 0) - $3::numeric) <= 0 THEN 'anulado'
-                ELSE estado
-              END,
-              updated_at = now()
-        WHERE empresa_id = $2::uuid
-          AND venta_id = $1::uuid
-          AND estado <> 'anulado'`,
-      [input.venta_id, empresaId, totalDevuelto]
-    );
+    // A diferencia del comportamiento anterior (que bajaba la deuda por TODO lo
+    // devuelto, borrando deuda impaga o reembolsando dinero no cobrado), ahora el
+    // saldo solo se mueve por lo que la liquidación determinó: baja por la parte
+    // impaga de lo devuelto (reduccionDeuda) y sube si la diferencia de un cambio
+    // se dejó a cuenta (aumentoDeuda, método "credito"). El dinero realmente
+    // pagado se reembolsa por caja, nunca descontando de la deuda.
+    if (esCredito && (liq.reduccionDeuda > 0 || liq.aumentoDeuda > 0)) {
+      await client.query(
+        `UPDATE ${tCxc}
+            SET saldo = GREATEST(0, COALESCE(saldo, 0) - $3::numeric + $4::numeric),
+                total = GREATEST(0, COALESCE(total, 0) + $4::numeric),
+                estado = CASE
+                  WHEN GREATEST(0, COALESCE(saldo, 0) - $3::numeric + $4::numeric) <= 0 THEN 'anulado'
+                  WHEN GREATEST(0, COALESCE(saldo, 0) - $3::numeric + $4::numeric) < COALESCE(total, 0) + $4::numeric THEN 'parcial'
+                  ELSE 'pendiente'
+                END,
+                updated_at = now()
+          WHERE empresa_id = $2::uuid
+            AND venta_id = $1::uuid
+            AND estado <> 'anulado'`,
+        [input.venta_id, empresaId, liq.reduccionDeuda, liq.aumentoDeuda]
+      );
+    }
 
     await client.query("COMMIT");
 
@@ -566,7 +626,9 @@ export async function anularDevolucion(
 
     const dQ = await client.query(
       `SELECT id::text, numero_devolucion, venta_id::text AS venta_id, estado, diferencia,
-              metodo_reembolso, caja_id::text AS caja_id, total_devuelto
+              metodo_reembolso, caja_id::text AS caja_id,
+              caja_movimiento_id::text AS caja_movimiento_id,
+              total_devuelto, cxc_reduccion, cxc_aumento
          FROM ${tD} WHERE id = $1::uuid AND empresa_id = $2::uuid FOR UPDATE`,
       [devolucionId, empresaId]
     );
@@ -638,13 +700,31 @@ export async function anularDevolucion(
       );
     }
 
-    // Movimiento de caja inverso.
-    const dif = num(d.diferencia);
+    // Movimiento de caja inverso. Se basa en el movimiento REALMENTE registrado
+    // (puede no haber ido a caja: p.ej. crédito, o reembolso de algo impago), no
+    // en la diferencia. Para devoluciones previas a Fase A (sin caja_movimiento_id
+    // guardado) se cae al comportamiento histórico basado en la diferencia.
     let movInvId: string | null = null;
-    if (dif !== 0 && d.caja_id) {
+    let origTipo: string | null = null;
+    let origMonto = 0;
+    if (d.caja_movimiento_id) {
+      const omQ = await client.query(
+        `SELECT tipo, monto FROM ${tCM} WHERE id = $1::uuid AND empresa_id = $2::uuid LIMIT 1`,
+        [String(d.caja_movimiento_id), empresaId]
+      );
+      if (omQ.rows[0]) {
+        origTipo = String(omQ.rows[0].tipo);
+        origMonto = num(omQ.rows[0].monto);
+      }
+    }
+    if (!origTipo && num(d.diferencia) !== 0 && d.caja_id) {
+      origTipo = num(d.diferencia) > 0 ? "ingreso" : "egreso";
+      origMonto = Math.abs(num(d.diferencia));
+    }
+    if (origTipo && origMonto > 0 && d.caja_id) {
       const cajaDestino = await cajaAbierta(client, schema, empresaId, str(d.caja_id));
       if (cajaDestino) {
-        const tipoInv = dif > 0 ? "egreso" : "ingreso"; // inverso del original
+        const tipoInv = origTipo === "ingreso" ? "egreso" : "ingreso"; // inverso del original
         const insM = await client.query(
           `INSERT INTO ${tCM} (
              empresa_id, caja_id, tipo, concepto, monto, medio_pago, usuario_id,
@@ -653,7 +733,7 @@ export async function anularDevolucion(
            RETURNING id::text`,
           [
             empresaId, cajaDestino, tipoInv, `Anulación de devolución ${numero}`,
-            Math.abs(dif), str(d.metodo_reembolso) ?? "efectivo", usuario.id,
+            origMonto, str(d.metodo_reembolso) ?? "efectivo", usuario.id,
             `Reverso automático de ${numero}`, devolucionId, String(d.venta_id),
           ]
         );
@@ -689,20 +769,28 @@ export async function anularDevolucion(
       [String(d.venta_id), empresaId, estadoVenta]
     );
 
-    // Al confirmar la devolución se le bajó la deuda al cliente; si la
-    // devolución se anula, esa deuda tiene que volver.
+    // Al confirmar la devolución se ajustó la cuenta por cobrar (bajó por lo impago
+    // y/o subió por un cambio a crédito). Al anular se revierte EXACTAMENTE ese
+    // ajuste. Para devoluciones previas a Fase A (cxc_reduccion NULL) se usa el
+    // comportamiento histórico: revertir por total_devuelto.
     const tCxcAnu = quoteSchemaTable(schema, "cuentas_por_cobrar");
-    await client.query(
-      `UPDATE ${tCxcAnu}
-          SET saldo = COALESCE(saldo, 0) + $3::numeric,
-              estado = CASE
-                WHEN COALESCE(saldo, 0) + $3::numeric > 0 AND estado = 'anulado' THEN 'pendiente'
-                ELSE estado
-              END,
-              updated_at = now()
-        WHERE empresa_id = $2::uuid AND venta_id = $1::uuid`,
-      [String(d.venta_id), empresaId, num(d.total_devuelto)]
-    );
+    const reduccionAplicada = d.cxc_reduccion != null ? num(d.cxc_reduccion) : num(d.total_devuelto);
+    const aumentoAplicado = d.cxc_aumento != null ? num(d.cxc_aumento) : 0;
+    if (reduccionAplicada > 0 || aumentoAplicado > 0) {
+      await client.query(
+        `UPDATE ${tCxcAnu}
+            SET saldo = GREATEST(0, COALESCE(saldo, 0) + $3::numeric - $4::numeric),
+                total = GREATEST(0, COALESCE(total, 0) - $4::numeric),
+                estado = CASE
+                  WHEN GREATEST(0, COALESCE(saldo, 0) + $3::numeric - $4::numeric) <= 0 THEN estado
+                  WHEN estado = 'anulado' THEN 'pendiente'
+                  ELSE estado
+                END,
+                updated_at = now()
+          WHERE empresa_id = $2::uuid AND venta_id = $1::uuid`,
+        [String(d.venta_id), empresaId, reduccionAplicada, aumentoAplicado]
+      );
+    }
 
     await client.query("COMMIT");
     const dev = await getDevolucion(schema, empresaId, devolucionId);
