@@ -351,7 +351,7 @@ export async function sugerirProductosDestino(
       const sku = (row.sku_origen ?? "").trim();
       if (!sku) { out[row.id] = null; continue; }
       const m = await c.query(
-        `SELECT id::text, nombre, sku FROM ${tProd}
+        `SELECT id::text AS producto_id, nombre, sku FROM ${tProd}
           WHERE empresa_id = $1::uuid AND UPPER(TRIM(sku)) = UPPER($2) AND activo LIMIT 1`,
         [empresaDestinoId, sku]
       );
