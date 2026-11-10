@@ -38,6 +38,67 @@ function fmtGs(v: number) {
   return `Gs. ${Math.round(v || 0).toLocaleString("es-PY")}`;
 }
 
+type Hit = { id: string; nombre: string; sku: string };
+
+/** Muestra el producto elegido y permite buscar otro del catálogo propio. */
+function BuscadorExistente({ seleccionado, sinSugerencia, onElegir }: {
+  seleccionado: { nombre: string; sku: string } | null;
+  sinSugerencia: boolean;
+  onElegir: (p: Hit) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [hits, setHits] = useState<Hit[]>([]);
+  const [buscando, setBuscando] = useState(false);
+
+  useEffect(() => {
+    const t = q.trim();
+    if (t.length < 2) { setHits([]); return; }
+    let vivo = true;
+    const h = setTimeout(async () => {
+      setBuscando(true);
+      try {
+        const r = await fetchWithSupabaseSession(`/api/productos/search?q=${encodeURIComponent(t)}&limit=8`, { cache: "no-store" });
+        const j = await r.json();
+        if (vivo) setHits((j?.data?.items ?? []) as Hit[]);
+      } catch {
+        if (vivo) setHits([]);
+      } finally {
+        if (vivo) setBuscando(false);
+      }
+    }, 300);
+    return () => { vivo = false; clearTimeout(h); };
+  }, [q]);
+
+  return (
+    <div className="space-y-1">
+      {seleccionado ? (
+        <p className="text-xs text-slate-700">
+          {seleccionado.nombre} <span className="text-slate-400">{seleccionado.sku}</span>
+        </p>
+      ) : (
+        <p className="text-xs text-slate-400">
+          {sinSugerencia ? "No hay un producto con ese código: buscá el producto acá." : "Elegí un producto."}
+        </p>
+      )}
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar producto por nombre o código"
+        className="w-64 rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[#4FAEB2]/30" />
+      {buscando && <p className="text-xs text-slate-400">Buscando…</p>}
+      {hits.length > 0 && (
+        <ul className="max-h-40 w-64 overflow-auto rounded-md border border-slate-200 bg-white text-xs">
+          {hits.map((p) => (
+            <li key={p.id}>
+              <button type="button" onClick={() => { onElegir(p); setQ(""); setHits([]); }}
+                className="block w-full px-2 py-1.5 text-left hover:bg-slate-50">
+                {p.nombre} <span className="text-slate-400">{p.sku}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export default function TransferenciaDetallePage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -218,20 +279,20 @@ export default function TransferenciaDetallePage() {
                           {(["existente", "crear"] as const).map((m) => (
                             <button key={m} type="button"
                               onClick={() => setAsig((p) => ({ ...p, [it.id]: { ...p[it.id], modo: m } }))}
-                              disabled={m === "existente" && !s}
-                              className={`rounded-md px-2 py-1 text-[11px] font-medium ${a?.modo === m ? "bg-[#4FAEB2] text-white" : "border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40"}`}>
+                              className={`rounded-md px-2 py-1 text-[11px] font-medium ${a?.modo === m ? "bg-[#4FAEB2] text-white" : "border border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
                               {m === "existente" ? "Usar existente" : "Crear producto"}
                             </button>
                           ))}
                         </div>
                         {a?.modo === "existente" ? (
-                          s ? (
-                            <p className="text-xs text-slate-700">
-                              {s.nombre} <span className="text-slate-400">{s.sku ?? ""}</span>
-                            </p>
-                          ) : (
-                            <p className="text-xs text-slate-400">No hay ningún producto con ese código acá.</p>
-                          )
+                          <BuscadorExistente
+                            seleccionado={a.producto_id ? { nombre: a.nombre, sku: a.sku } : null}
+                            sinSugerencia={!s}
+                            onElegir={(p) => setAsig((prev) => ({
+                              ...prev,
+                              [it.id]: { ...prev[it.id], modo: "existente", producto_id: p.id, sku: p.sku, nombre: p.nombre },
+                            }))}
+                          />
                         ) : (
                           <div className="flex flex-wrap gap-1.5">
                             <input value={a?.sku ?? ""} placeholder="Código"
